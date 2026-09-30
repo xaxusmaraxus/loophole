@@ -5,6 +5,7 @@ import type { Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
 import type { ToolId } from './run/run';
 import { Hud } from './ui/hud';
+import { savePhoto } from './ui/photo';
 
 const game = new Game();
 const canvas = document.getElementById('park') as HTMLCanvasElement;
@@ -106,6 +107,12 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
   if (!btn) return;
   const action = btn.dataset.action;
+  if (action === 'save-photo') {
+    void savePhoto().then((note) => {
+      if (note) btn.textContent = note;
+    });
+    return;
+  }
   act(() => {
     if (action === 'continue') game.continueFromResults();
     else if (action === 'reward') game.chooseReward(Number(btn.dataset.index));

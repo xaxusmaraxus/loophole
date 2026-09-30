@@ -70,3 +70,37 @@ export async function composeCard(url: string, o: CardInfo): Promise<string> {
   x.restore();
   return c.toDataURL('image/png');
 }
+
+interface DownloadsNs {
+  save(req: { filename: string; data: Blob }): Promise<{ status: string }>;
+}
+
+/**
+ * Saves the photo card. Inside the claude.ai viewer this goes through the
+ * `downloads` capability (the viewer confirms); anywhere else it's a plain
+ * browser download. Returns a short note to show, or null.
+ */
+export async function savePhoto(): Promise<string | null> {
+  const url = photoStore.card ?? photoStore.url;
+  if (!url) return null;
+  const filename = 'loophole-ride-photo.png';
+  const blob = await (await fetch(url)).blob();
+  const host = (window as unknown as { claude?: { use(name: string): Promise<unknown> } }).claude;
+  if (host?.use) {
+    const dl = (await host.use('downloads')) as DownloadsNs | null;
+    if (!dl) return 'Saving isn’t available here.';
+    try {
+      await dl.save({ filename, data: blob });
+      return null;
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      return code === 'declined' ? null : 'Couldn’t save the photo.';
+    }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return null;
+}

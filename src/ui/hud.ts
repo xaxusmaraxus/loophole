@@ -358,7 +358,7 @@ export class Hud {
               : 'The crowd loved it.'
             : `The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
         }</p>
-        ${photo ? `<figure class="photo-card"><img src="${photo}" alt="On-ride photo of the riders"></figure><a class="ghost-dark save-photo" href="${photo}" download="loophole-ride-photo.png">Save the photo</a>` : ''}
+        ${photo ? `<figure class="photo-card"><img src="${photo}" alt="On-ride photo of the riders"></figure><button type="button" class="ghost-dark save-photo" data-action="save-photo">Save the photo</button>` : ''}
         <details class="breakdown"><summary>Breakdown</summary>
           <ul class="tally">${steps}<li class="tally-row rating"><span>Every puke pays</span><strong>${r.score.rating.toLocaleString()}</strong></li></ul>
           ${riders ? `<ul class="report">${riders}</ul>` : ''}
