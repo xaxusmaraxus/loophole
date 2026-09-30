@@ -72,10 +72,13 @@ interface Snapshot {
 
 const HEARTS = 3;
 const BEST_KEY = 'loophole.bestScore';
-/** A walk-in rider arrives every this many actions. */
+/** A walk-in rider arrives every this many swipes. */
 const WALKIN_EVERY = 5;
-/** Every time Excitement passes another multiple of this, word gets around. */
-const BUZZ_STEP = 12;
+/**
+ * The standing ride draws a crowd over time: each swipe adds excitement / BUZZ_PER
+ * to a meter, and every full point brings a rider. Building early pays off in riders.
+ */
+const BUZZ_PER = 80;
 
 export class Game {
   seed = '';
@@ -230,8 +233,7 @@ export class Game {
     const laid = build(this.board, end, x, y)!;
     this.selected = end;
     this.events.push({ type: 'build', laid, end });
-    this.checkBuzz();
-    this.tick();
+    // Building is free: only swipes spend daylight.
   }
 
   selectEnd(end?: End): void {
@@ -246,19 +248,16 @@ export class Game {
     this.events.push({ type: 'arrive', rider, reason });
   }
 
-  /** A wilder ride draws more people. */
-  private checkBuzz(): void {
-    const level = Math.floor(this.stats.excitement / BUZZ_STEP);
-    while (this.buzz < level) {
-      this.buzz++;
-      this.arrive('buzz');
-    }
-  }
-
+  /** One swipe's worth of daylight passes. */
   private tick(): void {
     this.actions++;
     this.daylight--;
     if (this.actions % WALKIN_EVERY === 0) this.arrive('walkin');
+    this.buzz += this.stats.excitement / BUZZ_PER;
+    while (this.buzz >= 1) {
+      this.buzz -= 1;
+      this.arrive('buzz');
+    }
     if (this.daylight <= 0) {
       // Dusk: open whatever we have. Nothing built means nothing to ride.
       const kind = this.openKind;

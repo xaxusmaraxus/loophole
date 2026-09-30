@@ -62,9 +62,9 @@ Layer in physics: the lift hill gives the train energy, and each element spends 
 ## Core loop (v0.3)
 v0.1 tied track-laying to every swipe, which left 3 choices at most and punished long rides through rider patience. v0.3 splits the actions and flips the incentives.
 
-**Two actions, both spend one unit of daylight:**
+**Two actions; only swiping spends daylight:**
 - **Swipe:** pure 2048. Slide, merge, chain. A swipe that moves nothing is refused and costs nothing.
-- **Build:** tap a highlighted cell next to a track end. The tile there becomes that piece (empty cell = Flat).
+- **Build (free):** tap a highlighted cell next to a track end. The tile there becomes that piece (empty cell = Flat).
 
 **Two track ends.** The track grows out of both sides of the station (red and blue pennants). When the pennants are next to each other, the full circuit can open. Before that, you can cash out any time as a **shuttle** (out and back) at half excitement.
 
@@ -73,12 +73,12 @@ v0.1 tied track-laying to every swipe, which left 3 choices at most and punished
 **Rewards, not punishments:**
 - **Excitement** = (thrill + length) × (1 + 10% per distinct piece type past the first). Every rider pays it as a ticket.
 - A rider whose wish is met pays double. A rider who gets sick asks for half back.
-- The crowd grows as you build. A walk-in arrives every 5 actions, one more every 12 excitement ("word gets around"), and one per chain link. Nobody leaves.
+- The crowd grows over the day. A walk-in arrives every 5 swipes, and each swipe the ride that's already standing draws excitement/80 riders ("word gets around"). So building early pays off even though building is free. Chain links draw one rider each. Nobody leaves.
 - Each day has a ticket target. Miss it and the park loses a heart.
 
 **Risk/reward now lives in:** spending daylight on merges vs. building, closing the loop vs. banking a shuttle, and routing the two ends so they can still meet (plus trapping good tiles behind track).
 
-Targets were set from a simple bot (median about 330 tickets on day 1, about 430 later, closing the full circuit only a third of the time). Day targets: 250, 320, 420, 520, 620, 720, 820, then +120 a day.
+Targets were set from a simple bot (median about 330 tickets on day 1, about 430 later, closing the full circuit only a third of the time). Daylight is 40 swipes (5x5 days) and 48 (6x6). Day targets: 230, 300, 400, 500, 600, 700, 800, then +120 a day.
 
 ## Cascades (v0.2)
 The v0.1 board drained: the track eats a tile each swipe and only one spawned, so merges rarely snowballed. Now:

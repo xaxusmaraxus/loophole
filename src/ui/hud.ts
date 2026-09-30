@@ -26,7 +26,7 @@ export class Hud {
     const frac = Math.max(0, g.daylight / g.cfg.daylight);
     $('daylightBar').style.width = `${frac * 100}%`;
     $('daylightBar').classList.toggle('dusk', frac < 0.3);
-    $('daylightLeft').textContent = `${g.daylight} action${g.daylight === 1 ? '' : 's'} of daylight left`;
+    $('daylightLeft').textContent = `${g.daylight} swipe${g.daylight === 1 ? '' : 's'} of daylight left`;
 
     // Ride stats.
     const s = g.stats;

@@ -18,7 +18,7 @@ export interface PerkDef {
 }
 
 export const PERKS: Record<PerkId, PerkDef> = {
-  latenight: { name: 'Late Closing', desc: '5 more actions of daylight every day.' },
+  latenight: { name: 'Late Closing', desc: '5 more swipes of daylight every day.' },
   lumber: { name: 'Better Lumber', desc: 'New tiles are Hills more often.' },
   wrench: { name: 'Spare Wrench', desc: '+1 undo every day.' },
   hype: { name: 'Hype Guy', desc: 'Rides count +25% thrill.' },
@@ -68,7 +68,7 @@ export interface DayConfig {
   obstacles: number;
   /** Tickets to sell today. */
   target: number;
-  /** Actions (swipes and builds) before the park closes. */
+  /** Swipes before the park closes. Building is free. */
   daylight: number;
   startRiders: number;
   maxQueue: number;
@@ -80,14 +80,14 @@ export function dayConfig(day: number, mods: Mods): DayConfig {
     size: day <= 2 ? 5 : 6,
     obstacles: Math.max(0, Math.min(day + 1, 7) + mods.obstacleDelta),
     target: TARGETS[Math.min(day, TARGETS.length) - 1] + Math.max(0, day - TARGETS.length) * 120,
-    daylight: (day <= 2 ? 30 : 36) + mods.daylightBonus,
+    daylight: (day <= 2 ? 40 : 48) + mods.daylightBonus,
     startRiders: 3 + mods.extraRiders,
     maxQueue: 10,
   };
 }
 
 // Calibrated against a simple bot (see docs/concepts.md); a player should beat these.
-const TARGETS = [250, 320, 420, 520, 620, 720, 820];
+const TARGETS = [230, 300, 400, 500, 600, 700, 800];
 
 const OBSTACLES: ObstacleKind[] = ['tree', 'tree', 'tree', 'rock', 'pond', 'stand'];
 
