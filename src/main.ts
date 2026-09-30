@@ -1,4 +1,5 @@
 import './style.css';
+import { music } from './core/music';
 import { sfx } from './core/sfx';
 import { Game } from './game';
 import type { Dir } from './puzzle/board';
@@ -9,14 +10,25 @@ import { savePhoto } from './ui/photo';
 import { lastRecord, nameLocal, postScore, setPlayerName } from './ui/scores';
 import { copyShare, shareNative } from './ui/share';
 import { openScores } from './ui/scoreboard';
+import { driveToken } from './ui/map';
+
+let mapBusy = false;
+import type { SpecialId } from './puzzle/pieces';
+import { UNLOCKS, type UnlockId } from './run/unlocks';
+import { loadRecord, openUnlocks, saveRecord, toast } from './ui/unlocks';
 
 const game = new Game();
+// Unlocks carry over between seasons: load the record, then start the season with its kit.
+game.record = loadRecord();
+game.newRun(game.seed);
 const canvas = document.getElementById('park') as HTMLCanvasElement;
 const renderer = new Renderer(canvas, game);
 const hud = new Hud(game);
 
 function act(fn: () => void): void {
   fn();
+  saveRecord(game.record);
+  syncMusic();
   hud.update();
   // The score show stays up through the results, then clears.
   if (renderer.show.active && game.phase !== 'ride' && game.phase !== 'results') renderer.show.end();
@@ -26,6 +38,18 @@ function act(fn: () => void): void {
 Object.assign(window, { loophole: game, loopholeRenderer: renderer, loopholeHud: hud });
 
 renderer.onRideDone = () => act(() => game.rideDone());
+renderer.onUnlock = (id) => toast(`Unlocked: ${UNLOCKS[id as UnlockId].name}`, UNLOCKS[id as UnlockId].desc);
+document.getElementById('unlocksHelp')!.addEventListener('click', () => {
+  (document.getElementById('helpDialog') as HTMLDialogElement).close();
+  document.getElementById('unlocks')!.click();
+});
+document.getElementById('unlocks')!.addEventListener('click', () =>
+  openUnlocks(game.record, (style) => {
+    game.record.station = style;
+    saveRecord(game.record);
+    renderer.restyleStation();
+  }),
+);
 
 const KEYS: Record<string, Dir> = {
   ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
@@ -54,9 +78,10 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key === 'Escape' && game.aiming) {
     act(() => (game.aiming = null));
   } else if (/^[1-5]$/.test(e.key) && game.phase === 'build') {
-    const owned = document.querySelectorAll<HTMLButtonElement>('#tools [data-tool]');
+    const owned = document.querySelectorAll<HTMLButtonElement>('#tools [data-tool], #tools [data-special]');
     const btn = owned[Number(e.key) - 1];
-    if (btn) act(() => game.useTool(btn.dataset.tool as ToolId));
+    if (btn?.dataset.special) act(() => game.useSpecial(btn.dataset.special as SpecialId));
+    else if (btn) act(() => game.useTool(btn.dataset.tool as ToolId));
   } else if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') {
     act(() => game.undo());
   }
@@ -136,8 +161,9 @@ document.querySelectorAll<HTMLButtonElement>('[data-dir]').forEach((b) =>
 );
 document.getElementById('open')!.addEventListener('click', () => act(() => game.open()));
 document.getElementById('tools')!.addEventListener('click', (e) => {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tool]');
-  if (btn) act(() => game.useTool(btn.dataset.tool as ToolId));
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tool], [data-special]');
+  if (btn?.dataset.special) act(() => game.useSpecial(btn.dataset.special as SpecialId));
+  else if (btn) act(() => game.useTool(btn.dataset.tool as ToolId));
 });
 document.getElementById('attractions')!.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
@@ -165,6 +191,19 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
   if (!btn) return;
   const action = btn.dataset.action;
+  if (action === 'node') {
+    // The car drives to the picked stop first.
+    if (mapBusy) return;
+    mapBusy = true;
+    const col = Number(btn.dataset.col);
+    const node = Number(btn.dataset.node);
+    sfx.whistle();
+    void driveToken(col, node).then(() => {
+      mapBusy = false;
+      act(() => game.chooseNode(col, node));
+    });
+    return;
+  }
   if (action === 'share') {
     void shareNative().then((note) => {
       if (note) btn.textContent = note;
@@ -185,7 +224,6 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
     if (action === 'continue') game.continueFromResults();
     else if (action === 'reward') game.chooseReward(Number(btn.dataset.index));
     else if (action === 'begin') game.beginPark();
-    else if (action === 'node') game.chooseNode(Number(btn.dataset.col), Number(btn.dataset.node));
     else if (action === 'skip') game.skipReward();
     else if (action === 'crack') {
       game.crackEgg();
@@ -262,6 +300,31 @@ document.addEventListener('fullscreenchange', () => {
   fsBtn.setAttribute('aria-label', fsBtn.title);
   requestAnimationFrame(() => renderer.fit());
 });
+
+// Music: starts on the first key press or tap (browsers need a gesture), then follows the game.
+let lastPhase = '';
+function syncMusic(): void {
+  const p = game.phase;
+  music.setPark(game.cfg.park.id);
+  music.setMode(p === 'intro' ? 'menu' : p === 'build' ? 'build' : p === 'ride' ? 'ride' : p === 'results' || p === 'over' || p === 'won' ? 'results' : 'map');
+  if (p === 'results' && lastPhase !== 'results' && game.result && !game.result.passed) music.stinger('lose');
+  lastPhase = p;
+}
+const startMusic = () => music.start();
+window.addEventListener('pointerdown', startMusic, { once: true });
+window.addEventListener('keydown', startMusic, { once: true });
+syncMusic();
+const musicBtn = document.getElementById('music') as HTMLButtonElement;
+const syncMusicBtn = () => {
+  musicBtn.setAttribute('aria-pressed', String(!music.isMuted()));
+  musicBtn.title = music.isMuted() ? 'Music off' : 'Music on';
+};
+musicBtn.addEventListener('click', () => {
+  music.setMuted(!music.isMuted());
+  if (!music.isMuted()) music.start();
+  syncMusicBtn();
+});
+syncMusicBtn();
 
 // How to play.
 const help = document.getElementById('helpDialog') as HTMLDialogElement;

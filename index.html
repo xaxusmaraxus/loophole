@@ -33,7 +33,9 @@
         <div class="hud-right">
           <span id="funds" class="pill funds" title="Tickets sold beyond each day's target. Spend them in the shop at the end of each park."></span>
           <button id="scores" class="icon-btn" type="button" title="Highscores" aria-label="Highscores"><span aria-hidden="true">🏆</span></button>
+          <button id="unlocks" class="icon-btn" type="button" title="Unlocks" aria-label="Unlocks"><span aria-hidden="true">🎁</span></button>
           <button id="help" class="icon-btn" type="button" title="How to play" aria-label="How to play"><span aria-hidden="true">?</span></button>
+          <button id="music" class="icon-btn" type="button" aria-pressed="true" title="Music" aria-label="Music"><span aria-hidden="true">🎵</span></button>
           <button id="sound" class="icon-btn" type="button" aria-pressed="true" title="Sound" aria-label="Sound"><span aria-hidden="true">🔊</span></button>
           <button id="fullscreen" class="icon-btn" type="button" title="Full screen" aria-label="Full screen"><span aria-hidden="true">⛶</span></button>
           <button id="newRun" class="icon-btn text" type="button" title="Start a new season">New season</button>
@@ -112,6 +114,7 @@
           </ol>
           <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
           <div class="help-actions">
+            <button type="button" class="ghost-dark" id="unlocksHelp">Unlocks</button>
             <button type="button" class="ghost-dark" id="newRunHelp">Start a new season</button>
             <button type="button" class="primary" data-close>Got it</button>
           </div>

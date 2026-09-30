@@ -149,6 +149,8 @@ export class RideAnim {
   private park: number;
   private lastT = 0;
   private seated: boolean[] = [];
+  private boostUntil = 0;
+  private brakeUntil = 0;
   private rolling = false;
   private clack = 0;
 
@@ -201,6 +203,9 @@ export class RideAnim {
       h /= this.cars;
       const lead = this.path.sample(this.carS(0));
       let v = 0.6 + 1.4 * Math.sqrt(Math.max(0, this.hRef - h));
+      // A Launch fires the train; a Brake Run nearly stops it, then lets go.
+      if (now < this.boostUntil) v = Math.max(v, 3.4);
+      if (now < this.brakeUntil) v = Math.min(v, 0.12);
       if (lead.lift) {
         v = Math.min(v, 0.52);
         // The chain clacks under the train on the way up.
@@ -212,7 +217,7 @@ export class RideAnim {
       }
       v *= Math.min(1, 0.2 + ((now - this.startAt) / 1000) * 1.4);
       v = Math.min(v, 0.3 + this.route.toTurn(this.d) * 2.4);
-      this.v += (v - this.v) * Math.min(1, dt * 6);
+      this.v += (v - this.v) * Math.min(1, dt * (now < this.boostUntil ? 9 : now < this.brakeUntil ? 16 : 6));
       this.d += this.v * dt;
       // The on-ride camera fires as the train rolls into the wildest piece.
       // Snap on the level run just before it, while everyone's still facing the camera.
@@ -461,7 +466,25 @@ export class RideAnim {
 
   private enterCell(i: number, stop: number): void {
     const v = this.result.tickets[i];
-    const tier = this.stops[stop].tier;
+    const st = this.stops[stop];
+    const tier = st.tier;
+    // Special pieces: a whoosh, a splash, a screech of sparks.
+    if (st.special === 'launch' && i === 0) {
+      this.boostUntil = this.r.gameNow + 1100;
+      sfx.launch();
+      this.r.kick(3, 300);
+      this.r.word('LAUNCH!', this.heads[0].clone().setY(this.heads[0].y + 0.4), '#7ff2ff', 1.2);
+    }
+    if (st.special === 'brakes' && i === 0) {
+      this.brakeUntil = this.r.gameNow + 650;
+      sfx.brakes();
+      this.r.kick(4, 350);
+    }
+    if (st.special === 'brakes') this.r.sparkBurst(this.heads[i].clone().setY(this.heads[i].y - 0.2), 8);
+    if (st.special === 'splash') {
+      this.r.splash(this.heads[i].clone().setY(this.heads[i].y - 0.15));
+      if (i === 0) sfx.splash();
+    }
     if (!v) return;
     if (tier >= 3) {
       this.scream[i] = 0.9;

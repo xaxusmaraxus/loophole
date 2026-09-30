@@ -25,6 +25,22 @@ function audio(): AudioContext | null {
   return ac;
 }
 
+/**
+ * The one shared AudioContext, for the music engine. Unlike audio() it ignores
+ * the sfx mute (music has its own), so both always play through one context.
+ */
+export function sharedAudio(): AudioContext | null {
+  if (!ac) {
+    try {
+      ac = new AudioContext();
+    } catch {
+      return null;
+    }
+  }
+  if (ac.state === 'suspended') void ac.resume();
+  return ac;
+}
+
 function tone(freq: number, dur: number, type: OscillatorType, vol: number, when = 0, slideTo?: number): void {
   const a = audio();
   if (!a) return;
@@ -191,6 +207,21 @@ export const sfx = {
   bell() {
     tone(1318, 0.5, 'triangle', 0.07);
     tone(1318, 0.5, 'triangle', 0.06, 0.16);
+  },
+  /** A Launch fires: a rising electric whoosh. */
+  launch() {
+    tone(180, 0.5, 'sawtooth', 0.05, 0, 1400);
+    noise(0.45, 0.06, 0, 600, 5000);
+  },
+  /** A Brake Run: a screech. */
+  brakes() {
+    tone(2200, 0.35, 'square', 0.025, 0, 1500);
+    noise(0.3, 0.05, 0, 4000, 1500, 6);
+  },
+  /** A Water Splash. */
+  splash() {
+    noise(0.5, 0.12, 0, 3000, 300, 0.7);
+    tone(520, 0.12, 'sine', 0.04, 0.02, 220);
   },
   isMuted: () => muted,
   setMuted(m: boolean) {

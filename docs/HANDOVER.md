@@ -6,7 +6,7 @@ Everything needed to pick the project up in a new session. Read this first, then
 A merge puzzle roguelike where the goal is to make theme park guests **puke**. On a 5–7 cell plot you **swipe** tiles 2048-style: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop. A fresh merge grabs a matching neighbor and **chains**. You **tap** a highlighted cell to **build** track from a two-cell **station platform below the board**. The red end climbs in from the left platform cell, the blue end from the right. Connect the ends and open the ride, or cash out any time as a half-price **shuttle** that passes every piece twice. Swipes cost daylight; building is free, and after sunset you can still build and open. Every rider pukes each time the ride's nausea passes their **stomach** (up to 5 times), and every puke pays **excitement × multiplier** (Balatro's chips × mult). **Attractions** (the jokers, 5 slots, applied left to right) push the multiplier. A **season** is three parks (Meadow → Sunny Boardwalk with sand → Haunted Hollow with mud and fog) on a Slay-the-Spire-style **route map**, each ending with a **boss rider** who must puke. Then comes **The Grand Opening** against the Mayor. The **capsule machine** sells eggs (our packs): Golden (attractions), Bus Tour (a rider type joins your line every morning), Snack (tools).
 
 ## Where things are
-- **Repo:** `xaxusmaraxus/loophole`. All the work is on the branch **`claude/playable-prototype`**; `main` only has the first scaffold. Merge it into `main` when you're happy (no PR has been opened).
+- **Repo:** `xaxusmaraxus/loophole`. The latest work is on **`claude/visual-overhaul`** (branched from `claude/playable-prototype`); `main` only has the first scaffold. Merge into `main` when you're happy (no PR has been opened).
 - **Playable build (private):** https://claude.ai/artifact/4rGPoEjpKaMQVwXhZYPNpW. It's published from a single-file bundle (see Commands). Republish to that same URL so the link stays the same.
 - **Godot style test:** `godot/`, with renders in `docs/style-test/`.
 - **Design notes and history:** `docs/concepts.md`, including a roadmap of ideas the user liked and wants kept.
@@ -16,7 +16,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 | What | How |
 | --- | --- |
 | Web prototype | `npm install`, `npm run dev` |
-| Tests (35, Vitest) | `npm test` |
+| Tests (51, Vitest) | `npm test` |
 | Typecheck and build | `npx tsc --noEmit -p .`, `npm run build` |
 | Balance simulation | `npx vite-node tools/season-bot.ts`: 200 seeded seasons, score percentiles per day vs. targets |
 | Single-file build for the artifact | `npm run build && python3 tools/bundle-artifact.py out/loophole.html`, then publish to the URL above |
@@ -45,7 +45,9 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 ## Current state and known gaps
 - **Balance has never been played by a human.** The bot (a floor, since it never builds for bosses) reaches day 7 at the median, fails about 75% of boss days, and wins about 1% of seasons. The user asked for bosses to be "superhard". Tune after real play: boss stomachs in `riders.ts` (BOSSES), and `BASE_TARGET`/`TARGET_GROWTH` in `run.ts`.
 - **Godot style test:** procedural placeholders with drop-in hooks for `godot/assets/models/<name>.glb`. The recommended camera is the gameplay isometric view (`docs/style-test/03_play_iso_day.png`). Swipes there still need mapping to the board's diagonals, which isn't built yet.
-- **Not built yet:** the energy budget (step 2 from the original design), the on-ride photo, guest thought bubbles, the Blueprint Egg and special pieces, the daily seed, music, and meta-progression. All are listed in the roadmap in `docs/concepts.md`.
+- **Built since the first handover (see `docs/concepts.md` v0.7–v0.18):** the claymation look, the on-ride photo with sharing, highscores (device + shared board through the artifact's db), a full-screen HUD, guests with personalities and hover cards, hills and high stations, the painted route map, park structures for what you buy, crossings (bridges and tunnels), Boardwalk piers, Hollow ghosts, special pieces (Launch, Water Splash, Brake Run), unlocks across seasons, guest thoughts, and chiptune music.
+- **Not built yet:** the energy budget (Mountain park), Space Park, the daily seed, contracts, board modifiers, unlockable riders and attractions, and the rival park (saved for multiplayer). All are in the roadmap in `docs/concepts.md`.
+- **Balance after v0.18** (`tools/season-bot.ts`, 200 seasons): median run reaches day 8, 5 wins, boss days fail 402 of 514. Crossings and piers made the season a touch easier than before (median day 7, ~1% wins).
 - **Nothing is blocked.**
 
 ## Suggested next steps

@@ -26,15 +26,20 @@ export const CRATE_H = 0.3;
 export const CRATE_W = 0.8;
 
 // ---- Crates -------------------------------------------------------------------
+//
+// Merge tiles are soft clay plinths: a pillowy body of stacked rolls around a
+// rounded square, a raised rim framing a recessed lid, tier pips on the front,
+// and a chunky little clay model of the coaster element standing on the lid.
+// Higher tiers build up: a wider foot, belts, gold trim (Loop on), corner
+// studs, gems (Corkscrew) and pearl, rubies and a crown (Mega Loop).
 
-/** Icon strokes on a crate top: a polyline tube. */
-function icon(g: Geo, pts: Vector3[], color: Col, r = 0.026, closed = false): void {
-  g.pipe(pts, r, color, 7, closed);
-  if (!closed) {
-    g.sphere(pts[0], r, color, 1, 1, 1, 7, 4, true);
-    g.sphere(pts[pts.length - 1], r, color, 1, 1, 1, 7, 4, true);
-  }
-}
+type Ramp4 = readonly [string, string, string, string];
+const GOLD: Ramp4 = ['#fff1a8', '#ffc93a', '#e0932a', '#9a5a1c'];
+const PEARL: Ramp4 = ['#ffffff', '#fff8ec', '#eadcc4', '#b8a58a'];
+const RUBY = '#ff3f6e';
+const AQUA = '#4fe0e8';
+const HW = CRATE_W / 2;
+const CORNER_R = 0.15;
 
 function arc(n: number, f: (t: number) => Vector3): Vector3[] {
   const out: Vector3[] = [];
@@ -42,104 +47,445 @@ function arc(n: number, f: (t: number) => Vector3): Vector3[] {
   return out;
 }
 
-function star(g: Geo, c: Vector3, r: number, color: Col, depth = 0.04): void {
+/** Catmull-Rom through control points, `per` samples per span. */
+function spline(ctrl: Vector3[], per: number): Vector3[] {
+  const out: Vector3[] = [];
+  const P = (i: number) => ctrl[Math.max(0, Math.min(ctrl.length - 1, i))];
+  for (let s = 0; s < ctrl.length - 1; s++)
+    for (let k = 0; k < per; k++) {
+      const t = k / per;
+      const [p0, p1, p2, p3] = [P(s - 1), P(s), P(s + 1), P(s + 2)];
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const f = (a: number, b: number, c: number, d: number) =>
+        0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+      out.push(v3(f(p0.x, p1.x, p2.x, p3.x), f(p0.y, p1.y, p2.y, p3.y), f(p0.z, p1.z, p2.z, p3.z)));
+    }
+  out.push(ctrl[ctrl.length - 1].clone());
+  return out;
+}
+
+/** A flat n-pointed star (or sparkle) facing +Z, extruded by depth. */
+function star(g: Geo, c: Vector3, r: number, color: Col, depth = 0.04, points = 5, inner = 0.45): void {
+  const n = points * 2;
   const outer: Vector3[] = [];
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2 - Math.PI / 2;
-    const rr = i % 2 ? r * 0.45 : r;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 - Math.PI / 2;
+    const rr = i % 2 ? r * inner : r;
     outer.push(v3(Math.cos(a) * rr, -Math.sin(a) * rr, 0));
   }
   const f = outer.map((p) => p.clone().add(c).setZ(c.z + depth / 2));
   const b = outer.map((p) => p.clone().add(c).setZ(c.z - depth / 2));
-  const cf = c.clone().setZ(c.z + depth / 2);
+  const cf = c.clone().setZ(c.z + depth * 0.9);
   const cb = c.clone().setZ(c.z - depth / 2);
-  for (let i = 0; i < 10; i++) {
-    const j = (i + 1) % 10;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
     g.tri(cf, f[i], f[j], color, cb.clone().setZ(c.z - 1));
     g.tri(cb, b[i], b[j], shade(color, -0.1), cf.clone().setZ(c.z + 1));
     g.quad(f[i], f[j], b[j], b[i], shade(color, -0.05), c);
   }
 }
 
+/** A faceted clay gem (a stretched octahedron) — the crease keeps its facets. */
+function gem(g: Geo, c: Vector3, r: number, color: Col): void {
+  g.sphere(c, r, color, 1, 1.25, 1, 4, 2, false);
+  g.sphere(c.clone().add(v3(-r * 0.25, r * 0.45, r * 0.3)), r * 0.22, shade(color, 0.7), 1, 1, 1, 4, 2);
+}
+
+// Tile body: a profile of (inset, y) points swept around a rounded square.
+interface PP {
+  i: number;
+  y: number;
+  c: Col;
+}
+
+/** Ring around the rounded square, shrunk by `inset`; points and outward directions. */
+function ring(inset: number, y: number, n: number): { p: Vector3[]; d: Vector3[] } {
+  const rad = Math.max(CORNER_R - inset, 0.012);
+  const c = HW - inset - rad;
+  const p: Vector3[] = [];
+  const d: Vector3[] = [];
+  const corners = [
+    [1, 1],
+    [-1, 1],
+    [-1, -1],
+    [1, -1],
+  ];
+  for (let q = 0; q < 4; q++) {
+    const [sx, sz] = corners[q];
+    for (let k = 0; k <= n; k++) {
+      const a = ((q + k / n) * Math.PI) / 2;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      p.push(v3(sx * c + dx * rad, y, sz * c + dz * rad));
+      d.push(v3(dx, 0, dz));
+    }
+  }
+  return { p, d };
+}
+
+function lathe(g: Geo, prof: PP[], cap: Col, n = 5): void {
+  const rings = prof.map((pp) => ring(pp.i, pp.y, n));
+  const N = rings[0].p.length;
+  const up = v3(0, 1, 0);
+  for (let s = 0; s < prof.length - 1; s++) {
+    const a = rings[s];
+    const b = rings[s + 1];
+    const nr = prof[s + 1].y - prof[s].y;
+    const ny = prof[s + 1].i - prof[s].i;
+    if (Math.abs(nr) + Math.abs(ny) < 1e-6) continue;
+    const nrm = (k: number) => a.d[k].clone().multiplyScalar(nr).addScaledVector(up, ny).normalize();
+    for (let k = 0; k < N; k++) {
+      const k2 = (k + 1) % N;
+      const n1 = nrm(k);
+      const n2 = nrm(k2);
+      g.triSmooth(a.p[k], a.p[k2], b.p[k2], n1, n2, n2, prof[s].c);
+      g.triSmooth(a.p[k], b.p[k2], b.p[k], n1, n2, n1, prof[s].c);
+    }
+  }
+  const last = rings[rings.length - 1].p;
+  const y = prof[prof.length - 1].y;
+  const c = v3(0, y, 0);
+  const below = v3(0, y - 1, 0);
+  for (let k = 0; k < N; k++) g.tri(c, last[k], last[(k + 1) % N], cap, below);
+}
+
+class Profile {
+  pts: PP[] = [];
+  private push(i: number, y: number, c: Col): void {
+    const l = this.pts[this.pts.length - 1];
+    if (l && Math.abs(l.i - i) < 1e-5 && Math.abs(l.y - y) < 1e-5) {
+      l.c = c;
+      return;
+    }
+    this.pts.push({ i, y, c });
+  }
+  /** A pillowy band from y0 to y1: `inset` at its fattest, `bulge` more at the seams. */
+  roll(y0: number, y1: number, inset: number, bulge: number, c: Col, steps = 6): this {
+    for (let s = 0; s <= steps; s++) {
+      const u = s / steps;
+      this.push(inset + bulge * (1 - Math.sin(Math.PI * u)), y0 + ((y1 - y0) * (1 - Math.cos(Math.PI * u))) / 2, c);
+    }
+    return this;
+  }
+  /** The raised lid rim: a half torus (tube center inset iC, radius rr) down to the lid. */
+  rim(iC: number, rr: number, c: Col, field: Col): this {
+    const yc = CRATE_H + 0.006;
+    for (let s = 0; s <= 9; s++) {
+      const a = (-70 + (250 * s) / 9) * (Math.PI / 180);
+      this.push(iC - rr * Math.cos(a), yc + rr * Math.sin(a), c);
+    }
+    // The lid itself: a very soft cushion dome inside the rim.
+    this.push(iC + rr + 0.006, CRATE_H, field);
+    this.push(iC + rr + 0.05, CRATE_H + 0.007, field);
+    this.push(0.24, CRATE_H + 0.011, field);
+    return this;
+  }
+  /** The profile's inset at height y (for things stuck on the sides). */
+  insetAt(y: number): number {
+    const p = this.pts;
+    for (let k = 0; k < p.length - 1; k++)
+      if (p[k].y <= y && p[k + 1].y >= y && p[k + 1].y > p[k].y) return p[k].i + ((p[k + 1].i - p[k].i) * (y - p[k].y)) / (p[k + 1].y - p[k].y);
+    return 0;
+  }
+}
+
+/** Rim corner point (for studs), at the top of a rim of center inset iC, radius rr. */
+function rimCorners(iC: number, rr: number): Vector3[] {
+  const rad = Math.max(CORNER_R - iC, 0.012);
+  const c = HW - iC - rad + rad * Math.SQRT1_2;
+  const y = CRATE_H + 0.006 + rr;
+  return [v3(c, y, c), v3(-c, y, c), v3(-c, y, -c), v3(c, y, -c)];
+}
+
+/** Tier pips: little pressed clay dots across the front face at height y. */
+function pips(g: Geo, prof: Profile, n: number, y: number, color: Col): void {
+  const z = HW - prof.insetAt(y);
+  const sp = n > 5 ? 0.07 : 0.078;
+  for (let k = 0; k < n; k++) {
+    const x = (k - (n - 1) / 2) * sp;
+    g.sphere(v3(x, y, z - 0.004), 0.025, color, 1, 1, 0.55, 8, 5, true);
+  }
+}
+
+// Track models: a chunky clay ribbon with two rails, following a path with an
+// "up" hint per point (toward the loop center, into the corkscrew, and so on).
+
+interface Frames {
+  t: Vector3[];
+  l: Vector3[];
+  u: Vector3[];
+}
+
+function frames(pts: Vector3[], upHint: (i: number) => Vector3): Frames {
+  const t: Vector3[] = [];
+  const l: Vector3[] = [];
+  const u: Vector3[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(pts.length - 1, i + 1)];
+    const tt = b.clone().sub(a).normalize();
+    const h = upHint(i);
+    const uu = h.clone().addScaledVector(tt, -h.dot(tt)).normalize();
+    t.push(tt);
+    u.push(uu);
+    l.push(tt.clone().cross(uu).normalize());
+  }
+  return { t, l, u };
+}
+
+const RIB_W = 0.058;
+const RIB_T = 0.025;
+
+function track(g: Geo, pts: Vector3[], upHint: (i: number) => Vector3, ribbon: Col, rail: Col): Frames {
+  const F = frames(pts, upHint);
+  const sides = 10;
+  const rings: Vector3[][] = [];
+  const nrms: Vector3[][] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const ring: Vector3[] = [];
+    const nr: Vector3[] = [];
+    for (let k = 0; k < sides; k++) {
+      const a = (Math.PI * 2 * k) / sides;
+      const c = Math.cos(a);
+      const s = Math.sin(a);
+      ring.push(pts[i].clone().addScaledVector(F.l[i], c * RIB_W).addScaledVector(F.u[i], s * RIB_T));
+      nr.push(F.l[i].clone().multiplyScalar(c / RIB_W).addScaledVector(F.u[i], s / RIB_T).normalize());
+    }
+    rings.push(ring);
+    nrms.push(nr);
+  }
+  for (let i = 0; i < pts.length - 1; i++)
+    for (let k = 0; k < sides; k++) {
+      const k2 = (k + 1) % sides;
+      g.triSmooth(rings[i][k], rings[i][k2], rings[i + 1][k2], nrms[i][k], nrms[i][k2], nrms[i + 1][k2], ribbon);
+      g.triSmooth(rings[i][k], rings[i + 1][k2], rings[i + 1][k], nrms[i][k], nrms[i + 1][k2], nrms[i + 1][k], ribbon);
+    }
+  // Rounded ends.
+  for (const i of [0, pts.length - 1]) {
+    const m = new Matrix4().makeBasis(F.l[i], F.u[i], F.t[i]);
+    g.sphere(pts[i], 1, ribbon, RIB_W, RIB_T, RIB_T * 1.4, 10, 5, true, m);
+  }
+  // Rails riding on the ribbon's edges.
+  for (const side of [-1, 1]) {
+    const rp = pts.map((p, i) => p.clone().addScaledVector(F.l[i], side * RIB_W * 0.72).addScaledVector(F.u[i], RIB_T * 0.85));
+    g.pipe(rp, 0.014, rail, 6);
+    g.sphere(rp[0], 0.014, rail, 1, 1, 1, 6, 3, true);
+    g.sphere(rp[rp.length - 1], 0.014, rail, 1, 1, 1, 6, 3, true);
+  }
+  return F;
+}
+
+/** Stubby clay supports from the lid up to the ribbon at the given path indices. */
+function supports(g: Geo, pts: Vector3[], at: number[], color: Col): void {
+  for (const i of at) {
+    const p = pts[i];
+    const h = p.y - RIB_T * 0.6 - CRATE_H;
+    if (h < 0.01) continue;
+    g.post(p.x, CRATE_H, p.z, 0.02, h, color, 8);
+    g.sphere(v3(p.x, CRATE_H + 0.004, p.z), 0.032, color, 1, 0.35, 1, 8, 3, true);
+  }
+}
+
+const UP = () => v3(0, 1, 0);
+
+/** A loop with run-in and run-out, offset sideways so the lanes clear each other. */
+function loopPath(R: number, y0: number, lead: number): { pts: Vector3[]; hint: (i: number) => Vector3; c: Vector3 } {
+  const pts: Vector3[] = [];
+  const hints: Vector3[] = [];
+  const zs = (u: number) => -0.065 + 0.13 * u;
+  const cy = y0 + R;
+  for (let k = 0; k < 5; k++) {
+    pts.push(v3(-lead + (lead * k) / 5, y0, zs(0)));
+    hints.push(v3(0, 1, 0));
+  }
+  const n = 36;
+  for (let k = 0; k <= n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const u = (1 - Math.cos((k / n) * Math.PI)) / 2;
+    const p = v3(Math.sin(a) * R, cy - Math.cos(a) * R, zs(u));
+    pts.push(p);
+    hints.push(v3(0, cy, p.z).sub(p));
+  }
+  for (let k = 1; k <= 5; k++) {
+    pts.push(v3((lead * k) / 5, y0, zs(1)));
+    hints.push(v3(0, 1, 0));
+  }
+  return { pts, hint: (i) => hints[i], c: v3(0, cy, 0) };
+}
+
+function tileIcon(g: Geo, tier: number, r: Ramp4): void {
+  const top = CRATE_H;
+  const rib = tier === 7 ? PEARL[0] : PAL.white;
+  const rail = tier === 7 ? PAL.red : r[2];
+  const leg = shade(PAL.white, -0.12);
+  switch (tier) {
+    case 1: {
+      const pts = arc(22, (t) => v3(-0.25 + t * 0.5, top + 0.055 + Math.sin(Math.PI * t) ** 2 * 0.11, 0));
+      track(g, pts, UP, rib, rail);
+      supports(g, pts, [6, 16], leg);
+      break;
+    }
+    case 2: {
+      const pts = arc(28, (t) => v3(-0.26 + t * 0.52, top + 0.055 + Math.sin(Math.PI * t) ** 2 * 0.19, 0));
+      track(g, pts, UP, rib, rail);
+      supports(g, pts, [8, 14, 20], leg);
+      break;
+    }
+    case 3: {
+      const y0 = top + 0.055;
+      const pts = spline([v3(-0.27, y0, 0), v3(-0.19, y0 + 0.02, 0), v3(0.02, y0 + 0.2, 0), v3(0.08, y0 + 0.2, 0), v3(0.17, y0, 0), v3(0.27, y0, 0)], 7);
+      const F = track(g, pts, UP, rib, rail);
+      supports(g, pts, [7, 12, 17, 22, 27], leg);
+      // Lift chain: dark ticks up the climb.
+      for (let i = 8; i < 20; i += 2) {
+        const c = pts[i].clone().addScaledVector(F.u[i], RIB_T * 0.9);
+        g.sphere(c, 0.013, r[3], 1.1, 0.7, 1.6, 6, 3, true);
+      }
+      break;
+    }
+    case 4: {
+      const n = 64;
+      const pts = arc(n, (t) => {
+        const a = -Math.PI / 2 + t * Math.PI * 2 * 1.75;
+        return v3(Math.cos(a) * 0.17, top + 0.06 + t * 0.19, Math.sin(a) * 0.15);
+      });
+      track(g, pts, (i) => v3(-pts[i].x, 0, -pts[i].z).normalize().multiplyScalar(0.7).add(v3(0, 1, 0)), rib, rail);
+      g.post(0, top, 0, 0.038, 0.24, r[2], 10);
+      g.sphere(v3(0, top + 0.25, 0), 0.05, r[0], 1, 1, 1, 10, 6, true);
+      g.sphere(v3(0, top + 0.004, 0), 0.06, r[2], 1, 0.3, 1, 10, 3, true);
+      supports(g, pts, [0], leg);
+      break;
+    }
+    case 5: {
+      const L = loopPath(0.125, top + 0.05, 0.27);
+      track(g, L.pts, L.hint, rib, rail);
+      supports(g, L.pts, [1, 44], leg);
+      break;
+    }
+    case 6: {
+      const R = 0.1;
+      const yc = top + 0.055 + R;
+      const off = (t: number) => {
+        const s = Math.min(1, Math.max(0, (t - 0.14) / 0.72));
+        const a = Math.PI * 2 * s * s * (3 - 2 * s);
+        return v3(0, -Math.cos(a) * R, Math.sin(a) * R);
+      };
+      const n = 56;
+      const pts = arc(n, (t) => v3(-0.27 + t * 0.54, yc, 0).add(off(t)));
+      track(g, pts, (i) => off(i / n).negate(), rib, rail);
+      supports(g, pts, [3, n - 3], leg);
+      break;
+    }
+    case 7: {
+      const L = loopPath(0.14, top + 0.05, 0.27);
+      track(g, L.pts, L.hint, rib, rail);
+      supports(g, L.pts, [1, 44], leg);
+      star(g, L.c, 0.085, RUBY, 0.05);
+      break;
+    }
+  }
+}
+
+/** A little clay tiara standing on the front rim, facing the camera. */
+function crown(g: Geo, c: Vector3): void {
+  g.box(M(c.x, c.y + 0.018, c.z), 0.2, 0.036, 0.04, GOLD[1], 0.014, GOLD[0]);
+  for (let k = -2; k <= 2; k++) {
+    const x = c.x + k * 0.045;
+    const h = [0.05, 0.065, 0.085, 0.065, 0.05][k + 2];
+    const base = v3(x, c.y + 0.03, c.z);
+    const tip = v3(x + k * 0.006, c.y + 0.03 + h, c.z);
+    g.cyl(new Matrix4().makeTranslation((base.x + tip.x) / 2, (base.y + tip.y) / 2, c.z).multiply(RZ(-k * 0.12)), 0.022, 0.006, h, GOLD[1], 6);
+    g.sphere(tip, k === 0 ? 0.02 : 0.015, k === 0 ? RUBY : PEARL[0], 1, 1, 1, 8, 5, true);
+  }
+  gem(g, v3(c.x, c.y + 0.018, c.z + 0.026), 0.02, RUBY);
+}
+
 export function crateGeo(tier: number): BufferGeometry {
   return cached(`crate${tier}`, () => {
-    const r = TIER_RAMPS[tier];
+    const r = TIER_RAMPS[tier] as Ramp4;
     const g = new Geo();
-    const h = CRATE_H;
-    const w = CRATE_W;
-    g.box(M(0, h / 2, 0), w, h, w, r[1], 0.07, r[0]);
-    // Slats: two bands around the sides and corner posts.
-    for (const y of [0.075, h - 0.085]) {
-      g.cube(0, y, w / 2 + 0.004, w - 0.16, 0.045, 0.012, r[2]);
-      g.cube(0, y, -w / 2 - 0.004, w - 0.16, 0.045, 0.012, r[2]);
-      g.cube(w / 2 + 0.004, y, 0, 0.012, 0.045, w - 0.16, r[2]);
-      g.cube(-w / 2 - 0.004, y, 0, 0.012, 0.045, w - 0.16, r[2]);
-    }
-    // A sculpted icon on the lid.
-    const top = h + 0.005;
-    const ic = tier === 7 ? PAL.red : PAL.white;
-    const dark = r[3];
+    const body = r[1];
+    const dark = r[2];
+    const light = r[0];
+    const field = shade(r[1], 0.04);
+    const p = new Profile();
+    const trim = tier >= 7 ? PEARL : tier >= 5 ? GOLD : null;
+    let pipY = 0.165;
+    let rimI = 0.06;
+    const rimR = 0.026;
     switch (tier) {
       case 1:
-        icon(g, arc(12, (t) => v3(-0.22 + t * 0.44, top + 0.035 + Math.sin(Math.PI * t) ** 2 * 0.1, 0)), ic);
+        p.roll(0, 0.275, 0.02, 0.03, body, 10);
         break;
       case 2:
-        icon(g, arc(16, (t) => v3(-0.24 + t * 0.48, top + 0.035 + Math.sin(Math.PI * t) ** 2 * 0.22, 0)), ic);
+        p.roll(0, 0.085, 0.004, 0.022, dark, 5).roll(0.085, 0.275, 0.02, 0.022, body, 8);
         break;
       case 3:
-        icon(
-          g,
-          arc(18, (t) => {
-            const y = t < 0.55 ? (t / 0.55) * 0.26 : 0.26 * (1 - Math.min(1, (t - 0.55) / 0.25)) ** 2;
-            return v3(-0.24 + t * 0.48, top + 0.035 + y, 0);
-          }),
-          ic,
-        );
-        for (let k = 1; k < 5; k++) g.cube(-0.24 + k * 0.05, top + 0.035 + ((k * 0.05) / 0.264) * 0.26 - 0.03, 0, 0.018, 0.03, 0.05, dark);
+        p.roll(0, 0.085, -0.012, 0.022, dark, 5).roll(0.085, 0.275, 0.03, 0.02, body, 8);
+        rimI = 0.07;
         break;
       case 4:
-        icon(g, arc(60, (t) => v3(Math.cos(t * Math.PI * 5) * 0.15, top + 0.04 + t * 0.2, Math.sin(t * Math.PI * 5) * 0.15)), ic, 0.022);
-        g.post(0, top, 0, 0.03, 0.26, dark, 6);
+        p.roll(0, 0.08, -0.012, 0.022, dark, 5)
+          .roll(0.08, 0.13, 0.032, 0.014, body, 4)
+          .roll(0.13, 0.2, 0.024, 0.012, dark, 5)
+          .roll(0.2, 0.275, 0.032, 0.016, body, 5);
+        pipY = 0.165;
+        rimI = 0.07;
         break;
-      case 5:
-        icon(g, arc(28, (t) => v3(Math.sin(t * Math.PI * 2) * 0.15, top + 0.18 - Math.cos(t * Math.PI * 2) * 0.15, 0)), ic, 0.03, true);
-        g.cube(0, top + 0.015, 0, 0.36, 0.03, 0.08, dark);
-        break;
-      case 6:
-        icon(
-          g,
-          arc(48, (t) => {
-            const a = t * Math.PI * 4;
-            return v3(-0.24 + t * 0.48, top + 0.14 + Math.cos(a) * 0.1, Math.sin(a) * 0.1);
-          }),
-          ic,
-          0.024,
-        );
-        break;
-      case 7: {
-        icon(g, arc(32, (t) => v3(Math.sin(t * Math.PI * 2) * 0.19, top + 0.21 - Math.cos(t * Math.PI * 2) * 0.19, 0)), PAL.white, 0.034, true);
-        star(g, v3(0, top + 0.21, 0), 0.1, ic, 0.05);
-        g.cube(0, top + 0.015, 0, 0.44, 0.03, 0.1, dark);
-        break;
+      default: {
+        const t = trim!;
+        p.roll(0, 0.055, -0.015, 0.02, dark, 4)
+          .roll(0.055, 0.1, tier >= 6 ? 0.008 : 0.018, 0.016, t[1], 4)
+          .roll(0.1, 0.135, 0.036, 0.012, body, 3)
+          .roll(0.135, 0.205, 0.028, 0.012, tier >= 7 ? PEARL[1] : dark, 5)
+          .roll(0.205, 0.275, 0.036, 0.014, body, 5);
+        pipY = 0.17;
+        rimI = 0.075;
       }
     }
+    p.rim(rimI, rimR, trim ? trim[1] : light, field);
+    lathe(g, p.pts, field);
+    pips(g, p, tier, pipY, tier >= 7 ? RUBY : tier >= 5 ? GOLD[0] : PAL.white);
+    // Corner studs: clay balls, gold balls, then gems in gold settings.
+    const cs = rimCorners(rimI, rimR);
+    if (tier === 4) for (const c of cs) g.sphere(c, 0.034, light, 1, 0.85, 1, 10, 6, true);
+    if (tier === 5) for (const c of cs) g.sphere(c, 0.038, GOLD[1], 1, 0.85, 1, 10, 6, true);
+    if (tier >= 6)
+      for (const c of cs) {
+        g.sphere(c, 0.042, trim![1], 1, 0.5, 1, 10, 4, true);
+        gem(g, c.clone().setY(c.y + 0.035), 0.036, tier >= 7 ? RUBY : AQUA);
+      }
+    if (tier >= 7) crown(g, v3(0, CRATE_H + 0.006 + rimR, HW - rimI));
+    tileIcon(g, tier, r);
     return g.build();
   });
 }
-
-const QMARK = ['.###.', '#...#', '....#', '...#.', '..#..', '.....', '..#..'];
 
 export function mysteryGeo(): BufferGeometry {
   return cached('mystery', () => {
     const r = MYSTERY;
     const g = new Geo();
-    g.box(M(0, CRATE_H / 2, 0), CRATE_W, CRATE_H, CRATE_W, r[1], 0.07, r[0]);
-    const s = 0.06;
-    QMARK.forEach((row, y) =>
-      [...row].forEach((ch, x) => {
-        if (ch === '#') g.cube((x - 2) * s, CRATE_H + 0.02, (y - 3) * s, s * 0.92, 0.04, s * 0.92, r[0]);
-      }),
+    const p = new Profile().roll(0, 0.085, -0.012, 0.022, r[2], 5).roll(0.085, 0.275, 0.03, 0.02, r[1], 8).rim(0.07, 0.03, r[0], shade(r[1], -0.08));
+    lathe(g, p.pts, shade(r[1], -0.08));
+    // A chunky "?" standing on the lid, tipped back a little toward the camera.
+    const top = CRATE_H;
+    const qc = '#f4ecff';
+    const from = g.count;
+    const qs = spline(
+      [v3(-0.08, 0.2, 0), v3(-0.062, 0.258, 0), v3(0, 0.285, 0), v3(0.064, 0.26, 0), v3(0.078, 0.207, 0), v3(0.038, 0.162, 0), v3(0.006, 0.135, 0), v3(0, 0.1, 0)],
+      4,
     );
+    g.pipe(qs, 0.04, qc, 10);
+    g.sphere(qs[0], 0.04, qc, 1, 1, 1, 10, 6, true);
+    g.sphere(qs[qs.length - 1], 0.04, qc, 1, 1, 1, 10, 6, true);
+    g.sphere(v3(0, 0.035, 0), 0.042, qc, 1, 1, 1, 10, 6, true);
+    g.transform(M(0, top + 0.005, 0).multiply(RX(-0.3)), from);
+    // Sparkles.
+    star(g, v3(-0.22, top + 0.17, 0.08), 0.05, '#fff3b0', 0.025, 4, 0.3);
+    star(g, v3(0.23, top + 0.24, -0.06), 0.04, '#fff3b0', 0.025, 4, 0.3);
+    star(g, v3(0.2, top + 0.07, 0.17), 0.032, '#ffd6f4', 0.02, 4, 0.3);
+    g.sphere(v3(-0.2, top + 0.05, -0.15), 0.018, '#fff3b0', 1, 1, 1, 6, 4, true);
     return g.build();
   });
 }

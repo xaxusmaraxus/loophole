@@ -1,5 +1,6 @@
 import { Vector3 } from 'three';
 import type { Board } from '../puzzle/board';
+import type { SpecialId } from '../puzzle/pieces';
 
 // The coaster as one continuous 3D centerline with a frame (tangent, up,
 // right) at every sample. The laid track forms a single chain through the
@@ -49,7 +50,18 @@ export interface ChainCell {
   y: number;
   tier: number;
   station: boolean;
+  cross?: boolean;
+  pier?: boolean;
+  special?: SpecialId;
 }
+
+/** How a crossing pass gets past the track it crosses: over it, or under it. */
+export type CrossKind = 'bridge' | 'tunnel';
+
+/** A bridge clears the flat track below it by this much. */
+const BRIDGE_RISE = 0.44;
+/** A tunnel runs this high above the ground. */
+const TUNNEL_H = 0.07;
 
 export interface TrackPt {
   p: Vector3;
@@ -200,6 +212,8 @@ export class TrackPath {
   /** Where the lead car waits: the left end of the station's lower lane. */
   parkAt = 0;
 
+  /** Crossing passes (chain index) and whether each goes over or under. */
+  crossKind = new Map<number, CrossKind>();
   /** Ground under the board (hills) and how high the station stands. */
   private ground: (x: number, y: number) => number;
   private lift: number;
@@ -209,6 +223,12 @@ export class TrackPath {
     this.closed = closed;
     this.ground = ground;
     this.lift = lift;
+    // Crossings: over flat track the second pass is a bridge; under a Bump or Hill, a tunnel.
+    cells.forEach((c, i) => {
+      if (!c.cross) return;
+      const under = cells.find((o) => !o.cross && !o.station && o.x === c.x && o.y === c.y);
+      this.crossKind.set(i, under && under.tier > 0 ? 'tunnel' : 'bridge');
+    });
     this.build();
   }
 
@@ -216,17 +236,22 @@ export class TrackPath {
     const [A, B] = b.ends;
     const st = (end: 0 | 1): ChainCell => ({ x: b.station.x + end, y: b.station.y, tier: 0, station: true });
     const cells: ChainCell[] = [
-      ...[...B].reverse().map((c) => ({ x: c.x, y: c.y, tier: c.tier, station: false })),
+      ...[...B].reverse().map((c) => ({ ...c, station: false })),
       st(1),
       st(0),
-      ...A.map((c) => ({ x: c.x, y: c.y, tier: c.tier, station: false })),
+      ...A.map((c) => ({ ...c, station: false })),
     ];
     return new TrackPath(cells, b.opened === 'circuit', ground, lift);
   }
 
   deck(i: number): number {
     const c = this.cells[i];
-    return c.station ? STATION_H + this.lift : DECK_H[c.tier] + this.ground(c.x, c.y);
+    if (c.station) return STATION_H + this.lift;
+    const g = this.ground(c.x, c.y);
+    const k = this.crossKind.get(i);
+    if (k === 'bridge') return DECK_H[0] + g + BRIDGE_RISE;
+    if (k === 'tunnel') return TUNNEL_H + g;
+    return DECK_H[c.tier] + g;
   }
 
   private neighbor(i: number, d: -1 | 1): number {

@@ -1,5 +1,6 @@
 import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
+import { SPECIALS, type SpecialId } from '../puzzle/pieces';
 import { BOSSES, KINDS, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
 import { drawPortrait3D } from '../render3d/portrait';
 import { mapHtml } from './map';
@@ -32,6 +33,7 @@ function rewardLabel(r: Reward | ShopItem | EggItem, day = 1): { tag: string; na
   }
   if (r.kind === 'upgrade') return { tag: 'Upgrade', name: UPGRADES[r.id].name, desc: UPGRADES[r.id].desc };
   if (r.kind === 'tool') return { tag: `Tool ×${TOOLS[r.id].charges}`, name: TOOLS[r.id].name, desc: TOOLS[r.id].desc };
+  if (r.kind === 'special') return { tag: 'Special piece', name: SPECIALS[r.id].name, desc: SPECIALS[r.id].desc };
   if (r.kind === 'attraction') return { tag: ATTRACTIONS[r.id].rarity === 'rare' ? 'Rare attraction' : 'Attraction', name: ATTRACTIONS[r.id].name, desc: ATTRACTIONS[r.id].desc };
   return { tag: 'Repair', name: 'Repair a heart', desc: 'Win back one heart of park reputation.' };
 }
@@ -96,6 +98,7 @@ export class Hud {
     if (!building) hint.textContent = '';
     else if (aim?.tool === 'paint') hint.textContent = 'Tap a tile to paint it up a tier. Tap the Paint Can again to cancel.';
     else if (aim?.tool === 'dynamite') hint.textContent = 'Tap a tree, rock, pond or stand to blow it up.';
+    else if (aim && aim.tool in SPECIALS) hint.textContent = `Tap a piece of your track to fit the ${SPECIALS[aim.tool as SpecialId].name} there. Tap it again to cancel.`;
     else if (aim?.tool === 'crane') hint.textContent = aim.first ? 'Now tap where the tile should go.' : 'Tap the tile the crane should lift.';
     else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit, or keep building for a wilder ride.';
     else if (g.daylight <= 0) hint.textContent = 'The sun has set. No more swipes, but you can still build and open the ride.';
@@ -145,7 +148,14 @@ export class Hud {
     const g = this.game;
     const bar = $('tools');
     const owned = (Object.keys(TOOLS) as ToolId[]).filter((t) => g.tools[t] > 0);
-    if (!owned.length) {
+    const specials = (Object.keys(SPECIALS) as SpecialId[]).filter((t) => g.specials[t] > 0);
+    const specialHtml = specials
+      .map(
+        (t) =>
+          `<button type="button" class="tool special ${t}${g.aiming?.tool === t ? ' active' : ''}" data-special="${t}" title="${SPECIALS[t].desc}" ${g.phase === 'build' ? '' : 'disabled'}>${SPECIALS[t].name} <span class="count">${g.specials[t]}</span></button>`,
+      )
+      .join('');
+    if (!owned.length && !specials.length) {
       bar.innerHTML = '<span class="muted">No tools yet. Earn them between days.</span>';
       return;
     }
@@ -154,7 +164,7 @@ export class Hud {
         (t, i) =>
           `<button type="button" class="tool${g.aiming?.tool === t ? ' active' : ''}" data-tool="${t}" title="${TOOLS[t].desc} (key ${i + 1})" ${g.phase === 'build' ? '' : 'disabled'}>${TOOLS[t].name} <span class="count">${g.tools[t]}</span></button>`,
       )
-      .join('');
+      .join('') + specialHtml;
   }
 
   private renderQueue(): void {

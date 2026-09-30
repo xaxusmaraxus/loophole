@@ -4,6 +4,7 @@ import {
   type Dir,
   type End,
   type Pt,
+  type RideStop,
   type SwipeResult,
   type TrackCell,
   build,
@@ -20,7 +21,8 @@ import {
   swipe,
   trackCells,
 } from './puzzle/board';
-import { MAX_TIER, type RideStats, rideStats } from './puzzle/pieces';
+import { BRAKES_NAUSEA, MAX_TIER, type RideStats, SPECIALS, type SpecialId, rideStats } from './puzzle/pieces';
+import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
 import { type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { ATTRACTION_SLOTS, type OwnedAttraction, type Score, scoreRide } from './run/attractions';
 import { type ScoreEvent, rideTimeline } from './run/timeline';
@@ -37,6 +39,7 @@ import {
   type ParkMap,
   type Reward,
   SEASON_ORDER,
+  SPECIAL_CHARGES,
   type ShopItem,
   priceScale,
   TOOLS,
@@ -66,6 +69,8 @@ export type GameEvent =
   | { type: 'open'; kind: RideKind }
   | { type: 'dark' }
   | { type: 'tool'; tool: ToolId; at?: Pt }
+  | { type: 'special'; special: SpecialId; at: Pt }
+  | { type: 'unlock'; id: UnlockId }
   | { type: 'undo' };
 
 export interface RiderTicket {
@@ -99,6 +104,7 @@ interface Snapshot {
   chainLinks: number;
   selected: End;
   tools: Record<ToolId, number>;
+  specials: Record<SpecialId, number>;
   rngState: number;
   nextId: number;
 }
@@ -123,8 +129,12 @@ export class Game {
   attractions: OwnedAttraction[] = [];
   /** Tool charges carried through the run. */
   tools: Record<ToolId, number> = emptyTools();
-  /** A tool waiting for its target tap (the crane remembers its first pick). */
-  aiming: { tool: ToolId; first?: Pt } | null = null;
+  /** Special piece charges (Launch, Water Splash, Brake Run), fitted onto built track. */
+  specials: Record<SpecialId, number> = emptySpecials();
+  /** A tool (or special piece) waiting for its target tap (the crane remembers its first pick). */
+  aiming: { tool: ToolId | SpecialId; first?: Pt } | null = null;
+  /** Everything done across seasons, for unlocks. The page loads and saves it. */
+  record: PlayRecord = emptyRecord();
   mods: Mods = modsFor([]);
   cfg!: DayConfig;
   board!: Board;
@@ -179,6 +189,11 @@ export class Game {
     this.egg = null;
     this.funds = 0;
     this.tools = { ...emptyTools(), paint: 1 };
+    this.specials = emptySpecials();
+    // Unlocked starting kit.
+    const kit = startingKit(this.record);
+    for (const [t, n] of Object.entries(kit.tools)) this.tools[t as ToolId] += n ?? 0;
+    for (const [t, n] of Object.entries(kit.specials)) this.specials[t as SpecialId] += n ?? 0;
     this.mods = modsFor([]);
     this.enterPark(0);
   }
@@ -225,7 +240,7 @@ export class Game {
       return;
     }
     if (n.kind === 'shop') {
-      this.shop = shopStock(this.rng, this.dayNum, this.attractions.map((a) => a.id));
+      this.shop = shopStock(this.rng, this.dayNum, this.attractions.map((a) => a.id), unlockedSpecials(this.record));
       this.phase = 'shop';
     } else if (n.kind === 'repair') {
       if (this.hearts < HEARTS) {
@@ -300,10 +315,25 @@ export class Game {
     return pieceNausea(r, tier) + (tier === 4 && this.has('tilttable') ? 3 : 0);
   }
 
+  /**
+   * Nausea the stop at index i of a ride gives this rider: its piece, doubled right
+   * after a Launch, plus the jolt of a Brake Run.
+   */
+  stopNausea(r: Rider, stops: readonly RideStop[], i: number): number {
+    const s = stops[i];
+    if (s.station) return 0;
+    let n = this.nausea(r, s.tier);
+    let j = i - 1;
+    while (j >= 0 && stops[j].station) j--;
+    if (j >= 0 && stops[j].special === 'launch') n *= 2;
+    if (s.special === 'brakes') n += BRAKES_NAUSEA;
+    return n;
+  }
+
   /** How many times this rider would puke if the ride opened now as `kind`. A shuttle passes each piece twice. */
   pukes(r: Rider, kind: RideKind = this.openKind ?? 'circuit'): number {
-    const stops = rideOrder(this.board, kind).filter((s) => !s.station);
-    return pukesFor(stops.reduce((a, s) => a + this.nausea(r, s.tier), 0), this.stomach(r));
+    const stops = rideOrder(this.board, kind);
+    return pukesFor(stops.reduce((a, _s, i) => a + this.stopNausea(r, stops, i), 0), this.stomach(r));
   }
 
   /** Excitement × multiplier if the ride opened now as `kind`. */
@@ -342,6 +372,7 @@ export class Game {
       chainLinks: this.chainLinks,
       selected: this.selected,
       tools: { ...this.tools },
+      specials: { ...this.specials },
       rngState: this.rng.state,
       nextId: this.nextId,
     });
@@ -380,6 +411,12 @@ export class Game {
     else this.buildAt(x, y);
   }
 
+  /** Arm a special piece: the next tap on built track fits it there. Tapping it again disarms it. */
+  useSpecial(id: SpecialId): void {
+    if (this.phase !== 'build' || !this.specials[id]) return;
+    this.aiming = this.aiming?.tool === id ? null : { tool: id };
+  }
+
   /** Arm a tool (or use it right away if it needs no target). Tapping the armed tool again disarms it. */
   useTool(id: ToolId): void {
     if (this.phase !== 'build' || !this.tools[id]) return;
@@ -406,6 +443,19 @@ export class Game {
     const fail = (): void => {
       this.events.push({ type: 'blocked' });
     };
+    if (aim.tool in SPECIALS) {
+      // Fits onto the first pass of a built track cell that has no special yet.
+      const id = aim.tool as SpecialId;
+      const cell = b.ends.flat().find((c) => c.x === x && c.y === y && !c.cross);
+      if (!cell || cell.special) return fail();
+      this.snapshot();
+      const [e, k] = b.ends[0].includes(cell) ? [0, b.ends[0].indexOf(cell)] : [1, b.ends[1].indexOf(cell)];
+      b.ends[e][k].special = id;
+      this.specials[id]--;
+      this.aiming = null;
+      this.events.push({ type: 'special', special: id, at: { x, y } });
+      return;
+    }
     if (aim.tool === 'dynamite') {
       if (!b.obstacles[i]) return fail();
       this.snapshot();
@@ -549,6 +599,7 @@ export class Game {
     this.chainLinks = s.chainLinks;
     this.selected = s.selected;
     this.tools = s.tools;
+    this.specials = s.specials;
     this.aiming = null;
     this.rng.state = s.rngState;
     this.nextId = s.nextId;
@@ -565,12 +616,13 @@ export class Game {
     const total = tickets.reduce((a, t) => a + t.paid, 0);
     const boss = tickets.find((t) => t.rider.boss);
     const bossPuked = !boss || boss.pukes > 0;
+    const stops = rideOrder(this.board, kind);
     const timeline = rideTimeline({
-      stops: rideOrder(this.board, kind),
+      stops,
       mods: this.mods,
       score,
       shuttle: kind === 'shuttle',
-      riders: this.queue.map((r) => ({ nausea: (t: number) => this.nausea(r, t), stomach: this.stomach(r), worth: riderWorth(r), boss: !!r.boss })),
+      riders: this.queue.map((r) => ({ nausea: (i: number) => this.stopNausea(r, stops, i), stomach: this.stomach(r), worth: riderWorth(r), boss: !!r.boss })),
     });
     this.result = { kind, stats, score, tickets, total, target: this.cfg.target, bossPuked, passed: total >= this.cfg.target && bossPuked, timeline };
     // The ride plays out on the board first; the renderer calls rideDone() after.
@@ -587,19 +639,29 @@ export class Game {
     if (this.phase !== 'results' || !this.result) return;
     const r = this.result;
     this.runScore += r.total;
+    // The season record, for unlocks.
+    const rec = this.record;
+    rec.totalPukes += r.tickets.reduce((a, t) => a + t.pukes, 0);
+    rec.bestRide = Math.max(rec.bestRide, r.total);
+    const boss = r.tickets.find((t) => t.rider.boss && t.pukes > 0)?.rider.boss;
+    if (boss && !rec.bosses.includes(boss)) rec.bosses.push(boss);
     if (r.passed) {
       this.funds += r.total - r.target;
       for (const a of this.attractions) if (a.id === 'seasonpass') a.counter++;
     } else this.hearts--;
     if (this.hearts <= 0 || (r.passed && this.cfg.node === 'finale')) {
       this.phase = this.hearts <= 0 ? 'over' : 'won';
+      rec.seasons++;
+      if (this.phase === 'won') rec.wins++;
+      this.unlockCheck();
       if (this.runScore > this.best) {
         this.best = this.runScore;
         saveBest(this.best);
       }
       return;
     }
-    this.offer = rewardOffer(this.rng, this.attractions.map((a) => a.id), this.slotsFree, this.cfg.node === 'storm');
+    this.unlockCheck();
+    this.offer = rewardOffer(this.rng, this.attractions.map((a) => a.id), this.slotsFree, this.cfg.node === 'storm', unlockedSpecials(this.record));
     this.rewardFrom = 'day';
     this.phase = 'reward';
   }
@@ -611,6 +673,7 @@ export class Game {
       this.upgrades.push(r.id);
       this.mods = modsFor(this.upgrades);
     } else if (r.kind === 'tool') this.tools[r.id] += TOOLS[r.id].charges;
+    else if (r.kind === 'special') this.specials[r.id] += SPECIAL_CHARGES;
     else if (this.slotsFree) this.attractions.push({ id: r.id, counter: 0 });
     this.afterReward();
   }
@@ -637,11 +700,17 @@ export class Game {
     item.sold = true;
     if (item.kind === 'egg') this.openEgg(item.id, 'shop');
     else if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
+    else if (item.kind === 'special') this.specials[item.id] += SPECIAL_CHARGES;
     else if (item.kind === 'upgrade') {
       this.upgrades.push(item.id);
       this.mods = modsFor(this.upgrades);
     } else if (item.kind === 'attraction') this.attractions.push({ id: item.id, counter: 0 });
     else this.hearts++;
+  }
+
+  /** New unlocks earned: they go into the record and out as events for the page to celebrate. */
+  private unlockCheck(): void {
+    for (const id of checkUnlocks(this.record)) this.events.push({ type: 'unlock', id });
   }
 
   // ---- Capsule eggs --------------------------------------------------------
@@ -698,6 +767,10 @@ export class Game {
     if (!this.attractions[i] || !this.attractions[j] || this.phase === 'ride') return;
     [this.attractions[i], this.attractions[j]] = [this.attractions[j], this.attractions[i]];
   }
+}
+
+function emptySpecials(): Record<SpecialId, number> {
+  return { launch: 0, splash: 0, brakes: 0 };
 }
 
 function emptyTools(): Record<ToolId, number> {

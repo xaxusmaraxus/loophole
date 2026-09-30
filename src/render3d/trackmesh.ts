@@ -48,6 +48,7 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
     mt.beam(c.clone().addScaledVector(q.t, -0.01), c.clone().addScaledVector(q.t, 0.01), 0.018, '#2b2140');
   });
   if (!cell.station) supports(path, i, pts, mt, style);
+  extras(path, i, pts, parts);
   // Bulbs around the Mega Loop.
   if (cell.tier === 7) {
     parts.glow = new Geo();
@@ -105,11 +106,25 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
     g.post(top.x, 0, top.z, r * 2.2, 0.03, foot, 6);
   };
   const base = (q: TrackPt) => q.p.clone().addScaledVector(q.up, -SPINE_DROP - 0.02);
+  // Where two passes cross, keep the middle of the cell clear of columns.
+  const crossed = path.cells.some((o, j) => j !== i && !o.station && o.x === cell.x && o.y === cell.y);
+  const nearMiddle = (q: TrackPt) => crossed && Math.hypot(q.p.x - cell.x - 0.5, q.p.z - cell.y - 0.5) < 0.24;
   // Plain columns under upright track.
   forEvery(pts, 0.3, (q) => {
-    if (q.elem || q.up.y < 0.75) return;
+    if (q.elem || q.up.y < 0.75 || nearMiddle(q)) return;
     column(base(q));
   });
+  if (path.crossKind.get(i) === 'bridge')
+    // Bridge piers either side of the track it crosses.
+    for (const q of pts)
+      if (Math.abs(Math.hypot(q.p.x - cell.x - 0.5, q.p.z - cell.y - 0.5) - 0.3) < 0.035) {
+        const b = base(q);
+        const out = q.right.clone().setY(0).normalize().multiplyScalar(0.09);
+        for (const side of [-1, 1]) {
+          const top = b.clone().addScaledVector(out, side);
+          g.beam(top, v3(top.x + out.x * side * 0.6, 0, top.z + out.z * side * 0.6), 0.022, col);
+        }
+      }
   if (cell.tier === 5 || cell.tier === 7) {
     // A-frame legs from the loop's flanks.
     const flank = pts.filter((q) => q.ang > 0).reduce<TrackPt[]>((acc, q) => {
@@ -152,5 +167,79 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
       g.beam(v3(mid.p.x - l.x, top, mid.p.z - l.z), v3(mid.p.x + l.x, top, mid.p.z + l.z), 0.03, col);
       g.beam(v3(mid.p.x, top, mid.p.z), mid.p.clone().addScaledVector(mid.up, 0.05), 0.016, col);
     }
+  }
+}
+
+/** Pier planks, bridge railings, tunnel tubes and special pieces. */
+function extras(path: TrackPath, i: number, pts: TrackPt[], parts: Parts): void {
+  const cell = path.cells[i];
+  const mt = parts.matte!;
+  const gl = parts.gloss!;
+  const kind = path.crossKind.get(i);
+  if (cell.pier) {
+    // A plank walkway under the rails, out over the water.
+    forEvery(pts, 0.06, (q) => mt.box(frame(q, q.p.clone().addScaledVector(q.up, -SPINE_DROP - 0.035)), 0.3, 0.018, 0.052, '#b98552', 0.006));
+    forEvery(pts, 0.3, (q) => {
+      for (const side of [-1, 1]) {
+        const at = q.p.clone().addScaledVector(q.right, side * 0.13);
+        mt.post(at.x, 0, at.z, 0.02, Math.max(0.05, at.y - SPINE_DROP - 0.04), '#8a5a2e', 7);
+      }
+    });
+  }
+  if (kind === 'bridge')
+    // Handrails.
+    for (const side of [-1, 1])
+      gl.pipe(
+        pts.map((q) => q.p.clone().addScaledVector(q.right, side * 0.12).addScaledVector(q.up, 0.07)),
+        0.01,
+        '#e7e9f2',
+        6,
+      );
+  if (kind === 'tunnel') {
+    // A clay tube over the middle of the pass, with stone portals: the train disappears inside.
+    const mid = pts.filter((q) => Math.hypot(q.p.x - cell.x - 0.5, q.p.z - cell.y - 0.5) < 0.34);
+    if (mid.length > 2) {
+      const flat = (q: TrackPt) => ({ up: new Vector3(0, 1, 0), right: q.right.clone().setY(0).normalize() });
+      mt.tube(
+        mid.map((q) => q.p.clone().setY(q.p.y + 0.04)),
+        mid.map((q) => flat(q).right),
+        mid.map((q) => flat(q).up),
+        0.19,
+        '#7cc25c',
+        16,
+      );
+      for (const q of [mid[0], mid[mid.length - 1]]) {
+        const r = flat(q).right;
+        const ring = [];
+        for (let k = 0; k <= 16; k++) {
+          const a = (k / 16) * Math.PI;
+          ring.push(q.p.clone().setY(q.p.y + 0.04).addScaledVector(r, Math.cos(a) * 0.2).add(new Vector3(0, Math.sin(a) * 0.2, 0)));
+        }
+        mt.pipe(ring, 0.035, '#a9adc0', 6);
+      }
+    }
+  }
+  const sp = cell.special;
+  if (sp === 'launch') {
+    // Glowing launch fins down the middle, and arrows.
+    parts.glow ??= new Geo();
+    forEvery(pts, 0.05, (q) => parts.glow!.box(frame(q, q.p.clone().addScaledVector(q.up, -0.012)), 0.03, 0.02, 0.028, '#7ff2ff', 0.004));
+    forEvery(pts, 0.25, (q) => {
+      for (const side of [-1, 1]) {
+        const a = q.p.clone().addScaledVector(q.up, 0.004).addScaledVector(q.right, side * 0.03);
+        parts.glow!.beam(a, a.clone().addScaledVector(q.t, -0.04).addScaledVector(q.right, side * 0.02), 0.008, '#ffd23f');
+      }
+    });
+  } else if (sp === 'brakes') {
+    // Red brake fins on both sides, and a hazard-striped plate.
+    forEvery(pts, 0.045, (q) => {
+      for (const side of [-1, 1]) mt.box(frame(q, q.p.clone().addScaledVector(q.up, -0.03).addScaledVector(q.right, side * 0.035)), 0.012, 0.03, 0.03, '#e0484e', 0.003);
+    });
+    forEvery(pts, 0.08, (q) => mt.box(frame(q, q.p.clone().addScaledVector(q.up, -SPINE_DROP - 0.03)), 0.2, 0.012, 0.04, Math.round(q.s * 12.5) % 2 ? PAL.gold : PAL.ink, 0.004));
+  } else if (sp === 'splash') {
+    // A splash pool under the track.
+    const c = pts[Math.floor(pts.length / 2)].p;
+    mt.cyl(new Matrix4().makeTranslation(c.x, 0.03, c.z), 0.36, 0.38, 0.05, '#e2dccb', 20, undefined, true);
+    gl.cyl(new Matrix4().makeTranslation(c.x, 0.05, c.z), 0.32, 0.32, 0.02, '#5cc8f0', 20, '#8fdcf6');
   }
 }

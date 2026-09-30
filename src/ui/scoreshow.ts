@@ -1,3 +1,4 @@
+import { music } from '../core/music';
 import { sfx } from '../core/sfx';
 import type { DayResult } from '../game';
 import type { ScoreEvent } from '../run/timeline';
@@ -36,6 +37,7 @@ export class ScoreShow {
   private reduce = false;
   private riderPukes = new Map<number, number>();
   private cheers = 0;
+  private pukedYet = false;
   private lastCheer = 0;
   /** Screen shake requests go to the renderer. */
   onShake: (mag: number, ms: number) => void = () => {};
@@ -98,6 +100,7 @@ export class ScoreShow {
     this.milestone = 0;
     this.streak = 0;
     this.riderPukes.clear();
+    this.pukedYet = false;
     this.reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.panel.className = 'scoreshow';
     this.panel.style.setProperty('--heat', '0');
@@ -177,9 +180,14 @@ export class ScoreShow {
         if (e.boss) {
           this.doFlash('boss');
           sfx.bossPuke();
+          music.stinger('boss');
           this.onShake(6, 700);
         } else {
           sfx.puke(n);
+          if (!this.pukedYet) {
+            this.pukedYet = true;
+            music.stinger('puke');
+          }
           this.onShake(1 + hit * 3, 120 + hit * 200);
         }
         break;
@@ -274,6 +282,7 @@ export class ScoreShow {
     this.bump(this.el.totalBox, o.boss || o.special ? 'bump-huge' : 'bump-big');
     if (o.boss) {
       sfx.bossPuke();
+      music.stinger('boss');
       this.doFlash('boss');
       this.onShake(6, 700);
     } else {
@@ -335,7 +344,10 @@ export class ScoreShow {
     this.el.goal.textContent = m === 1 ? 'Target reached!' : `${m}× the target!`;
     this.bump(this.el.totalBox, 'bump-huge');
     this.doFlash('target');
-    if (first) sfx.target();
+    if (first) {
+      sfx.target();
+      music.stinger('target');
+    }
     else sfx.mult(this.streak + 4);
     this.onShake(first ? 5 : 3, 400);
     this.onCheer();

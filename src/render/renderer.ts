@@ -22,6 +22,7 @@ import {
   WebGLRenderer,
   MeshBasicMaterial as BasicMat,
 } from 'three';
+import { music } from '../core/music';
 import { sfx } from '../core/sfx';
 import type { Game } from '../game';
 import {
@@ -53,6 +54,7 @@ import { composeCard, photoStore } from '../ui/photo';
 import { ScoreShow } from '../ui/scoreshow';
 import { PAL, type ParkTheme, SHIRTS, THEMES, TIER_RAMPS } from './palette';
 import { lineAntics, lineFace } from './moods';
+import { lineThought, rideThought } from '../riders/thoughts';
 
 // The park as a little 3D diorama: cel-shaded, ink-lined, procedurally built
 // each day. It only presents: all rules live in the game.
@@ -93,6 +95,9 @@ export interface Walker {
   hold?: boolean;
   /** Game time until which this guest is mid-puke. */
   pukeUntil?: number;
+  /** Who it is and how the ride went (the curtain call). */
+  rider?: Rider;
+  pukes?: number;
 }
 
 /** A slow-motion camera shot on something (a rider, the lead car). */
@@ -170,6 +175,9 @@ export class Renderer {
   private structKey = '';
   private attrLots: Group[] = [];
   private attrPulse: number[] = [];
+  private stationGroup: Group | null = null;
+  /** A new thing unlocked (the page shows a toast). */
+  onUnlock: (id: string) => void = () => {};
   /** Hills on the board and the station's height (later parks). */
   terrain: Terrain = FLAT;
   private flashLight = new PointLight('#fff6ea', 0, 4, 2);
@@ -445,7 +453,8 @@ export class Renderer {
       hills.receiveShadow = true;
       this.world.add(hills);
     }
-    this.world.add(this.buildStation());
+    this.stationGroup = this.buildStation();
+    this.world.add(this.stationGroup);
     this.island.lamps.forEach((p, i) => this.lampLights[i].position.copy(p));
     this.scene.background = new Color(this.island.look.horizon);
     this.trackKey = '';
@@ -514,15 +523,17 @@ export class Renderer {
       m.cube(x, 0.106, pz0 + 0.02, 0.09, 0.006, 0.025, PAL.gold);
       m.cube(x, 0.106, pz1 - 0.02, 0.09, 0.006, 0.025, PAL.gold);
     }
-    // A long striped canopy on posts down the middle of the platform.
+    // A long striped canopy on posts down the middle of the platform (paint job from unlocks).
+    const paint = this.game.record.station;
+    const stripe = paint === 'candy' ? ['#ff8fb8', '#b8f0d8'] : paint === 'gold' ? [PAL.gold, PAL.white] : [PAL.red, PAL.white];
     const cloth = parts.cloth!;
     const cw = L.xR - L.xL - 0.1;
     const stripes = Math.max(6, Math.round(cw / 0.14));
     const sw = cw / stripes;
     for (let i = 0; i < stripes; i++) {
       const x0 = L.xL + 0.05 + i * sw;
-      cloth.box(new Matrix4().makeRotationX(0.28).setPosition(x0 + sw / 2, 0.46, (pz0 + pz1) / 2 - 0.02), sw, 0.014, 0.2, i % 2 ? PAL.white : PAL.red);
-      cloth.sphere(v3(x0 + sw / 2, 0.42, (pz0 + pz1) / 2 + 0.08), sw * 0.5, i % 2 ? PAL.white : PAL.red, 1, 0.55, 0.35, 8, 4);
+      cloth.box(new Matrix4().makeRotationX(0.28).setPosition(x0 + sw / 2, 0.46, (pz0 + pz1) / 2 - 0.02), sw, 0.014, 0.2, stripe[i % 2]);
+      cloth.sphere(v3(x0 + sw / 2, 0.42, (pz0 + pz1) / 2 + 0.08), sw * 0.5, stripe[i % 2], 1, 0.55, 0.35, 8, 4);
     }
     for (let x = L.xL + 0.25; x < L.xR - 0.1; x += Math.max(0.6, (L.xR - L.xL - 0.5) / Math.max(1, Math.round((L.xR - L.xL) / 0.9)))) m.post(x, 0.1, (pz0 + pz1) / 2 - 0.04, 0.018, 0.34, '#2b2140', 6);
     m.cube(xc, 0.5, (pz0 + pz1) / 2 - 0.12, cw + 0.04, 0.035, 0.04, '#b83344', 0.012);
@@ -732,8 +743,19 @@ export class Renderer {
         case 'day':
           this.setupDay();
           break;
+        case 'special': {
+          const c = this.cell(e.at).setY(0.3);
+          this.burst(c, 22, e.special === 'launch' ? ['#7ff2ff', PAL.gold, PAL.white] : e.special === 'splash' ? ['#8fdcf6', PAL.white] : [PAL.red, PAL.gold]);
+          sfx.lay();
+          this.kick(2, 200);
+          break;
+        }
+        case 'unlock':
+          this.onUnlock(e.id);
+          break;
         case 'swipe':
           this.tileAnim = { start: this.now, move: e.result, fired: -1 };
+          if (e.result.chain.waves.length) music.combo(e.result.mergeCount);
           this.combo = null;
           break;
         case 'build': {
@@ -831,6 +853,21 @@ export class Renderer {
       const s = 0.4 + Math.random() * 0.5;
       this.particles.add({ p: at.clone(), v: v3(Math.cos(a) * s, 0.3 + Math.random() * 0.4, Math.sin(a) * s), g: 1.5, max: 0.45 + Math.random() * 0.2, color, size: 0.03 + Math.random() * 0.03, drag: 3 });
     }
+  }
+
+  /** A Water Splash: a crown of spray and droplets. */
+  splash(at: Vector3): void {
+    for (let k = 0; k < 26; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.6 + Math.random() * 1.1;
+      this.particles.add({ p: at.clone(), v: v3(Math.cos(a) * sp, 1.2 + Math.random() * 1.6, Math.sin(a) * sp), g: 5, max: 0.8 + Math.random() * 0.4, color: k % 3 ? '#8fdcf6' : '#fbf6ec', size: 0.025 + Math.random() * 0.02 });
+    }
+  }
+
+  /** Brake sparks. */
+  sparkBurst(at: Vector3, n: number): void {
+    for (let k = 0; k < n; k++)
+      this.sparks.add({ p: at.clone(), v: v3((Math.random() - 0.5) * 1.6, 0.4 + Math.random() * 0.9, (Math.random() - 0.5) * 1.6), g: 3, max: 0.35 + Math.random() * 0.25, color: k % 2 ? '#ffd23f' : '#ff9a3c', size: 0.02, drag: 0.5 });
   }
 
   burst(at: Vector3, n: number, ramp: readonly string[]): void {
@@ -972,6 +1009,7 @@ export class Renderer {
       this.shot = null;
       this.snapUntil = now + 320;
       sfx.slowOut();
+      music.slowmo(false);
       this.caption.classList.remove('on');
     }
     this.cine += ((this.shot ? 1 : 0) - this.cine) * Math.min(1, dt * (this.shot ? 7 : 4));
@@ -1002,6 +1040,7 @@ export class Renderer {
     this.drawCrates();
     this.drawTargets();
     this.drawQueue(dt);
+    this.updateThoughts();
     this.updateWalkers(gdt);
     if (this.ride) {
       this.ride.update(this.gameNow, gdt);
@@ -1191,6 +1230,15 @@ export class Renderer {
 
   // ---- Track -----------------------------------------------------------------------
 
+  /** Repaints the station (after picking a new paint job). */
+  restyleStation(): void {
+    if (!this.stationGroup) return;
+    this.world.remove(this.stationGroup);
+    this.stationGroup.traverse((o) => (o as Mesh).geometry?.dispose());
+    this.stationGroup = this.buildStation();
+    this.world.add(this.stationGroup);
+  }
+
   /** Rebuilds the park's bought structures when the set changes. */
   private syncStructures(): void {
     const g = this.game;
@@ -1294,7 +1342,8 @@ export class Renderer {
         m.layers.enable(BLOOM_LAYER);
         g.add(m);
       }
-      const k = `${c.x},${c.y}`;
+      // A crossing pass shares its cell with the track it crosses: key it apart.
+      const k = `${c.x},${c.y}${c.cross ? ',x' : ''}${c.special ? `,${c.special}` : ''}`;
       if (fresh && !had.has(k)) this.riseAt.set(k, this.now);
       this.cellGroups.set(k, g);
       this.trackGroup.add(g);
@@ -1521,7 +1570,16 @@ export class Renderer {
           const i = idx(b, x, y);
           const tile = b.tiles[i];
           const wall = isWall(b, x, y);
-          const ok = aim.tool === 'dynamite' ? !!b.obstacles[i] : aim.tool === 'paint' ? !!tile && tile < 7 && !wall : aim.first ? !wall : !!tile && !wall;
+          const special = aim.tool === 'launch' || aim.tool === 'splash' || aim.tool === 'brakes';
+          const ok = special
+            ? b.ends.some((e) => e.some((c) => c.x === x && c.y === y && !c.cross && !c.special))
+            : aim.tool === 'dynamite'
+              ? !!b.obstacles[i]
+              : aim.tool === 'paint'
+                ? !!tile && tile < 7 && !wall
+                : aim.first
+                  ? !wall
+                  : !!tile && !wall;
           if (ok) mark(x, y, blink ? PAL.heart : PAL.white, true);
         }
       if (aim.first) mark(aim.first.x, aim.first.y, PAL.gold, true);
@@ -1623,6 +1681,62 @@ export class Renderer {
       const q = this.project(v3(p.x, g.headY * g.scale * STAND_SCALE * 0.55, p.z));
       return [{ id: r.id, x: q.x, y: q.y }];
     });
+  }
+
+  /** Thought bubbles over guests' heads (one at a time, now and then). */
+  private thoughts: { el: HTMLElement; at: () => Vector3 | null; until: number }[] = [];
+  private nextThought = 0;
+
+  private updateThoughts(): void {
+    const g = this.game;
+    const now = this.now;
+    // Bubbles follow their guest; old ones fade out.
+    this.thoughts = this.thoughts.filter((t) => {
+      const at = t.at();
+      if (!at || now > t.until) {
+        t.el.classList.add('out');
+        setTimeout(() => t.el.remove(), 300);
+        return false;
+      }
+      const p = this.local(at);
+      t.el.style.transform = `translate(${this.canvas.offsetLeft + p.x}px, ${this.canvas.offsetTop + p.y}px) translate(-20%, -100%)`;
+      return true;
+    });
+    if (now < this.nextThought || this.thoughts.length || this.inShot) return;
+    this.nextThought = now + 2600 + Math.random() * 2400;
+    if (g.phase === 'build' || g.phase === 'intro') {
+      const standing = g.queue.filter((r) => this.riderPos.get(r.id) && !this.riderPos.get(r.id)!.moving && r.id !== this.hoverId);
+      if (!standing.length) return;
+      const r = standing[Math.floor(Math.random() * standing.length)];
+      const stats = g.stats;
+      const built = g.board.ends[0].length + g.board.ends[1].length;
+      const text = lineThought(r, {
+        pukes: built ? g.pukes(r) : 0,
+        length: built,
+        inversions: stats.inversions,
+        thrill: stats.thrill,
+        ready: g.openKind === 'circuit',
+        dark: g.daylight <= 0,
+      });
+      const geo = personGeo(r.look, 'smile');
+      this.think(text, () => {
+        const p = this.riderPos.get(r.id);
+        return p && g.queue.includes(r) ? v3(p.x, geo.headY * geo.scale * STAND_SCALE + 0.08, p.z) : null;
+      });
+    } else if (g.phase === 'results' && this.lineup.length) {
+      const w = this.lineup[Math.floor(Math.random() * this.lineup.length)];
+      if (!w.rider || w.x !== w.tx) return;
+      const geo = personGeo(w.look, 'smile');
+      this.think(rideThought(w.rider, w.pukes ?? 0), () => (this.lineup.includes(w) ? v3(w.x, this.floorY(w.x, w.z) + geo.headY * geo.scale * STAND_SCALE + 0.08, w.z) : null));
+    }
+  }
+
+  private think(text: string, at: () => Vector3 | null): void {
+    const el = document.createElement('div');
+    el.className = 'thought';
+    el.textContent = text;
+    this.canvas.parentElement!.append(el);
+    this.thoughts.push({ el, at, until: this.now + 2600 + text.length * 45 });
   }
 
   /** The guest the pointer is on: they wave back. */
@@ -1763,6 +1877,7 @@ export class Renderer {
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     if (!this.shot) {
       sfx.slowIn();
+      music.slowmo(true);
       this.shotAt.copy(at());
       this.flash = Math.max(this.flash, 0.35);
       this.beat = this.now + 140;
@@ -1918,6 +2033,8 @@ export class Renderer {
         sick: pukes > 0,
         delay: i * 90,
         hold: true,
+        rider,
+        pukes,
       };
       this.lineup.push(w);
       this.addWalker(w);

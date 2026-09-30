@@ -1,5 +1,5 @@
 import type { Rng } from '../core/rng';
-import { MAX_TIER } from './pieces';
+import { MAX_TIER, type SpecialId } from './pieces';
 
 // Two separate actions:
 //  - Swipe: 2048 rules. Loose tiles slide and merge, fresh merges chain.
@@ -8,6 +8,12 @@ import { MAX_TIER } from './pieces';
 // climbs in from its left cell, the blue end (1) from its right cell. When the
 // two ends meet, the circuit can open as a full ride; before that, as a
 // half-price shuttle. Laid track is a wall that loose tiles can't pass.
+//
+// Crossings: the track may cross itself at right angles through a straight,
+// low piece (Flat, Bump or Hill) that nothing crosses yet. Over flat track it's
+// a bridge, under a Bump or Hill a tunnel. A crossing pass runs straight on.
+// Piers: where the park allows it (the Boardwalk), track can be built out over
+// ponds: a flat pier run.
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export const DIRS: readonly Dir[] = ['up', 'down', 'left', 'right'];
@@ -25,6 +31,12 @@ export interface Pt {
 
 export interface TrackCell extends Pt {
   tier: number;
+  /** A second pass through a cell the track already runs through (a bridge or tunnel). */
+  cross?: boolean;
+  /** Built out over a pond. */
+  pier?: boolean;
+  /** A special piece fitted onto this track. */
+  special?: SpecialId;
 }
 
 export type ObstacleKind = 'tree' | 'rock' | 'pond' | 'stand';
@@ -42,6 +54,8 @@ export interface Board {
   opened: 'circuit' | 'shuttle' | null;
   /** Sand or mud: a loose tile resting here after a swipe sinks one tier. */
   soft: boolean[];
+  /** Track may be built out over ponds (Boardwalk piers). */
+  piers?: boolean;
 }
 
 /** Track cells needed before the circuit may close (smallest ride is a U: up, across, down). */
@@ -103,15 +117,64 @@ export interface BuildTarget extends Pt {
   end: End;
 }
 
+/** A fresh cell track can be laid into: free, or a pond where piers are allowed. */
+export function buildable(b: Board, x: number, y: number): boolean {
+  if (!inBounds(b, x, y) || trackAt(b, x, y)) return false;
+  const ob = b.obstacles[idx(b, x, y)];
+  return !ob || (!!b.piers && ob === 'pond');
+}
+
+/** Every pass of the track through (x, y), as [end, index]. */
+export function passesAt(b: Board, x: number, y: number): [End, number][] {
+  const out: [End, number][] = [];
+  b.ends.forEach((e, end) => e.forEach((c, i) => c.x === x && c.y === y && out.push([end as End, i])));
+  return out;
+}
+
+/** The cell a track cell was entered from (the platform for the first one). */
+function prevOf(b: Board, end: End, i: number): Pt {
+  return i === 0 ? stationPoint(b, end) : b.ends[end][i - 1];
+}
+
+/** Can the track, arriving from `from`, cross straight over (or under) the track at (x, y)? */
+export function crossable(b: Board, x: number, y: number, from: Pt): boolean {
+  const passes = passesAt(b, x, y);
+  if (passes.length !== 1) return false;
+  const [end, i] = passes[0];
+  const c = b.ends[end][i];
+  const next = b.ends[end][i + 1];
+  if (c.cross || c.pier || c.special || c.tier > 2 || !next) return false;
+  const prev = prevOf(b, end, i);
+  // The crossed piece runs straight through, and the new pass meets it at right angles.
+  if (prev.x - c.x !== c.x - next.x || prev.y - c.y !== c.y - next.y) return false;
+  const d = { x: x - from.x, y: y - from.y };
+  if (d.x * (next.x - c.x) + d.y * (next.y - c.y) !== 0) return false;
+  // There must be somewhere to go on the far side.
+  const beyond = { x: x + d.x, y: y + d.y };
+  const other = [head(b, 0), head(b, 1)].some((h) => samePt(h, beyond));
+  return buildable(b, beyond.x, beyond.y) || other;
+}
+
+/** A crossing pass must run straight on: the only way out of it. */
+function straightOn(b: Board, end: End): Dir | null {
+  const e = b.ends[end];
+  const h = e[e.length - 1];
+  if (!h?.cross) return null;
+  const p = prevOf(b, end, e.length - 1);
+  return DIRS.find((d) => DELTA[d].x === h.x - p.x && DELTA[d].y === h.y - p.y) ?? null;
+}
+
 /** Cells the given end (or either end) could build into next. */
 export function buildTargets(b: Board, only?: End): BuildTarget[] {
   if (b.opened) return [];
   const out: BuildTarget[] = [];
   for (const end of [0, 1] as End[]) {
     if (only !== undefined && end !== only) continue;
-    for (const d of DIRS) {
-      const t = step(head(b, end), d);
-      if (!isWall(b, t.x, t.y)) out.push({ ...t, end });
+    const h = head(b, end);
+    const on = straightOn(b, end);
+    for (const d of on ? [on] : DIRS) {
+      const t = step(h, d);
+      if (buildable(b, t.x, t.y) || crossable(b, t.x, t.y, h)) out.push({ ...t, end });
     }
   }
   return out;
@@ -121,7 +184,16 @@ export function buildTargets(b: Board, only?: End): BuildTarget[] {
 export function canConnect(b: Board): boolean {
   if (b.opened || trackLength(b) < MIN_LOOP) return false;
   const [a, c] = [head(b, 0), head(b, 1)];
-  return !samePt(a, c) && adjacent(a, c);
+  if (samePt(a, c) || !adjacent(a, c)) return false;
+  // A head on a crossing can only join straight ahead.
+  for (const [end, other] of [
+    [0, c],
+    [1, a],
+  ] as [End, Pt][]) {
+    const on = straightOn(b, end);
+    if (on && !samePt(step(head(b, end), on), other)) return false;
+  }
+  return true;
 }
 
 export function canShuttle(b: Board): boolean {
@@ -132,11 +204,18 @@ export function isBoxedIn(b: Board): boolean {
   return !b.opened && !canConnect(b) && buildTargets(b).length === 0;
 }
 
-/** Lays the tile at (x, y) into the track from the given end. */
+/** Lays the tile at (x, y) into the track from the given end (a crossing or pier is flat track). */
 export function build(b: Board, end: End, x: number, y: number): TrackCell | null {
   if (!buildTargets(b, end).some((t) => t.x === x && t.y === y)) return null;
   const i = idx(b, x, y);
   const laid: TrackCell = { x, y, tier: b.tiles[i] };
+  if (trackAt(b, x, y)) {
+    laid.tier = 0;
+    laid.cross = true;
+  } else if (b.obstacles[i] === 'pond') {
+    laid.tier = 0;
+    laid.pier = true;
+  }
   b.tiles[i] = 0;
   b.ends[end].push(laid);
   return laid;
@@ -145,6 +224,9 @@ export function build(b: Board, end: End, x: number, y: number): TrackCell | nul
 export interface RideStop extends Pt {
   tier: number;
   station: boolean;
+  cross?: boolean;
+  pier?: boolean;
+  special?: SpecialId;
 }
 
 /** The order the train visits cells, from the platform back to the platform. */

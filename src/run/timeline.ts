@@ -1,4 +1,4 @@
-import { PIECES, type StatMods } from '../puzzle/pieces';
+import { type PieceCell, SPLASH_MULT, type StatMods, cellThrill } from '../puzzle/pieces';
 import { pukesFor } from '../riders/riders';
 import type { Effect, Score } from './attractions';
 
@@ -42,8 +42,8 @@ export type ScoreEvent =
   | (EventBase & { kind: 'slam' });
 
 export interface TimelineRider {
-  /** Nausea one piece of this tier gives the rider (after attractions). */
-  nausea: (tier: number) => number;
+  /** Nausea the piece at this stop index gives the rider (after attractions and special pieces). */
+  nausea: (stop: number) => number;
   /** Nausea per puke (after upgrades and attractions). */
   stomach: number;
   worth: number;
@@ -52,7 +52,7 @@ export interface TimelineRider {
 
 export interface TimelineInput {
   /** The ride in order (`rideOrder`), stations included. */
-  stops: readonly { x: number; y: number; tier: number; station: boolean }[];
+  stops: readonly (PieceCell & { x: number; y: number; station: boolean })[];
   mods: StatMods;
   score: Score;
   shuttle: boolean;
@@ -86,10 +86,11 @@ export function rideTimeline(input: TimelineInput): ScoreEvent[] {
   let chipsSoFar = 0;
   stops.forEach((s, i) => {
     if (s.station) return;
-    const key = `${s.x},${s.y}`;
+    // A crossing is a second pass through the same cell: it counts as its own piece.
+    const key = `${s.x},${s.y}${s.cross ? 'x' : ''}`;
     if (seen.has(key)) return;
     seen.add(key);
-    rawThrill += PIECES[s.tier].thrill + (s.tier === 0 ? mods.flatThrill : 0);
+    rawThrill += cellThrill(s, mods);
     pieces++;
     const chips = Math.round(rawThrill * mods.thrillMult) + pieces;
     raw.push({ ...blank, kind: 'chips', at: i, stop: i, tier: s.tier, amount: chips - chipsSoFar });
@@ -98,6 +99,7 @@ export function rideTimeline(input: TimelineInput): ScoreEvent[] {
       types.add(s.tier);
       if (types.size > 1) raw.push({ ...blank, kind: 'mult', at: i + 0.01, stop: i, tier: s.tier, amount: 0.5 });
     }
+    if (s.special === 'splash') raw.push({ ...blank, kind: 'mult', at: i + 0.015, stop: i, tier: s.tier, amount: SPLASH_MULT });
   });
 
   // Pukes: each rider's nausea builds piece by piece; a puke fires on the piece
@@ -107,7 +109,7 @@ export function rideTimeline(input: TimelineInput): ScoreEvent[] {
     let done = 0;
     stops.forEach((s, i) => {
       if (s.station) return;
-      nausea += r.nausea(s.tier);
+      nausea += r.nausea(i);
       const due = pukesFor(nausea, r.stomach);
       for (let n = done + 1; n <= due; n++)
         raw.push({ ...blank, kind: 'puke', at: i + car * lag + 0.02 + n * 0.001, stop: i, car, nth: n, worth: r.worth, boss: r.boss });

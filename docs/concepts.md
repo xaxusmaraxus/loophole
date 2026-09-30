@@ -201,6 +201,17 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Route map, Slay the Spire style.** A painted map of the park, read from the gates at the bottom up to the boss's lair at the top. Every stop is a little clay diorama (a loop for a day, a crown on a red carpet for a VIP, a storm cloud, the shop's striped tent, a patched-up heart, the capsule machine, the boss on a pedestal). Inked trails join each stop to every stop in the next row; the ones you can take next march toward you in gold, the route you took is red, and a coaster-car token marks where you are. Each park has its own terrain: a duck pond in the Meadow, the sea and palms on the Boardwalk, a moon and tombstones in the Hollow, bunting at the Grand Opening.
 - **What you buy stands in the park.** Every attraction gets its own landmark on a lot beside or behind the board, in the same left-to-right order as the cards (Splash Zone is a fountain, Photo Booth a booth with a flash, Adrenaline Junkie a drop tower, Corn Dog Cart a cart with a giant corn dog, Twilight Ride a moon lamp, and so on); it bounces when it scores and when you hover its card. Upgrades are props on the free side of the plaza (a clock tower for Late Closing, a fry stand for Greasy Fries, a billboard, a tool shed...). Every bus tour parks a bus behind the board.
 
+## Park twists, crossings, special pieces, unlocks, thoughts, music (v0.18)
+- **Crossings (bridges and tunnels).** The track may cross itself at right angles through a straight Flat, Bump or Hill that nothing crosses yet; the crossing pass then runs straight on. Over flat track it's a bridge on trestles; under a Bump or Hill it's a tunnel through a clay mound, and the train disappears inside. Each crossing is a near miss: +3 thrill. It gives the puzzle new room: the ends can weave past each other.
+- **Boardwalk piers.** On the Boardwalk (and at the Grand Opening), track can be built out over ponds on a plank pier: flat, with a sea breeze (+2 thrill). The Boardwalk has more water to make it matter.
+- **Hollow ghosts.** Ghosts only feel upside-down pieces, but those hit them double (and a ghost puke is still worth double). Build loops for the Hollow.
+- **Special pieces**, fitted onto built track like a tool: **Launch** (+10 thrill, and the next piece hits every rider double; the train fires off with a whoosh), **Water Splash** (+1 multiplier; a pool under the track and a splash that soaks the riders), **Brake Run** (+3 nausea for every rider; the train slams to a near stop in a shower of sparks). They come from rewards and the shop once unlocked.
+- **Unlocks across seasons**, kept in local storage: Launch (make Big Barry puke), Water Splash (Iron-Gut Ivy), Brake Run (Dr. Vertigo), a Thermos (+1 Coffee every season, 100 pukes), a Crane license (+1 Crane, 500 pukes), Headliner (a free Launch every season, a 100,000-ticket ride), and two station paint jobs (candy stripe after 3 seasons, gold after a win). The 🎁 button lists them all with how to earn each.
+- **Guest thoughts** (RCT nod): now and then a guest in line says what they think, and it reads the ride: grandmas fret about loops, thrill seekers are bored by bumps, the corn dog guy regrets lunch, ghosts only want to go upside down; anyone the ride will make puke gets nervous. After the ride, the lineup reacts ("Never again.", "Again!").
+- **Chiptune park music.** Four hand-written songs (Meadow carnival in F, Boardwalk surf in E mixolydian, Hollow spooky-silly swing in D minor, a Grand Opening march in Bb), synthesized live. Layers build from bass and pad (map) to drums and arps (building) to the full band (the ride); chain reactions lift the band for a few bars, and big ones add a drum fill and a key change. Slow motion sweeps a filter down; the target, boss pukes and a lost day get stingers. Its own 🎵 toggle.
+- **New piece tiles.** Soft clay plinths instead of slatted crates, with a chunky 3D clay model of the actual coaster element on the lid and tier pips on the front. The hierarchy reads at a glance: plain pillows for Bump and Hill, stepped feet and belts from Drop and Helix, gold trim from Loop, aqua gems on the Corkscrew, and pearl, rubies and a gold crown on the Mega Loop. Fog tiles are lavender with a big clay question mark.
+- **The route map, take two.** Calmer and more premium: a lit, painted gradient, a few big soft shapes, one themed feature (a river, the sea, the moon, bunting), a gilt frame, and only your route and the trails you can take now drawn strongly. The car token drives along the trail to the stop you pick.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
@@ -216,17 +227,17 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 ### What keeps later stages hard
 - **Contracts:** VIPs and inspectors with exact demands ("exactly 2 inversions, length 12+, nausea under 10").
 - **Board modifiers:** rusty tiles that fall a tier each swipe until merged, locked crates that open after a merge next to them, puddles from rain, wind that shifts one row.
-- **Rival park across the road:** your excitement must beat theirs or part of the line walks over.
+- **Rival park across the road (multiplayer):** saved for a multiplayer version: two players build side by side, and the better ride pulls the other's line over.
 - **Multiple stations:** two rides on one board, sharing space. Track crossings need a Tunnel or Bridge piece.
 
 ### Stuff that makes it more awesome
-- *(Built in v0.17.)* **An illustrated route map** (Slay the Spire style). Next: let the token ride along the trail when you pick a stop.
+- *(Built in v0.17, v0.18.)* **An illustrated route map** (Slay the Spire style), with the car token driving along the trail.
 - *(Built in v0.12.)* **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
-- **Guest thought feed** (RCT nod): little quotes pop up ("This looks too intense for me", "I want to go on something more thrilling").
-- **Special pieces:** Launch (speed boost), Water Splash (soaks the front row), Tunnel (passes under your own track), Brake Run (cancels nausea).
+- *(Built in v0.18.)* **Guest thoughts.**
+- *(Built in v0.18.)* **Special pieces and crossings:** Launch, Water Splash, Brake Run, bridges and tunnels. Brake Run became a nausea jolt instead of cancelling nausea, since puking is the goal.
 - **Daily seed challenge**, since runs are already seeded; a leaderboard per seed (the highscore board is built in v0.15).
-- **Chiptune park music** that layers up with combos, and fireworks when you beat the target by a lot.
-- **Meta-progression:** unlock new pieces, riders, station styles and starting tools across runs.
+- *(Built in v0.18.)* **Chiptune park music** that layers up with combos (fireworks were already in).
+- *(Started in v0.18.)* **Meta-progression:** special pieces, starting tools and station paint jobs unlock. Next: unlockable riders and attractions.
 
 ## Name
 **Loophole** (picked). Other candidates: Thrill Issues, Hold Your Lunch, Queasy Does It.

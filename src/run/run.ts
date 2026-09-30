@@ -1,4 +1,5 @@
 import type { Rng } from '../core/rng';
+import type { SpecialId } from '../puzzle/pieces';
 import { type Board, type ObstacleKind, idx, isWall } from '../puzzle/board';
 import { type BossId, KINDS, type RiderKind } from '../riders/riders';
 import { ATTRACTIONS, type AttractionId } from './attractions';
@@ -43,7 +44,14 @@ export const TOOLS: Record<ToolId, ToolDef> = {
   megaphone: { name: 'Megaphone', desc: 'Call 3 more riders into line right now.', aim: null, charges: 1 },
 };
 
-export type Reward = { kind: 'upgrade'; id: UpgradeId } | { kind: 'tool'; id: ToolId } | { kind: 'attraction'; id: AttractionId };
+export type Reward =
+  | { kind: 'upgrade'; id: UpgradeId }
+  | { kind: 'tool'; id: ToolId }
+  | { kind: 'attraction'; id: AttractionId }
+  | { kind: 'special'; id: SpecialId };
+
+/** Special pieces a reward or shop hands out: one charge each. */
+export const SPECIAL_CHARGES = 1;
 
 export interface Mods {
   thrillMult: number;
@@ -91,7 +99,7 @@ export function attractionPicks(rng: Rng, owned: readonly AttractionId[], n: num
  * (a second tool if the attraction slots are full). `allAttractions` is for
  * storm days and treasure stops.
  */
-export function rewardOffer(rng: Rng, owned: readonly AttractionId[], slotsFree: boolean, allAttractions = false): Reward[] {
+export function rewardOffer(rng: Rng, owned: readonly AttractionId[], slotsFree: boolean, allAttractions = false, specials: readonly SpecialId[] = []): Reward[] {
   if (allAttractions && slotsFree) {
     const picks = attractionPicks(rng, owned, 3).map((id): Reward => ({ kind: 'attraction', id }));
     if (picks.length) return picks;
@@ -100,7 +108,9 @@ export function rewardOffer(rng: Rng, owned: readonly AttractionId[], slotsFree:
   const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]);
   const attraction = slotsFree ? attractionPicks(rng, owned, 1)[0] : undefined;
   const third: Reward = attraction ? { kind: 'attraction', id: attraction } : { kind: 'tool', id: tools[1] };
-  return rng.shuffle<Reward>([{ kind: 'upgrade', id: ups[0] }, { kind: 'tool', id: tools[0] }, third]);
+  // Once special pieces are unlocked, the tool pick is often one of them instead.
+  const tool: Reward = specials.length && rng.chance(0.5) ? { kind: 'special', id: rng.pick([...specials]) } : { kind: 'tool', id: tools[0] };
+  return rng.shuffle<Reward>([{ kind: 'upgrade', id: ups[0] }, tool, third]);
 }
 
 // ---- Season -----------------------------------------------------------------
@@ -121,6 +131,10 @@ export interface ParkDef {
   soft: number;
   /** Tiles far from the track are hidden as mystery crates. */
   fog: boolean;
+  /** Track can be built out over ponds on piers. */
+  piers: boolean;
+  /** Where there are piers: the share of obstacles that are ponds. */
+  ponds: number;
 }
 
 export const PARKS: Record<ParkId, ParkDef> = {
@@ -128,28 +142,42 @@ export const PARKS: Record<ParkId, ParkDef> = {
     id: 'meadow',
     name: 'Meadow Park',
     intro: 'A quiet field, a station and a queue. Build your first coasters here.',
-    rules: ['Swipe to merge, tap to build, connect the pennants.'],
+    rules: ['Swipe to merge, tap to build, connect the pennants.', 'The track can cross itself: over flat track on a bridge, under a Bump or Hill through a tunnel.'],
     size: 5,
     soft: 0,
     fog: false,
+    piers: false,
+    ponds: 1 / 6,
   },
   boardwalk: {
     id: 'boardwalk',
     name: 'Sunny Boardwalk',
     intro: 'Sea air, sticky fingers, and patches of soft sand everywhere.',
-    rules: ['Sand: a loose tile that ends a swipe on sand sinks one tier. A Bump sinks away completely.', 'Track built over sand is perfectly safe.'],
+    rules: [
+      'Sand: a loose tile that ends a swipe on sand sinks one tier. A Bump sinks away completely.',
+      'Track built over sand is perfectly safe.',
+      'Piers: you can build track out over the water. A pier run is flat, with a sea breeze: +2 thrill.',
+    ],
     size: 6,
     soft: 0.18,
     fog: false,
+    piers: true,
+    ponds: 0.45,
   },
   hollow: {
     id: 'hollow',
     name: 'Haunted Hollow',
     intro: 'Mist, mud, and guests who are not entirely alive.',
-    rules: ['Fog: tiles far from your track are mystery crates until the track gets close.', 'Mud works like sand.', 'Ghost riders can’t get sick. They tip for a nauseating ride.'],
+    rules: [
+      'Fog: tiles far from your track are mystery crates until the track gets close.',
+      'Mud works like sand.',
+      'Ghosts only feel upside-down pieces, but those hit them double, and a ghost’s puke is worth double.',
+    ],
     size: 6,
     soft: 0.14,
     fog: true,
+    piers: false,
+    ponds: 1 / 6,
   },
   finale: {
     id: 'finale',
@@ -159,6 +187,8 @@ export const PARKS: Record<ParkId, ParkDef> = {
     size: 7,
     soft: 0.12,
     fog: true,
+    piers: true,
+    ponds: 0.3,
   },
 };
 
@@ -289,10 +319,11 @@ export type ShopItem =
   | { kind: 'tool'; id: ToolId; price: number; sold: boolean }
   | { kind: 'upgrade'; id: UpgradeId; price: number; sold: boolean }
   | { kind: 'attraction'; id: AttractionId; price: number; sold: boolean }
+  | { kind: 'special'; id: SpecialId; price: number; sold: boolean }
   | { kind: 'heart'; price: number; sold: boolean };
 
 /** Prices scale with the season, like the targets do. */
-export function shopStock(rng: Rng, day: number, owned: readonly AttractionId[]): ShopItem[] {
+export function shopStock(rng: Rng, day: number, owned: readonly AttractionId[], specials: readonly SpecialId[] = []): ShopItem[] {
   const price = (base: number) => Math.round((base * priceScale(day)) / 10) * 10;
   const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]).slice(0, 1);
   const up = rng.pick(Object.keys(UPGRADES) as UpgradeId[]);
@@ -304,6 +335,7 @@ export function shopStock(rng: Rng, day: number, owned: readonly AttractionId[])
     ...attractions.map((id): ShopItem => ({ kind: 'attraction', id, price: price(ATTRACTIONS[id].rarity === 'rare' ? 260 : 170), sold: false })),
     ...tools.map((id): ShopItem => ({ kind: 'tool', id, price: price(60 + rng.int(4) * 10), sold: false })),
     { kind: 'upgrade', id: up, price: price(180), sold: false },
+    ...(specials.length ? [{ kind: 'special', id: rng.pick([...specials]), price: price(120), sold: false } as ShopItem] : []),
     { kind: 'heart', price: price(220), sold: false },
   ];
 }
@@ -329,6 +361,7 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
       ends: [[], []],
       opened: null,
       soft: new Array(n * n).fill(false),
+      piers: cfg.park.piers,
     };
     // Keep the two rows above the platform clear so a first loop is always possible.
     const nearStation = (x: number, y: number) => y >= n - 2 && x >= station.x - 1 && x <= station.x + 2;
@@ -337,7 +370,7 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
       const x = rng.int(n);
       const y = rng.int(n);
       if (nearStation(x, y) || b.obstacles[idx(b, x, y)]) continue;
-      b.obstacles[idx(b, x, y)] = rng.pick(OBSTACLES);
+      b.obstacles[idx(b, x, y)] = cfg.park.piers && rng.chance(cfg.park.ponds) ? 'pond' : rng.pick(OBSTACLES);
       placed++;
     }
     if (!allFreeConnected(b) && attempt < 30) continue;

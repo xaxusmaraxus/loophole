@@ -20,6 +20,45 @@ export const PIECES: readonly Piece[] = [
 
 export const MAX_TIER = PIECES.length - 1;
 
+// Special pieces get fitted onto built track (they come from rewards once unlocked):
+//  - Launch: a catapult start: +10 thrill, and the piece after it hits every rider double.
+//  - Water Splash: a splashdown that soaks the riders: +1 multiplier.
+//  - Brake Run: slams the train to a stop and off again: +3 nausea for everyone.
+export type SpecialId = 'launch' | 'splash' | 'brakes';
+
+export const SPECIALS: Record<SpecialId, { name: string; desc: string }> = {
+  launch: { name: 'Launch', desc: 'Fit onto track: +10 thrill, and the piece after it hits every rider double.' },
+  splash: { name: 'Water Splash', desc: 'Fit onto track: a splashdown that soaks the riders. +1 multiplier.' },
+  brakes: { name: 'Brake Run', desc: 'Fit onto track: slams the train to a stop and off again. +3 nausea for every rider.' },
+};
+
+export const PIER_THRILL = 2;
+export const CROSS_THRILL = 3;
+export const LAUNCH_THRILL = 10;
+export const SPLASH_MULT = 1;
+export const BRAKES_NAUSEA = 3;
+
+/** What a track cell is, for scoring: its piece, plus anything special about it. */
+export interface PieceCell {
+  tier: number;
+  /** A pier run over a pond: flat, with a sea breeze. */
+  pier?: boolean;
+  /** A bridge or tunnel pass: a near miss with the track it crosses. */
+  cross?: boolean;
+  special?: SpecialId;
+}
+
+/** Raw thrill of one cell, before the run's thrill multiplier. */
+export function cellThrill(c: PieceCell, mods: StatMods): number {
+  return (
+    PIECES[c.tier].thrill +
+    (c.tier === 0 ? mods.flatThrill : 0) +
+    (c.pier ? PIER_THRILL : 0) +
+    (c.cross ? CROSS_THRILL : 0) +
+    (c.special === 'launch' ? LAUNCH_THRILL : 0)
+  );
+}
+
 export function mergeTier(tier: number): number {
   return Math.min(tier + 1, MAX_TIER);
 }
@@ -36,8 +75,10 @@ export interface RideStats {
   tierCounts: number[];
   /** Base excitement (Balatro's chips): thrill + length. */
   chips: number;
-  /** Base multiplier: 1, +0.5 per distinct piece type past the first. */
+  /** Base multiplier: 1, +0.5 per distinct piece type past the first, +1 per Water Splash. */
   mult: number;
+  /** Bridges and tunnels. */
+  crossings: number;
 }
 
 export interface StatMods {
@@ -45,16 +86,21 @@ export interface StatMods {
   flatThrill: number;
 }
 
-export function rideStats(path: readonly { tier: number }[], mods: StatMods): RideStats {
+export function rideStats(path: readonly PieceCell[], mods: StatMods): RideStats {
   let thrill = 0;
   let nausea = 0;
   let inversions = 0;
   let topTier = 0;
+  let splashes = 0;
+  let crossings = 0;
   const tierCounts = new Array<number>(PIECES.length).fill(0);
-  for (const { tier } of path) {
+  for (const c of path) {
+    const { tier } = c;
     const p = PIECES[tier];
-    thrill += p.thrill + (tier === 0 ? mods.flatThrill : 0);
-    nausea += p.nausea;
+    thrill += cellThrill(c, mods);
+    nausea += p.nausea + (c.special === 'brakes' ? BRAKES_NAUSEA : 0);
+    if (c.special === 'splash') splashes++;
+    if (c.cross) crossings++;
     if (p.inversion) inversions++;
     tierCounts[tier]++;
     topTier = Math.max(topTier, tier);
@@ -70,6 +116,7 @@ export function rideStats(path: readonly { tier: number }[], mods: StatMods): Ri
     variety,
     tierCounts,
     chips: thrill + path.length,
-    mult: 1 + 0.5 * Math.max(0, variety - 1),
+    mult: 1 + 0.5 * Math.max(0, variety - 1) + SPLASH_MULT * splashes,
+    crossings,
   };
 }
