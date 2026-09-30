@@ -83,8 +83,8 @@ interface DownloadsNs {
 export async function savePhoto(): Promise<string | null> {
   const url = photoStore.card ?? photoStore.url;
   if (!url) return null;
-  const filename = 'loophole-ride-photo.png';
   const blob = await (await fetch(url)).blob();
+  const filename = blob.type === 'image/jpeg' ? 'loophole-ride-photo.jpg' : 'loophole-ride-photo.png';
   const host = (window as unknown as { claude?: { use(name: string): Promise<unknown> } }).claude;
   if (host?.use) {
     const dl = (await host.use('downloads')) as DownloadsNs | null;
