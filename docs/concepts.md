@@ -157,6 +157,11 @@ The web park is now a real-time **cel-shaded, ink-lined toy diorama** in Three.j
 - **Time of day:** golden light and warm water streaks late in the day, then dusk: blue-violet shade, the lamps cast warm pools of light, bulbs bloom. The Haunted Hollow is always half in dusk.
 - Code: `src/render/renderer.ts` (scene, camera framing, people, crates, effects), `src/render3d/` (`geo` batcher, `toon` material, `post` ink/bloom, `track` centerline + frames, `trackmesh`, `models`, `island`, `fx`, `portrait`), `src/ride/ride.ts` (route, speed, event timing).
 
+## Painterly look, puke finale, slow motion (v0.11)
+- **Painterly instead of cel-shaded:** soft wrapped light, no black ink lines. A Kuwahara (oil-paint) filter turns flat areas into soft dabs while keeping edges; edges pool a little darker pigment of their own color; a canvas weave and a slow mottle sit on top.
+- **The puke finale:** after the attractions fire, the riders line up in front of the station for a curtain call. Chips × mult slam into the final rating ("496 a puke"), then every rider who puked steps up in turn, smallest payout first: they double over and puke for the crowd, and a popup shows "NANA ×3 × 496 = +1,488" while the total climbs. Each rider's payout is their pukes re-paid at the final rating minus what their pukes already paid during the ride, so the pieces add up to the old slam exactly (balance unchanged). Then the total lands with the slam, confetti and fireworks. Skipping lands it at once.
+- **Slow motion, product-video style:** time drops to about an eighth, the camera pushes in on the subject from a lower angle with a slow orbit, cinema bars slide in, the frame desaturates a touch, and a swoosh plays in and out. It fires at the crown of the first loops and mega loops, the lip of a drop and the inverted middle of a corkscrew (up to 3 per ride), on the first puke of every boss and special rider (VIPs, influencers, ghosts), and for bosses and special riders during the finale. Particles, the train and the scoring timeline all run on the slowed game clock; the odometer keeps rolling in real time. Reduced-motion users get no slow motion.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

@@ -146,6 +146,16 @@ export const sfx = {
     [0, 7, 12, 16].forEach((k) => tone(262 * 2 ** (k / 12), 0.9, 'sawtooth', 0.025, 0.03));
     [0, 4, 7, 12].forEach((k, i) => tone(523 * 2 ** (k / 12), 0.25, 'triangle', 0.06, 0.25 + i * 0.06));
   },
+  /** Slow motion kicks in: a deep downward swoosh. */
+  slowIn: () => {
+    noise(0.55, 0.14, 0, 3200, 120, 2);
+    tone(420, 0.6, 'sine', 0.12, 0, 70);
+  },
+  /** ...and time snaps back: a short rising swoosh. */
+  slowOut: () => {
+    noise(0.3, 0.08, 0, 300, 3000, 2);
+    tone(90, 0.3, 'sine', 0.06, 0, 380);
+  },
   /** A firework rocket goes up: a thin rising whistle. */
   whistle: () => tone(900 + Math.random() * 200, 0.6, 'sine', 0.018, 0, 2200),
   /** ...and bursts: a soft crackling pop. */

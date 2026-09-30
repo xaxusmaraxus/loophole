@@ -20,7 +20,8 @@ const THRILL_WORDS = ['AAH', 'WHEE', 'EEK', 'WOW', 'YEE', 'OMG'];
 const OUTRO_MS = 2000;
 /** Minimum gap between scoring events, by kind (ms). */
 const GAP: Record<ScoreEvent['kind'], number> = { chips: 75, mult: 150, puke: 130, attraction: 520, slam: 450 };
-const SLOWMO_MS = 900;
+/** Most slow-motion moments per ride (not counting special riders' pukes). */
+const MAX_MOMENTS = 3;
 const STEP = 0.02;
 
 /** Where the lead car waits in the station: at the top of the red end's leg of the U. */
@@ -120,8 +121,15 @@ export class RideAnim {
   private next = 0;
   private lastFire = 0;
   private slamAt = 0;
-  private slowUntil = 0;
   private skipped = false;
+  /** Slow-motion moments this ride, and the chain cells that already had one. */
+  private moments = 0;
+  private lastMoment = -1e9;
+  private momentCells = new Set<number>();
+  private leadY = 0;
+  private rising = false;
+  /** The puke finale: per-rider payouts played one by one after the attractions. */
+  private finale: { at: number; fn: () => void }[] = [];
   private hRef: number;
   private park: number;
   private lastT = 0;
@@ -172,8 +180,8 @@ export class RideAnim {
       v *= Math.min(1, 0.2 + ((now - this.startAt) / 1000) * 1.4);
       v = Math.min(v, 0.3 + this.route.toTurn(this.d) * 2.4);
       this.v += (v - this.v) * Math.min(1, dt * 6);
-      const k = now < this.slowUntil ? 0.22 : 1;
-      this.d += this.v * dt * k;
+      this.d += this.v * dt;
+      this.checkMoment(now, lead.p.y, lead.up.y, lead.cell);
       for (let i = 0; i < this.cars; i++) {
         const stop = this.route.stopAt(this.d - i * CAR_GAP);
         if (stop < 0 || stop === this.carCell[i]) continue;
@@ -186,6 +194,25 @@ export class RideAnim {
       }
     }
     this.dispatch(now);
+    while (this.finale.length && this.finale[0].at <= now) this.finale.shift()!.fn();
+  }
+
+  /** Slow motion at the crown of a loop or the lip of a drop, a few times a ride. */
+  private checkMoment(now: number, y: number, upY: number, cell: number): void {
+    const tier = this.path.cells[cell]?.tier ?? 0;
+    const crest = this.rising && y < this.leadY - 1e-4;
+    this.rising = y > this.leadY + 1e-4 ? true : y < this.leadY - 1e-4 ? false : this.rising;
+    this.leadY = y;
+    if (this.moments >= MAX_MOMENTS || now - this.lastMoment < 2500 || this.momentCells.has(cell) || this.r.inShot) return;
+    const crown = (tier === 5 || tier === 7) && upY < -0.9;
+    const lip = tier === 3 && crest && y > 0.5;
+    const twist = tier === 6 && upY < -0.95;
+    if (!crown && !lip && !twist) return;
+    this.moments++;
+    this.lastMoment = now;
+    this.momentCells.add(cell);
+    this.r.dramatic(() => this.heads[0], tier === 7 ? 1400 : 1050, tier === 7 ? 0.36 : 0.45, 0.13);
+    sfx.scream();
   }
 
   /** Has the ride got far enough for this event to play? */
@@ -204,7 +231,7 @@ export class RideAnim {
     // When events pile up (a long train all puking at once), play them faster.
     let backlog = 0;
     for (let j = this.next; j < tl.length && backlog < 8 && this.ready(tl[j], now); j++) backlog++;
-    const gap = GAP[e.kind] * (now < this.slowUntil ? 2.5 : 1) * (backlog > 4 ? 0.45 : backlog > 2 ? 0.7 : 1);
+    const gap = GAP[e.kind] * (backlog > 4 ? 0.45 : backlog > 2 ? 0.7 : 1);
     if (now - this.lastFire < gap) return;
     this.lastFire = now;
     this.next++;
@@ -234,9 +261,7 @@ export class RideAnim {
 
   private fire(e: ScoreEvent, now: number): void {
     if (e.kind === 'slam') {
-      this.slamAt = now;
-      this.show.slam(e);
-      setTimeout(() => this.r.cheer(1.5), this.skipped ? 0 : 420);
+      this.startFinale(e, now);
       return;
     }
     const w = this.worldAt(e);
@@ -248,17 +273,102 @@ export class RideAnim {
       const hit = Math.min(1, e.pay / Math.max(1, this.result.target * 0.15));
       const carry = this.fwd.clone().multiplyScalar(this.v * this.route.dirAt(this.d));
       this.r.puke(w, e.boss ? 90 : 14 + Math.round(hit * 30), this.doneAt ? undefined : carry, this.fwd.clone().multiplyScalar(0.5).add(new Vector3(0, 0.3, 0)));
-      if (e.boss) {
-        this.slowUntil = now + SLOWMO_MS;
-        this.r.flashScreen(0.9);
+      if (e.boss) this.r.flashScreen(0.9);
+      // Bosses and special riders get the slow-motion close-up.
+      if ((e.boss || e.worth > 1) && e.nth === 1) {
+        const car = e.car;
+        this.r.dramatic(() => this.heads[car], e.boss ? 1700 : 1300, e.boss ? 0.28 : 0.34, 0.12);
       }
     }
+  }
+
+  /** What each rider is owed at the final rating, beyond what their pukes already paid. */
+  private payouts(e: ScoreEvent) {
+    const paid = new Map<number, number>();
+    const weight = new Map<number, number>();
+    for (const ev of this.timeline)
+      if (ev.kind === 'puke') {
+        paid.set(ev.car, (paid.get(ev.car) ?? 0) + ev.pay);
+        weight.set(ev.car, (weight.get(ev.car) ?? 0) + ev.worth);
+      }
+    return [...weight.entries()]
+      .map(([car, w]) => {
+        const t = this.result.tickets[car];
+        return { car, pukes: w, amount: e.rating * w - (paid.get(car) ?? 0), worth: t ? w / Math.max(1, t.pukes) : 1, t };
+      })
+      .filter((p) => p.amount > 0 && p.t)
+      .sort((a, b) => a.amount - b.amount);
+  }
+
+  /**
+   * The finale: the rating slams together, then every rider who puked steps up
+   * in turn and pukes once more for the crowd, cashing in all their pukes at
+   * the final rating. Smallest first, biggest last. The pieces add up to the
+   * slam's payout exactly; the total is set from the timeline at the end.
+   */
+  private startFinale(e: ScoreEvent, now: number): void {
+    const list = this.payouts(e);
+    if (!list.length) {
+      this.slamAt = now;
+      this.show.slam(e);
+      setTimeout(() => this.r.cheer(1.5), 420);
+      this.r.dismiss();
+      return;
+    }
+    this.show.finaleStart(e);
+    let t = now + 1100;
+    let gap = 700;
+    list.forEach((p, rank) => {
+      const boss = !!p.t!.rider.boss;
+      const special = boss || p.worth > 1;
+      if (special) t += 500;
+      const at = t;
+      this.finale.push({
+        at,
+        fn: () => {
+          if (special) this.r.dramatic(() => this.r.lineupHead(p.car), boss ? 1800 : 1400, 0.3, 0.16);
+          this.r.lineupPuke(p.car, boss ? 80 : 18 + Math.min(40, rank * 4));
+          this.show.finaleRider({
+            amount: p.amount,
+            name: p.t!.rider.name,
+            pukes: p.pukes,
+            worth: p.worth,
+            rating: e.rating,
+            at: this.r.project(this.r.lineupHead(p.car).setY(this.r.lineupHead(p.car).y + 0.12)),
+            special,
+            boss,
+            rank,
+          });
+        },
+      });
+      t += special ? 1500 : gap;
+      gap = Math.max(260, gap * 0.86);
+    });
+    this.finale.push({
+      at: t + 300,
+      fn: () => {
+        this.slamAt = this.r.gameNow;
+        this.show.finaleEnd(e);
+        this.r.cheer(1.5);
+        setTimeout(() => this.r.dismiss(), 900);
+      },
+    });
   }
 
   /** Click or space: the rest of the ride resolves at once (same totals). */
   skip(now: number): void {
     if (this.slamAt || now < this.startAt) return;
     this.skipped = true;
+    if (this.finale.length) {
+      // Mid-finale: land the total now.
+      this.finale = [];
+      this.next = this.timeline.length;
+      this.slamAt = now;
+      this.show.finaleEnd(this.timeline[this.timeline.length - 1], true);
+      this.r.cheer(1.5);
+      this.r.dismiss();
+      return;
+    }
     if (!this.doneAt) {
       this.doneAt = now;
       this.d = this.route.total;
@@ -274,6 +384,7 @@ export class RideAnim {
     this.slamAt = now;
     this.show.slam(tl[tl.length - 1], true);
     this.r.cheer(1.5);
+    this.r.dismiss();
   }
 
   private enterCell(i: number, stop: number): void {
@@ -292,7 +403,7 @@ export class RideAnim {
 
   /** The middle of the train, for the camera to lean toward. */
   focus(): Vector3 | null {
-    if (this.doneAt || this.r.now < this.startAt) return null;
+    if (this.doneAt || this.r.gameNow < this.startAt) return null;
     return this.path.sample(this.carS(Math.floor(this.cars / 2))).p;
   }
 

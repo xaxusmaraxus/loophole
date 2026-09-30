@@ -76,6 +76,20 @@ export interface Walker {
   delay: number;
   /** Walk phase, for the step animation. */
   ph?: number;
+  /** Stays put once it arrives (the curtain call after a ride). */
+  hold?: boolean;
+  /** Game time until which this guest is mid-puke. */
+  pukeUntil?: number;
+}
+
+/** A slow-motion camera shot on something (a rider, the lead car). */
+interface Shot {
+  at: () => Vector3;
+  start: number;
+  until: number;
+  zoom: number;
+  slow: number;
+  yaw: number;
 }
 
 interface Word {
@@ -170,6 +184,16 @@ export class Renderer {
   private flash = 0;
   private dusk = 0;
   private stationSign: Mesh | null = null;
+  /** The game clock: runs slower during slow motion (the ride, particles, walkers). */
+  gameNow = 0;
+  private shot: Shot | null = null;
+  private shotAt = new Vector3();
+  private shotYaw = 0;
+  private shotZoom = 0.4;
+  private cine = 0;
+  private bars: HTMLDivElement[] = [];
+  /** Riders lined up after the ride, by car index. */
+  private lineup: Walker[] = [];
   /** Test hook (?fixeddt=ms): advance a fixed step per frame, however slow the frames are. */
   private fixed = Number(new URLSearchParams(location.search).get('fixeddt') ?? 0);
   private vnow = 0;
@@ -231,6 +255,12 @@ export class Renderer {
     this.goEl.className = 'go3d';
     this.goEl.textContent = 'GO!';
     this.wordLayer.append(this.goEl);
+    for (const cls of ['lb-top', 'lb-bot']) {
+      const b = document.createElement('div');
+      b.className = `letterbox ${cls}`;
+      wrap.append(b);
+      this.bars.push(b);
+    }
     canvas.addEventListener('pointermove', (e) => (this.hover = this.cellAt(e.clientX, e.clientY)));
     canvas.addEventListener('pointerleave', () => (this.hover = null));
     const q = new URLSearchParams(location.search);
@@ -319,7 +349,8 @@ export class Renderer {
 
   /** Click or space during the ride: resolve the rest of the scoring at once. */
   skipRide(): void {
-    this.ride?.skip(this.now);
+    this.ride?.skip(this.gameNow);
+    this.shot = null;
   }
 
   // ---- Setup ---------------------------------------------------------------------
@@ -351,6 +382,9 @@ export class Renderer {
     this.ride = null;
     this.show.end();
     this.walkers = [];
+    this.lineup = [];
+    this.shot = null;
+    this.cine = 0;
     this.particles.clear();
     this.puddles = [];
     this.puddleDirty = true;
@@ -636,7 +670,7 @@ export class Renderer {
     });
     this.riderPos.clear();
     this.syncTrack();
-    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.show, this.now + 900);
+    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.show, this.gameNow + 900);
   }
 
   // ---- Effects ---------------------------------------------------------------------
@@ -698,7 +732,7 @@ export class Renderer {
         spin: v3(Math.random() * 10 - 5, Math.random() * 10 - 5, Math.random() * 10 - 5),
       });
     this.burst(this.stationCenter().setY(0.5), Math.round(30 * power), [PAL.gold, PAL.heart, PAL.white]);
-    if (power >= 1) this.fireworks(Math.round(1 + power * 2));
+    if (power >= 1 && !this.shot) this.fireworks(Math.round(1 + power * 2));
   }
 
   /** Rockets from behind the island that burst into glowing sparks. */
@@ -772,6 +806,16 @@ export class Renderer {
     if (this.fixed) now = this.vnow += this.fixed;
     const dt = Math.min(this.fixed ? this.fixed / 1000 : 0.05, (now - this.now) / 1000 || 0);
     this.now = now;
+    // Slow motion: ease into the shot's time scale, and back out.
+    if (this.shot && now > this.shot.until) {
+      this.shot = null;
+      sfx.slowOut();
+    }
+    this.cine += ((this.shot ? 1 : 0) - this.cine) * Math.min(1, dt * (this.shot ? 7 : 4));
+    if (this.cine < 0.002) this.cine = 0;
+    const scale = 1 - this.cine * (1 - (this.shot?.slow ?? 0.2));
+    const gdt = dt * scale;
+    this.gameNow += gdt * 1000;
     this.handleEvents();
     SHARED.uTime.value = now / 1000;
     this.fireTileEffects();
@@ -782,11 +826,11 @@ export class Renderer {
     this.drawCrates();
     this.drawTargets();
     this.drawQueue(dt);
-    this.updateWalkers(dt);
+    this.updateWalkers(gdt);
     if (this.ride) {
-      this.ride.update(now, dt);
-      this.ride.draw(now);
-      if (this.ride.finished(now)) {
+      this.ride.update(this.gameNow, gdt);
+      this.ride.draw(this.gameNow);
+      if (this.ride.finished(this.gameNow)) {
         this.ride = null;
         this.onRideDone();
       }
@@ -795,8 +839,8 @@ export class Renderer {
     const due = this.later.filter((l) => l.at <= now);
     this.later = this.later.filter((l) => l.at > now);
     for (const l of due) l.fn();
-    this.particles.update(dt);
-    this.sparks.update(dt);
+    this.particles.update(gdt);
+    this.sparks.update(gdt);
     if (this.puddleDirty) this.rebuildPuddles();
     this.animateScenery(now);
     this.crates.end();
@@ -808,6 +852,8 @@ export class Renderer {
     this.updateCamera(dt);
     this.flash = Math.max(0, this.flash - dt * 4);
     this.post.mat.uniforms.uFlash.value = this.flash * 0.5;
+    this.post.mat.uniforms.uCine.value = this.cine;
+    this.drawBars();
     this.post.render(this.gl, this.scene, this.camera, now / 1000);
     this.drawWords();
     this.drawCombo();
@@ -825,8 +871,25 @@ export class Renderer {
     f.w += ((want ? 1 : 0) - f.w) * Math.min(1, dt * 2.2);
     if (want) f.at.lerp(want, f.w < 0.05 ? 1 : Math.min(1, dt * 3));
     const target = this.base.target.clone().lerp(f.at, f.w * 0.38);
-    const dist = this.base.dist * (1 - f.w * 0.17);
-    const dir = v3(0, Math.sin(PITCH), Math.cos(PITCH));
+    let dist = this.base.dist * (1 - f.w * 0.17);
+    let pitch = PITCH;
+    let yaw = 0;
+    const c = this.cine;
+    if (c > 0) {
+      // Product-video push-in: close on the subject, lower angle, a slow orbit.
+      if (this.shot) {
+        this.shotAt.lerp(this.shot.at(), 0.35);
+        const k = (this.now - this.shot.start) / Math.max(1, this.shot.until - this.shot.start);
+        this.shotYaw = this.shot.yaw * (0.6 + k * 0.8);
+        this.shotZoom = this.shot.zoom * (1 - k * 0.12);
+      }
+      const e = c * c * (3 - 2 * c);
+      target.lerp(this.shotAt, e);
+      dist *= 1 + (this.shotZoom - 1) * e;
+      pitch += (0.6 - PITCH) * e;
+      yaw = this.shotYaw * e;
+    }
+    const dir = v3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     cam.position.copy(target).addScaledVector(dir, dist);
     if (this.now < this.shake.until) {
       const m = this.shake.mag * 0.018;
@@ -1309,14 +1372,23 @@ export class Renderer {
         w.x += (dx / dist) * s;
         w.z += (dz / dist) * s;
       }
+      const arrived = w.x === w.tx && w.z === w.tz;
       w.ph = (w.ph ?? 0) + dt * 14;
-      this.person(w.look, v3(w.x, 0, w.z), { walk: w.ph, yaw: Math.atan2(dx, dz), face: w.sick ? 'sick' : 'smile', wobble: w.sick ? 0.12 : 0 });
+      const puking = (w.pukeUntil ?? 0) > this.gameNow;
+      const rig = this.person(w.look, v3(w.x, 0, w.z), {
+        walk: arrived ? undefined : w.ph,
+        yaw: arrived ? 0 : Math.atan2(dx, dz),
+        face: w.sick ? 'sick' : 'smile',
+        wobble: w.sick && !puking ? 0.12 : 0,
+        arms: puking ? 0.35 : 0,
+      });
+      if (puking) rig.rotation.x = 0.45;
       if (w.mood) {
         const g = personGeo(w.look, 'smile');
         this.bubble(w.mood, v3(w.x, g.headY * g.scale * STAND_SCALE + 0.05, w.z));
       }
     }
-    this.walkers = this.walkers.filter((w) => !(w.x === w.tx && w.z === w.tz));
+    this.walkers = this.walkers.filter((w) => w.hold || !(w.x === w.tx && w.z === w.tz));
   }
 
   // ---- Train -------------------------------------------------------------------------
@@ -1361,24 +1433,92 @@ export class Renderer {
     this.dyn.add(this.puddleMesh);
   }
 
-  /** Riders who just got off, heading for the exits. */
+  /**
+   * Slow motion with a push-in on something, like a product video. `ms` is real
+   * time; `slow` is the time scale at full effect; `zoom` scales the camera distance.
+   */
+  dramatic(at: () => Vector3, ms: number, zoom = 0.35, slow = 0.15): void {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    if (!this.shot) {
+      sfx.slowIn();
+      this.shotAt.copy(at());
+    }
+    this.shot = { at, start: this.now, until: this.now + ms, zoom, slow, yaw: (Math.random() < 0.5 ? -1 : 1) * (0.22 + Math.random() * 0.12) };
+  }
+
+  get inShot(): boolean {
+    return !!this.shot;
+  }
+
+  /** Cinema bars over the canvas while a shot plays. */
+  private drawBars(): void {
+    const h = this.cssH * 0.085 * this.cine;
+    this.bars.forEach((b, i) => {
+      b.style.left = `${this.canvas.offsetLeft}px`;
+      b.style.width = `${this.cssW}px`;
+      b.style.height = `${h}px`;
+      b.style.top = i === 0 ? `${this.canvas.offsetTop}px` : `${this.canvas.offsetTop + this.cssH - h}px`;
+      b.style.display = h > 0.5 ? 'block' : 'none';
+    });
+  }
+
+  /** Riders get off and line up in front of the station for the curtain call. */
   disembark(tickets: { rider: Rider; pukes: number }[]): void {
     const sc = this.stationCenter();
+    const n = tickets.length;
+    const perRow = Math.min(n, Math.max(4, Math.floor((this.n + 0.8) / 0.34)));
+    this.lineup = [];
     tickets.forEach(({ rider, pukes }, i) => {
-      const a = (i / Math.max(1, tickets.length)) * 2.4 - 1.2;
-      const side = i % 2 ? 1 : -1;
-      this.addWalker({
+      const row = Math.floor(i / perRow);
+      const inRow = Math.min(perRow, n - row * perRow);
+      const k = i % perRow;
+      let tx = sc.x + (k - (inRow - 1) / 2) * 0.34 + row * 0.17;
+      tx = Math.max(-0.35, Math.min(this.n + 0.35, tx));
+      const w: Walker = {
         look: rider.look,
         x: sc.x,
         z: sc.z,
-        tx: sc.x + side * (1.2 + Math.abs(a)),
-        tz: sc.z + 1.1 + Math.cos(a) * 0.6,
-        speed: 0.8 + Math.random() * 0.3,
+        tx,
+        tz: this.board.station.y + 1.35 + row * 0.42,
+        speed: 1.3,
         sick: pukes > 0,
-        mood: pukes > 2 ? 'sick' : pukes > 0 ? 'happy' : 'meh',
-        delay: i * 120,
-      });
+        delay: i * 90,
+        hold: true,
+      };
+      this.lineup.push(w);
+      this.addWalker(w);
     });
+  }
+
+  /** Head of the i-th rider in the lineup. */
+  lineupHead(i: number): Vector3 {
+    const w = this.lineup[i];
+    if (!w) return this.stationCenter().setY(0.5);
+    const g = personGeo(w.look, 'sick');
+    return v3(w.x, g.headY * g.scale * STAND_SCALE - 0.02, w.z + 0.08);
+  }
+
+  /** The i-th rider in the lineup doubles over and pukes. */
+  lineupPuke(i: number, n: number): void {
+    const w = this.lineup[i];
+    if (!w) return;
+    w.pukeUntil = this.gameNow + 700;
+    w.sick = true;
+    this.puke(this.lineupHead(i), n, undefined, v3(0, 0.1, 1));
+  }
+
+  /** The curtain call is over: everyone heads for the exits. */
+  dismiss(): void {
+    this.lineup.forEach((w, i) => {
+      w.hold = false;
+      const side = w.x < this.stationCenter().x ? -1 : 1;
+      w.tx = w.x + side * (1.4 + Math.random() * 0.8);
+      w.tz = w.z + 0.4 + Math.random() * 0.4;
+      w.speed = 0.8 + Math.random() * 0.3;
+      w.delay = i * 60;
+      w.mood = w.sick ? (Math.random() < 0.5 ? 'sick' : 'happy') : 'meh';
+    });
+    this.lineup = [];
   }
 }
 

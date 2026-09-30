@@ -15,11 +15,11 @@ import {
   type WebGLRenderer,
 } from 'three';
 
-// The ink pass: the scene renders to a multisampled color target, then again as
-// view-space normals plus depth (layer 0 only, so particles and glows get no
-// lines). A full-screen shader draws ink where depth creases or normals turn
-// sharply, then grades the frame: saturation, warm lights, cool shade, vignette
-// and a touch of paper grain.
+// The paint pass: the scene renders to a multisampled color target, then again
+// as view-space normals plus depth (layer 0 only). A full-screen shader turns
+// the color into soft dabs (a Kuwahara filter), lets edges pool a little darker
+// pigment of their own color, and grades the frame: saturation, warm lights,
+// cool shade, vignette, a canvas weave, and a cinematic mode for slow motion.
 
 export const INK_LAYER = 0;
 /** Objects on this layer render in color but draw no ink lines. */
@@ -62,6 +62,8 @@ uniform float uVignette;
 uniform float uTime;
 uniform float uFlash;
 uniform float uDebug;
+uniform float uPaint;
+uniform float uCine;
 varying vec2 vUv;
 
 float lin(float d) {
@@ -73,43 +75,79 @@ vec3 toSRGB(vec3 c) {
   return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
 }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float vnoise(vec2 p) {
+  vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+}
+
+// Kuwahara filter: average the calmest of four quadrants, so flat areas turn
+// into soft dabs of paint while edges stay put.
+vec3 paint(vec2 uv) {
+  float R = uPaint;
+  vec3 m0 = vec3(0.0), m1 = vec3(0.0), m2 = vec3(0.0), m3 = vec3(0.0);
+  vec3 s0 = vec3(0.0), s1 = vec3(0.0), s2 = vec3(0.0), s3 = vec3(0.0);
+  float n0 = 0.0, n1 = 0.0, n2 = 0.0, n3 = 0.0;
+  // A slight wobble in the sampling grid reads as brush direction.
+  vec2 wob = (vec2(vnoise(uv * 180.0), vnoise(uv * 180.0 + 7.3)) - 0.5) * 0.9;
+  for (int y = -3; y <= 3; y++) {
+    for (int x = -3; x <= 3; x++) {
+      if (abs(float(x)) > R || abs(float(y)) > R) continue;
+      vec3 c = texture2D(tColor, uv + (vec2(float(x), float(y)) + wob) * uPx).rgb;
+      vec3 c2 = c * c;
+      if (x <= 0 && y <= 0) { m0 += c; s0 += c2; n0 += 1.0; }
+      if (x >= 0 && y <= 0) { m1 += c; s1 += c2; n1 += 1.0; }
+      if (x <= 0 && y >= 0) { m2 += c; s2 += c2; n2 += 1.0; }
+      if (x >= 0 && y >= 0) { m3 += c; s3 += c2; n3 += 1.0; }
+    }
+  }
+  m0 /= n0; m1 /= n1; m2 /= n2; m3 /= n3;
+  vec3 v0 = s0 / n0 - m0 * m0; vec3 v1 = s1 / n1 - m1 * m1;
+  vec3 v2 = s2 / n2 - m2 * m2; vec3 v3 = s3 / n3 - m3 * m3;
+  float a0 = v0.r + v0.g + v0.b, a1 = v1.r + v1.g + v1.b, a2 = v2.r + v2.g + v2.b, a3 = v3.r + v3.g + v3.b;
+  vec3 c = m0; float best = a0;
+  if (a1 < best) { best = a1; c = m1; }
+  if (a2 < best) { best = a2; c = m2; }
+  if (a3 < best) { best = a3; c = m3; }
+  return c;
+}
 
 void main() {
-  vec3 c = texture2D(tColor, vUv).rgb;
+  vec3 c = uPaint > 0.5 ? paint(vUv) : texture2D(tColor, vUv).rgb;
   vec4 nc = texture2D(tNormal, vUv);
   float dc = lin(texture2D(tDepth, vUv).r);
   vec3 n0 = nc.rgb * 2.0 - 1.0;
   float edgeN = 0.0;
   float edgeD = 0.0;
-  vec2 offs[8];
+  vec2 offs[4];
   offs[0] = vec2(1.0, 0.0); offs[1] = vec2(-1.0, 0.0); offs[2] = vec2(0.0, 1.0); offs[3] = vec2(0.0, -1.0);
-  offs[4] = vec2(0.7, 0.7); offs[5] = vec2(-0.7, 0.7); offs[6] = vec2(0.7, -0.7); offs[7] = vec2(-0.7, -0.7);
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 4; i++) {
     vec2 uv = vUv + offs[i] * uPx * uLine;
     vec4 ni = texture2D(tNormal, uv);
     float di = lin(texture2D(tDepth, uv).r);
-    // Depth: only the near side of a crease gets the line.
     float rel = (di - dc) / dc;
-    edgeD = max(edgeD, smoothstep(0.018, 0.045, rel));
-    if (ni.a > 0.5 && nc.a > 0.5) {
-      float nd = 1.0 - dot(n0, ni.rgb * 2.0 - 1.0);
-      edgeN = max(edgeN, smoothstep(0.32, 0.55, nd) * step(-0.004, rel));
-    }
+    edgeD = max(edgeD, smoothstep(0.02, 0.08, rel));
+    if (ni.a > 0.5 && nc.a > 0.5) edgeN = max(edgeN, smoothstep(0.35, 0.8, 1.0 - dot(n0, ni.rgb * 2.0 - 1.0)) * step(-0.004, rel));
   }
   float fade = 1.0 - smoothstep(uFar * 0.28, uFar * 0.55, dc);
-  float ink = max(edgeD, edgeN) * uInk * fade * nc.a;
+  // No black ink: edges just pool a little darker pigment of their own color.
+  float edge = max(edgeD, edgeN * 0.6) * uInk * fade * nc.a;
   if (uDebug > 0.5) { gl_FragColor = vec4(edgeD, edgeN, 0.0, 1.0); return; }
-  vec3 inkCol = mix(uInkColor, c * 0.28, 0.35);
-  c = mix(c, inkCol, clamp(ink, 0.0, 1.0));
+  c *= 1.0 - edge * 0.28;
 
   c += texture2D(tBloom, vUv).rgb * uBloom;
   vec3 s = toSRGB(c);
   float l = dot(s, vec3(0.299, 0.587, 0.114));
   s = mix(vec3(l), s, uSat);
   s *= mix(uCool, uWarm, smoothstep(0.18, 0.75, l));
+  // Canvas: a fine weave and a slow mottle, like paint on paper.
+  vec2 px = vUv / uPx;
+  float weave = (sin(px.x * 1.9) * sin(px.y * 1.9)) * 0.012;
+  float mottle = (vnoise(vUv * vec2(9.0, 7.0)) - 0.5) * 0.05 + (vnoise(vUv * 60.0) - 0.5) * 0.025;
+  s *= 1.0 + weave + mottle;
   vec2 q = vUv - 0.5;
-  s *= 1.0 - uVignette * smoothstep(0.35, 0.95, length(q * vec2(1.1, 1.0)) * 1.25);
-  s += (hash(vUv * 931.7 + fract(uTime * 0.37)) - 0.5) * 0.025;
+  s *= 1.0 - (uVignette + uCine * 0.35) * smoothstep(0.35, 0.95, length(q * vec2(1.1, 1.0)) * 1.25);
+  s = mix(s, vec3(dot(s, vec3(0.3, 0.55, 0.15))) * vec3(1.02, 0.98, 0.94), uCine * 0.15);
+  s += (hash(vUv * 931.7 + fract(uTime * 0.37)) - 0.5) * 0.02;
   s = mix(s, vec3(1.0, 0.98, 0.9), uFlash);
   gl_FragColor = vec4(s, 1.0);
 }`;
@@ -154,7 +192,7 @@ export class Post {
         uLine: { value: 1.2 },
         uNear: { value: 0.1 },
         uFar: { value: 100 },
-        uInk: { value: 0.92 },
+        uInk: { value: 1 },
         uInkColor: { value: new Color('#1d1433') },
         uSat: { value: 1.12 },
         uWarm: { value: new Color(1.03, 1.0, 0.94) },
@@ -163,6 +201,8 @@ export class Post {
         uTime: { value: 0 },
         uFlash: { value: 0 },
         uDebug: { value: 0 },
+        uPaint: { value: 2 },
+        uCine: { value: 0 },
       },
     });
     this.quadScene.add(new Mesh(new PlaneGeometry(2, 2), this.mat));
@@ -174,6 +214,7 @@ export class Post {
     this.nd.setSize(w, h);
     this.mat.uniforms.uPx.value.set(1 / w, 1 / h);
     this.mat.uniforms.uLine.value = Math.max(1, dpr * 0.85);
+    this.mat.uniforms.uPaint.value = dpr > 1.3 ? 3 : 2;
     this.bloomA.setSize(Math.max(1, w >> 2), Math.max(1, h >> 2));
     this.bloomB.setSize(Math.max(1, w >> 2), Math.max(1, h >> 2));
   }

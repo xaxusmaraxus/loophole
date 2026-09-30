@@ -2015,3 +2015,20 @@ button:focus-visible {
     animation-duration: 1ms;
   }
 }
+
+/* ---- Slow-motion cinema bars ---- */
+.letterbox {
+  position: absolute;
+  display: none;
+  z-index: 1;
+  pointer-events: none;
+  background: #07081a;
+}
+
+.lb-top {
+  border-radius: 22px 22px 0 0;
+}
+
+.lb-bot {
+  border-radius: 0 0 22px 22px;
+}

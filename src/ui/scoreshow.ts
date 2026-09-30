@@ -240,6 +240,68 @@ export class ScoreShow {
     else setTimeout(impact, 420);
   }
 
+  /**
+   * The puke finale, step 1: chips and mult slam together into the final rating.
+   * The total doesn't move yet; the riders cash it in one by one.
+   */
+  finaleStart(e: ScoreEvent): void {
+    const r = this.result;
+    if (!r) return;
+    this.el.chips.textContent = fmtNum(e.chips);
+    this.el.mult.textContent = fmtMult(e.mult);
+    this.el.rating.textContent = fmtNum(e.rating);
+    this.setStats(e);
+    this.panel.classList.remove('slamming');
+    void this.panel.offsetWidth;
+    this.panel.classList.add('slamming');
+    this.ticker(`${fmtNum(e.rating)} a puke. Now pay up!`);
+    const n = this.streak++;
+    setTimeout(() => {
+      sfx.xmult(n);
+      this.onShake(4, 300);
+      this.doFlash('xmult');
+      const park = this.wrap.querySelector('canvas')?.getBoundingClientRect();
+      if (park) this.popup({ x: park.left + park.width / 2, y: park.top + park.height * 0.34 }, { cls: 'slam', text: `${fmtNum(e.rating)} a puke`, sub: `${fmtNum(e.chips)} excitement × ${fmtMult(e.mult)} mult`, big: 1.7 });
+    }, this.reduce ? 0 : 380);
+  }
+
+  /** Step 2: one rider cashes in all their pukes at the final rating. */
+  finaleRider(o: { amount: number; name: string; pukes: number; worth: number; rating: number; at: { x: number; y: number } | null; special: boolean; boss: boolean; rank: number }): void {
+    if (!this.result) return;
+    const n = this.streak++;
+    this.total += o.amount;
+    const count = o.pukes / Math.max(1, o.worth);
+    const sub = `${o.name.toUpperCase()} ${count > 1 ? `×${count} ` : ''}× ${fmtNum(o.rating)}${o.worth > 1 ? ` × ${o.worth}` : ''}`;
+    if (o.at) this.popup(o.at, { cls: o.boss || o.special ? 'puke boss' : 'puke', text: `+${fmtNum(o.amount)}`, sub, big: o.boss ? 2.3 : o.special ? 1.9 : 1.2 + Math.min(0.8, o.rank * 0.08) });
+    this.ticker(`${o.name}: ${sub} = +${fmtNum(o.amount)}`);
+    this.bump(this.el.totalBox, o.boss || o.special ? 'bump-huge' : 'bump-big');
+    if (o.boss) {
+      sfx.bossPuke();
+      this.doFlash('boss');
+      this.onShake(6, 700);
+    } else {
+      sfx.puke(n);
+      if (o.special) this.doFlash('boss');
+      this.onShake(2 + Math.min(4, o.rank * 0.4), 200);
+    }
+  }
+
+  /** Step 3: the total lands. */
+  finaleEnd(e: ScoreEvent, quick = false): void {
+    const r = this.result;
+    if (!r) return;
+    this.total = e.total;
+    this.el.pukes.textContent = String(e.pukes);
+    sfx.slam();
+    this.onShake(quick ? 4 : 7, 450);
+    this.doFlash('slam');
+    this.bump(this.el.totalBox, 'bump-huge');
+    this.ticker(`${e.pukes} pukes × ${fmtNum(e.rating)} = ${fmtNum(e.total)} tickets`);
+    const park = this.wrap.querySelector('canvas')?.getBoundingClientRect();
+    if (park) this.popup({ x: park.left + park.width / 2, y: park.top + park.height * 0.45 }, { cls: 'slam', text: fmtNum(e.total), sub: `${e.pukes} pukes × ${fmtNum(e.rating)}`, big: 2.4 });
+    this.panel.classList.add('final', r.passed ? 'won' : 'lost');
+  }
+
   /** Called every frame: rolls the total up odometer-style and celebrates the target. */
   tick(dt: number, now: number): void {
     const r = this.result;
