@@ -1,47 +1,69 @@
-# Coaster Merge: Concepts
+# Concept: Grid-Is-The-Park (Direction B)
 
-The core idea: **merging = building.** Every merge upgrades a track piece, and the finished level becomes a real coaster you ride.
+Working title pending (see "Names" at the bottom).
 
-## The merge ladder (shared by all directions)
-Plank → Straight → Curve → Hill → Drop → Loop → Corkscrew → Mega Loop
+## One-line pitch
+Slide and merge coaster pieces 2048-style, but every swipe also lays one piece of real track. Close the circuit back to the station whenever you dare. Then watch the queue of riders board and live with what you built.
 
-Each tier adds **thrill** (makes the ride exciting) and **intensity** (too much makes riders sick). This gives every level a goal beyond "get a high number."
+## Core loop: the swipe does two things
+The board is a 5x5 park. The **station** sits on the edge. The track grows out of the station from its open end, the **head**.
 
----
+Every swipe:
+1. **Slides and merges** the loose tiles (plain 2048 rules). Plank + Plank → Straight → Curve → Hill → Drop → Loop → ...
+2. **Extends the head one cell in the swipe direction.** Whatever tile sits in that cell gets bolted into the track as that piece.
+3. Spawns a new Plank in an empty cell.
 
-## Direction A: Classic 2048, coaster reel
-Standard 4x4 swipe-to-merge. When the board locks up (or you hit the move limit), your best pieces get assembled in order into a coaster automatically.
-- **+** Instantly familiar. Easiest to build and tune.
-- **−** The board and the track aren't connected. The ride feels like a reward screen, not something you designed.
+Bolted track is a **wall**. Loose tiles slide up against it and can't pass through it.
 
-## Direction B: The grid is the park ⭐ recommended
-The board is a top-down map. Tiles are track segments with entry/exit connectors. You slide and merge to upgrade pieces, and the goal is to **close a circuit** from the station back to the station. When the loop closes, the level ends and you ride that exact layout.
-- **+** The ride is literally what you built. Great "aha" moment.
-- **−** 2048 sliding moves everything at once, which breaks connections. Needs a twist: placed pieces "bolt down" once connected, or you swipe only one row or column at a time.
+That's the whole trick. One input, two consequences, and they pull against each other:
+- Swiping left might merge your two Drops into a Loop, while laying a boring Plank into the track.
+- Swiping up lays the Loop you wanted into the track, but scatters everything else.
 
-## Direction C: Energy budget (side view)
-Side-on board where columns are height. The lift hill gives you energy; every element spends it (loops cost a lot, drops pay some back). Merge smart or the train stalls halfway.
-- **+** Physics puzzle with real stakes. Failure is funny (train rolls backward).
-- **−** More to explain; less 2048-like.
+## Where the hard decisions come from
+**Cash out anytime.** When the head is next to the station, you can close the circuit. It's push-your-luck, like blackjack. A short ride now is safe. A long ride is worth more, if you make it back.
 
-## Direction D: Triple-merge queue (Triple Town style)
-Pieces arrive from a "next" queue; place them and match **3** to upgrade. More deliberate than swipes, easier to control layout.
-- **+** Placement control fixes Direction B's connectivity problem.
-- **−** Drifts away from "2048".
+**You can paint yourself into a corner.** If the head can't reach the station anymore, the ride doesn't open (fail, or a heavily penalized "shuttle" ride).
 
----
+**Good tiles get stranded.** Track is a wall, so the board carves itself into pockets. A Loop sitting in a pocket the head can no longer reach is gone for good. "Take the Loop now, or keep building?" is a real question, because you may not get another chance.
 
-## Layers that fit any direction
-- **Rider requests:** "Grandma wants thrill 20, intensity under 10." "Teens want a Mega Loop." Every level gets its own goal.
-- **Park progression:** finished coasters live in a park that grows between levels.
-- **Theming:** unlock track skins (wooden, steel, haunted mine, space).
-- **Blockers:** trees, rivers, and rocks on the grid that you have to route around (or merge a Bridge over).
+**The board gets cramped.** More track means less room to slide, which makes merges harder the longer you go. Big pieces come early or not at all.
 
-## The ride (the payoff)
-- **Camera:** first-person POV plus a chase cam, and a replay you can share.
-- **Riders:** little faces in the cars. Screaming, cheering, or turning green.
-- **Failure as comedy:** a bad design means the train stalls, rolls back, or launches into the lake. Think Poly Bridge. Still a reward to watch.
-- **Scoring:** stars from rider reactions, not just numbers.
+## The queue (the payoff)
+Riders wait at the station, and you can see them the whole time you build. Each one has a want:
+- "LOOP. NOW." (teen)
+- "Nothing upside down, please." (grandma)
+- "Longest ride you've got." (enthusiast)
+- "I just ate." (guy holding a corn dog)
 
-## Suggested first step
-Paper-prototype Direction B at 5x5 with the "bolt down on connect" rule. Build the ride camera early, because the ride is the hook and it should feel great from day one.
+**Patience:** every swipe, riders get more impatient. Wait too long and some leave the queue. Longer builds make better rides, but fewer people are left to ride them.
+
+**Conflicting wants:** the queue is mixed, so you can't please everyone. That forces a choice about who you are building for.
+
+## The ride
+We watch from the park: a zoomed-out isometric or side view, not first person.
+- Riders walk from the queue into the cars.
+- The coaster runs the exact circuit you built.
+- Faces react live: screaming, cheering, turning green, a hat flying off on the Loop.
+- They get off and give a verdict: thumbs up, dizzy stagger, or throwing up in the bushes.
+- Score = happy riders (stars), not raw tile values.
+
+**Failure is still a show.** If the design is bad, it plays out anyway and is funny. Comedy beats a game-over screen.
+
+## Step 2 (later): energy budget
+Layer in physics: the lift hill gives the train energy, and each element spends it. Loops cost a lot, Drops pay some back. Too many big elements in a row and the train stalls and rolls backwards, in front of everyone. That makes piece order matter, not just which pieces you lay. This fits in cleanly once the core loop is fun.
+
+## Tuning knobs to prototype
+- Board size (5x5 vs 6x6)
+- Does the head move on every swipe, or only when you choose (a "lay" tap)? Every swipe is harsher and more interesting, so try that first.
+- What happens when the swipe direction points into existing track: the swipe is blocked, or tiles slide but no track is laid
+- Patience drain per swipe
+- Spawn weights (occasional Straight or a rare Curve)
+
+## Names
+- **Thrill Issues**
+- **Loop Holes**
+- **Hold Your Lunch**
+- **Queasy Does It**
+- **Upchuck Express**
+- **Please Keep Arms Inside**
+- **Loopty Doo**
