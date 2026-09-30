@@ -131,42 +131,48 @@ func _use_plate(path: String) -> void:
 	plate_mode = true
 	for d in dynamic_nodes:
 		_paint(d)
+	# Painterly filter over the 3D pieces: a screen quad that only touches stencil 1.
+	var quad := MeshInstance3D.new()
+	var qm := QuadMesh.new()
+	qm.size = Vector2(1, 1)
+	quad.mesh = qm
+	var pm := ShaderMaterial.new()
+	pm.shader = load("res://painterly_post.gdshader")
+	pm.render_priority = 100
+	quad.material_override = pm
+	quad.extra_cull_margin = 16384.0
+	quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(quad)
 	tiles_root.child_entered_tree.connect(func(n: Node) -> void: _paint.call_deferred(n))
 
 
 # ---- Painted look for the live pieces ------------------------------------------
 
 var _painted := {}
-var _brush: NoiseTexture2D
+var _brush: Texture2D
 
 
 ## Swap every material under `root` for its painted version (plus an outline pass).
 func _paint(root: Node) -> void:
 	if _brush == null:
-		_brush = NoiseTexture2D.new()
-		_brush.width = 256
-		_brush.height = 256
-		_brush.seamless = true
-		var fn := FastNoiseLite.new()
-		fn.frequency = 0.035
-		fn.fractal_octaves = 3
-		_brush.noise = fn
-	var stack: Array = [[root, _outline_width_of(root)]]
+		_brush = load("res://assets/textures/painted_brush.png")
+	var stack: Array = [[root, _outline_width_of(root), root.get_meta("crisp", false)]]
 	while not stack.is_empty():
 		var item: Array = stack.pop_back()
 		var n: Node = item[0]
 		var w: float = n.get_meta("outline_width", item[1])
+		var crisp: bool = n.get_meta("crisp", item[2])
 		for c in n.get_children():
-			stack.append([c, w])
+			stack.append([c, w, crisp])
 		if not n is MeshInstance3D or (n as MeshInstance3D).mesh == null:
 			continue
 		var mi := n as MeshInstance3D
 		if mi.material_override:
-			mi.material_override = _painted_material(mi.material_override, w, mi.get_meta("ink", 0.0))
+			mi.material_override = _painted_material(mi.material_override, w, mi.get_meta("ink", 0.0), mi.get_meta("crate", Vector3.ZERO), crisp)
 			continue
 		for i in mi.mesh.get_surface_count():
 			var src := mi.get_active_material(i)
-			mi.set_surface_override_material(i, _painted_material(src, w))
+			mi.set_surface_override_material(i, _painted_material(src, w, 0.0, Vector3.ZERO, crisp))
 
 
 ## Outline width inherited from the nearest ancestor with an "outline_width" meta.
@@ -178,16 +184,20 @@ func _outline_width_of(n: Node) -> float:
 	return 0.014
 
 
-func _painted_material(src: Material, width: float, ink := 0.0) -> Material:
-	if src is ShaderMaterial and (src as ShaderMaterial).shader == load("res://painted.gdshader"):
+func _painted_material(src: Material, width: float, ink := 0.0, crate := Vector3.ZERO, crisp := false) -> Material:
+	if src is ShaderMaterial and (src as ShaderMaterial).shader in [load("res://painted.gdshader"), load("res://painted_crisp.gdshader")]:
 		return src
-	var key := "%d/%s/%s" % [src.get_instance_id() if src else 0, width, ink]
+	var key := "%d/%s/%s/%s/%s" % [src.get_instance_id() if src else 0, width, ink, crate, crisp]
 	if _painted.has(key):
 		return _painted[key]
 	var m := ShaderMaterial.new()
-	m.shader = load("res://painted.gdshader")
+	m.shader = load("res://painted_crisp.gdshader" if crisp else "res://painted.gdshader")
 	m.set_shader_parameter("brush", _brush)
 	m.set_shader_parameter("ink", ink)
+	if crate != Vector3.ZERO:
+		m.set_shader_parameter("use_crate", true)
+		m.set_shader_parameter("crate_size", crate)
+		m.set_shader_parameter("crate_texture", load("res://assets/textures/painted_crate.png"))
 	if src is BaseMaterial3D:
 		var b := src as BaseMaterial3D
 		m.set_shader_parameter("albedo", b.albedo_color)
@@ -641,8 +651,8 @@ func _tile(tier: int) -> Node3D:
 	if model("tile_%d" % tier, n, Vector3.ZERO):
 		return n
 	var col: Color = TIER_COLORS[tier]
-	box(Vector3(0.84, 0.2, 0.84), col, Vector3(0, 0.1, 0), n)
-	box(Vector3(0.78, 0.04, 0.78), col.lightened(0.18), Vector3(0, 0.215, 0), n)
+	box(Vector3(0.84, 0.2, 0.84), col, Vector3(0, 0.1, 0), n).set_meta("crate", Vector3(0.84, 0.84, 0.84))
+	box(Vector3(0.78, 0.04, 0.78), col.lightened(0.18), Vector3(0, 0.215, 0), n).set_meta("crate", Vector3(0.78, 0.78, 0.78))
 	var ic := col.lightened(0.55)
 	match tier:
 		1:
@@ -892,6 +902,7 @@ func _build_track_mesh(curve: Curve3D) -> void:
 	# Painted look: rails are too thin for an outline hull; ink their edges instead.
 	track_mi.set_meta("outline_width", 0.0)
 	track_mi.set_meta("ink", 0.75)
+	track_mi.set_meta("crisp", true)
 
 
 func _build_train() -> void:
@@ -1049,6 +1060,7 @@ func _peep(pos: Vector3, big := false) -> void:
 	var guest := model(drop_in, self, pos, Vector3.ONE, rng.randf() * TAU) if drop_in != "" else null
 	if guest:
 		guest.set_meta("outline_width", 0.006)
+		guest.set_meta("crisp", true)
 		return
 	var n := Node3D.new()
 	n.position = pos

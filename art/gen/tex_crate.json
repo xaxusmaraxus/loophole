@@ -1,0 +1,10 @@
+{
+ "refs": [
+  "docs/mood/coaster_town_mood.png"
+ ],
+ "prompt": "A single square texture swatch for a game: the front face of a wooden crate, seen straight on, filling the whole square edge to edge. Hand-painted in the cozy painterly style of the reference image: chunky planks with soft painted wood grain, a slightly darker beveled frame around the edges, visible brush strokes, warm light from the top left, gentle wear. Neutral light-grey-beige wood color (it will be tinted in the game). No background, no perspective, no text, no nails glowing, flat even lighting.",
+ "size": "1024x1024",
+ "quality": "high",
+ "count": 1,
+ "model": "gpt-6-astra"
+}

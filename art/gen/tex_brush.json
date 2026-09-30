@@ -1,0 +1,10 @@
+{
+ "refs": [
+  "docs/mood/coaster_town_mood.png"
+ ],
+ "prompt": "A seamless tileable square texture: abstract hand-painted brush strokes in soft neutral mid-grey tones only, like the painterly brushwork in the reference image, small dabs and short strokes in varied directions, low contrast, even coverage, no objects, no shapes, no text.",
+ "size": "1024x1024",
+ "quality": "high",
+ "count": 1,
+ "model": "gpt-6-astra"
+}
