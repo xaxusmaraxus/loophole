@@ -38,10 +38,10 @@ export function drawPortrait3D(target: HTMLCanvasElement, look: Look): boolean {
   if (!r) return false;
   rig.clear();
   const g = personGeo({ ...look, big: false, accessory: look.accessory === 'balloon' ? 'none' : look.accessory }, 'smile');
-  const body = new Mesh(g.body, MATS.matte);
+  const body = new Mesh(g.body, MATS.figure);
   rig.add(body);
   for (const sx of [-1, 1]) {
-    const arm = new Mesh(g.arm, MATS.matte);
+    const arm = new Mesh(g.arm, MATS.figure);
     arm.position.set(sx * g.shoulderX, g.shoulderY, 0);
     arm.rotation.z = sx * 0.2;
     rig.add(arm);

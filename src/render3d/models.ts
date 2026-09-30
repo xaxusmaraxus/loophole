@@ -201,29 +201,47 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
   const fz = headR * 0.94;
   const eyeY = hy + 0.005;
   const eyeX = headR * 0.38;
+  // Googly clay eyes: white balls with black pupils (tiny and terrified when screaming).
+  const skinC = skin;
+  const eyeR = 0.026;
+  const look2 = (lookKey(look).length * 7919) % 5;
+  const gaze = [[0, 0], [0.004, 0.002], [-0.004, 0.002], [0.003, -0.003], [-0.002, 0.004]][look2];
+  const googly = (sx: number) => {
+    const ex = sx * eyeX * 1.08;
+    g.sphere(v3(ex, eyeY + 0.008, fz - 0.006), eyeR, '#fbf8f0', 1, 1.12, 0.75, 12, 8, true);
+    const pr = face === 'scream' ? 0.007 : 0.012;
+    const px = face === 'scream' ? sx * 0.004 : gaze[0];
+    g.sphere(v3(ex + px, eyeY + 0.008 + (face === 'scream' ? 0 : gaze[1]), fz + eyeR * 0.72 - 0.004), pr, '#1a1226', 1, 1, 0.5, 10, 6, true);
+    g.sphere(v3(ex + px + 0.004, eyeY + 0.013, fz + eyeR * 0.72), 0.0035, '#ffffff', 1, 1, 0.5, 6, 4, true);
+    // Heavy lids when meh or sick.
+    if (face === 'meh' || face === 'sick') g.sphere(v3(ex, eyeY + 0.016, fz - 0.004), eyeR * 1.08, skinC, 1, 0.6, 0.8, 12, 6, true);
+  };
   if (look.accessory === 'shades') {
-    g.box(M(0, eyeY + 0.005, fz + 0.012), headR * 1.5, 0.04, 0.02, PAL.ink, 0.008);
-  } else if (face === 'scream') {
-    for (const sx of [-1, 1]) g.box(M(sx * eyeX, eyeY + 0.008, fz), 0.03, 0.012, 0.02, PAL.ink);
+    g.box(M(0, eyeY + 0.008, fz + 0.012), headR * 1.6, 0.045, 0.022, PAL.ink, 0.012);
   } else {
-    for (const sx of [-1, 1]) {
-      g.sphere(v3(sx * eyeX, eyeY, fz), 0.016, PAL.ink, 1, 1.35, 0.6, 8, 5, true);
-      g.sphere(v3(sx * eyeX + 0.005, eyeY + 0.008, fz + 0.01), 0.005, PAL.white, 1, 1, 1, 5, 3, true);
-    }
+    for (const sx of [-1, 1]) googly(sx);
     if (look.accessory === 'glasses')
       for (const sx of [-1, 1]) {
-        const ring = arc(10, (t) => v3(sx * eyeX + Math.cos(t * Math.PI * 2) * 0.028, eyeY + Math.sin(t * Math.PI * 2) * 0.028, fz + 0.012));
-        g.pipe(ring.slice(0, 10), 0.005, '#e8e8f4', 4, true);
+        const ring = arc(12, (t) => v3(sx * eyeX * 1.08 + Math.cos(t * Math.PI * 2) * 0.033, eyeY + 0.008 + Math.sin(t * Math.PI * 2) * 0.033, fz + 0.016));
+        g.pipe(ring.slice(0, 12), 0.005, '#e8e8f4', 5, true);
       }
   }
+  // A big clay nose.
+  g.sphere(v3(0, hy - 0.012, fz + 0.006), 0.018, shade(skin, -0.06), 1.1, 0.9, 0.9, 8, 6, true);
   // Cheeks.
-  for (const sx of [-1, 1]) g.sphere(v3(sx * headR * 0.62, hy - 0.025, fz * 0.86), 0.016, face === 'sick' ? '#7fb83e' : '#ff9aa8', 1, 0.7, 0.4, 7, 4, true);
-  // Mouth.
-  if (face === 'scream') g.sphere(v3(0, hy - 0.04, fz * 0.97), 0.026, '#5a1830', 0.9, 1.2, 0.5, 8, 5, true);
-  else if (face === 'sick') g.box(M(0, hy - 0.04, fz * 0.99), 0.04, 0.01, 0.01, '#3c5a1a');
-  else if (face === 'meh') g.box(M(0, hy - 0.038, fz * 0.99), 0.03, 0.008, 0.01, PAL.ink);
-  else
-    for (const [x, y] of [[-0.016, 0], [0, -0.008], [0.016, 0]] as const) g.box(M(x, hy - 0.035 + y, fz * 0.99), 0.014, 0.01, 0.01, PAL.ink);
+  for (const sx of [-1, 1]) g.sphere(v3(sx * headR * 0.66, hy - 0.028, fz * 0.84), 0.018, face === 'sick' ? '#7fb83e' : '#ff9aa8', 1, 0.7, 0.4, 7, 4, true);
+  // Mouths: a wide Aardman grin with teeth, a gaping scream, a queasy wobble.
+  if (face === 'scream') {
+    g.sphere(v3(0, hy - 0.048, fz * 0.95), 0.032, '#4a1426', 1.1, 1.25, 0.5, 12, 8, true);
+    g.sphere(v3(0, hy - 0.058, fz * 0.95 + 0.008), 0.014, '#ff6b8a', 1.2, 0.6, 0.5, 8, 5, true);
+  } else if (face === 'sick') {
+    for (let k = 0; k < 5; k++) g.sphere(v3(-0.024 + k * 0.012, hy - 0.045 + (k % 2 ? 0.004 : -0.002), fz * 0.97), 0.006, '#3c5a1a', 1, 1, 0.6, 6, 4, true);
+    for (const sx of [-1, 1]) g.sphere(v3(sx * headR * 0.5, hy - 0.035, fz * 0.9), 0.022, '#9ad24e', 1, 0.9, 0.6, 8, 5, true);
+  } else if (face === 'meh') g.box(M(0, hy - 0.042, fz * 0.99), 0.032, 0.008, 0.01, PAL.ink, 0.003);
+  else {
+    g.sphere(v3(0, hy - 0.04, fz * 0.94), 0.03, '#4a1426', 1.5, 0.55, 0.5, 12, 6, true);
+    g.box(M(0, hy - 0.032, fz * 0.94 + 0.012), 0.05, 0.008, 0.008, '#fbf8f0', 0.002);
+  }
   // Hair.
   const cap = (col: Col, back = -0.012, sy = 0.78) => g.sphere(v3(0, hy + 0.02, back), headR * 1.07, col, 1.06, sy, 1.02, 14, 8, true);
   switch (look.hairStyle) {
@@ -351,6 +369,8 @@ export interface Parts {
   glow?: Geo;
   /** Tiny details (grass tufts, flowers) that draw no ink lines. */
   detail?: Geo;
+  figure?: Geo;
+  ground?: Geo;
 }
 
 export type Flora = 'meadow' | 'boardwalk' | 'hollow' | 'finale';

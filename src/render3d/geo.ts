@@ -1,4 +1,5 @@
 import { BufferGeometry, Color, Float32BufferAttribute, Matrix4, Vector3 } from 'three';
+import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // Geometry batch: appends flat-shaded, vertex-colored primitives into one
 // BufferGeometry. Convex primitives orient their triangles outward on their
@@ -335,11 +336,17 @@ export class Geo {
     this.colr.push(...g.colr);
   }
 
-  build(): BufferGeometry {
-    const g = new BufferGeometry();
+  /**
+   * Builds the geometry. Clay has no hard facets: normals are smoothed across
+   * any edge flatter than `crease` (radians), so bevels round off and blobs
+   * turn soft, while real corners stay put.
+   */
+  build(crease = 1.1): BufferGeometry {
+    let g = new BufferGeometry();
     g.setAttribute('position', new Float32BufferAttribute(this.pos, 3));
     g.setAttribute('normal', new Float32BufferAttribute(this.nor, 3));
     g.setAttribute('color', new Float32BufferAttribute(this.colr, 3));
+    if (crease > 0 && this.pos.length) g = toCreasedNormals(g, crease);
     g.computeBoundingSphere();
     g.computeBoundingBox();
     return g;

@@ -1,5 +1,5 @@
 import {
-  BoxGeometry,
+  IcosahedronGeometry,
   CanvasTexture,
   Color,
   DynamicDrawUsage,
@@ -79,8 +79,9 @@ export class Particles {
 
   /** `glow` particles are unlit and bloom (sparks, fireworks). */
   constructor(parent: Object3D, glow = false) {
-    const mat = glow ? new MeshBasicMaterial({ color: 0xffffff }) : toon({ vertexColors: false, rim: 0.2 });
-    this.mesh = new InstancedMesh(new BoxGeometry(1, 1, 1), mat, MAX);
+    const mat = glow ? new MeshBasicMaterial({ color: 0xffffff }) : toon({ vertexColors: false, rim: 0.3, lump: 0.12, bump: 0.3 });
+    // Clay pellets: little lumpy balls (flattened into flakes for confetti).
+    this.mesh = new InstancedMesh(new IcosahedronGeometry(0.62, 1), mat, MAX);
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.mesh.setColorAt(0, new Color(1, 1, 1));
     this.mesh.count = 0;

@@ -60,6 +60,8 @@ const END_COLORS = ['#f0584e', '#45a8e0'];
 const PITCH = (48 * Math.PI) / 180;
 const FOV = 30;
 export const CAR_GAP = 0.37;
+/** One stop-motion frame (12 a second). */
+const STOP_MS = 1000 / 12;
 /** Cars (and their riders) are drawn this much larger than the model. */
 const CAR_SCALE = 1.25;
 /** Guests on foot are drawn a little larger than riders, so the crowd reads. */
@@ -98,6 +100,8 @@ interface Shot {
 }
 
 interface Word {
+  base?: string;
+  count?: number;
   el: HTMLElement;
   at: Vector3;
   born: number;
@@ -106,11 +110,11 @@ interface Word {
 
 /** A guest's rig: body, two arms and two legs, sharing cached geometry. */
 class Rig extends Group {
-  body = new Mesh(undefined, MATS.matte);
-  armL = new Mesh(undefined, MATS.matte);
-  armR = new Mesh(undefined, MATS.matte);
-  legL = new Mesh(undefined, MATS.matte);
-  legR = new Mesh(undefined, MATS.matte);
+  body = new Mesh(undefined, MATS.figure);
+  armL = new Mesh(undefined, MATS.figure);
+  armR = new Mesh(undefined, MATS.figure);
+  legL = new Mesh(undefined, MATS.figure);
+  legR = new Mesh(undefined, MATS.figure);
   constructor() {
     super();
     for (const m of [this.body, this.armL, this.armR, this.legL, this.legR]) {
@@ -189,6 +193,11 @@ export class Renderer {
   private flash = 0;
   private dusk = 0;
   private stationSign: Mesh | null = null;
+  /** Stop motion off (?smooth): render every frame. */
+  private smooth = new URLSearchParams(location.search).has('smooth');
+  private lastShot = -1e9;
+  /** How far away the camera is focused. */
+  private focusD = 12;
   /** The game clock: runs slower during slow motion (the ride, particles, walkers). */
   gameNow = 0;
   private shot: Shot | null = null;
@@ -434,15 +443,16 @@ export class Renderer {
     const z = s.y;
     const L = stationLayout(s.x, this.n);
     const xc = (L.xL + L.xR) / 2;
-    const parts: Parts = { matte: new Geo(), gloss: new Geo(), cloth: new Geo(), glow: new Geo() };
+    const parts: Parts = { matte: new Geo(), gloss: new Geo(), cloth: new Geo(), glow: new Geo(), ground: new Geo() };
     const m = parts.matte!;
+    const gd = parts.ground!;
     // A long deck under the whole station loop.
     const dx0 = L.xL - L.R - 0.14;
     const dx1 = L.xR + L.R + 0.14;
     const dz0 = z + 0.04;
     const dz1 = L.zD + 0.2;
-    m.cube((dx0 + dx1) / 2, 0.03, (dz0 + dz1) / 2, dx1 - dx0, 0.06, dz1 - dz0, '#8f96ae', 0.02, '#a9adc0');
-    for (let x = dx0 + 0.25; x < dx1 - 0.1; x += 0.25) m.cube(x, 0.061, (dz0 + dz1) / 2, 0.012, 0.004, dz1 - dz0 - 0.04, '#7a7f99');
+    gd.cube((dx0 + dx1) / 2, 0.03, (dz0 + dz1) / 2, dx1 - dx0, 0.06, dz1 - dz0, '#8f96ae', 0.02, '#a9adc0');
+    for (let x = dx0 + 0.25; x < dx1 - 0.1; x += 0.25) gd.cube(x, 0.061, (dz0 + dz1) / 2, 0.012, 0.004, dz1 - dz0 - 0.04, '#7a7f99');
     // The island platform between the lanes, where riders board.
     const pz0 = L.zU + 0.1;
     const pz1 = L.zD - 0.1;
@@ -578,7 +588,7 @@ export class Renderer {
     const area = this.canvas.closest('.park') ?? this.canvas.parentElement!;
     const availW = (area as HTMLElement).clientWidth;
     const above = ['attractions', 'dayBanner'].reduce((h, id) => h + (document.getElementById(id)?.offsetHeight ?? 0), 0);
-    const reserved = (document.fullscreenElement ? 190 : 235) + above;
+    const reserved = (document.fullscreenElement ? 200 : 250) + above;
     const availH = Math.max(300, window.innerHeight - reserved);
     this.compact = availW < 620;
     this.aspect = this.naturalAspect();
@@ -791,7 +801,18 @@ export class Renderer {
   }
 
   word(text: string, at: Vector3, color: string, big = 1): void {
-    // Stack shouts that land on the same spot instead of piling them up.
+    // The same shout again nearby just counts up ("OOH ×3").
+    const same = this.words.find((w) => w.base === text && this.now - w.born < 900 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 1.6);
+    if (same) {
+      same.count = (same.count ?? 1) + 1;
+      same.el.textContent = `${text} ×${same.count}`;
+      same.born = this.now;
+      same.el.style.animation = 'none';
+      void same.el.offsetWidth;
+      same.el.style.animation = '';
+      return;
+    }
+    // Stack different shouts that land on the same spot instead of piling them up.
     const near = this.words.filter((w) => this.now - w.born < 700 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 0.9).length;
     at = at.clone().setY(at.y + near * 0.22);
     const el = document.createElement('span');
@@ -800,7 +821,7 @@ export class Renderer {
     el.style.color = color;
     el.style.setProperty('--s', String(big));
     this.wordLayer.append(el);
-    this.words.push({ el, at: at.clone(), born: this.now, max: 1100 });
+    this.words.push({ el, at: at.clone(), born: this.now, max: 1100, base: text });
   }
 
   addWalker(w: Walker): void {
@@ -847,6 +868,7 @@ export class Renderer {
     this.gameNow += gdt * 1000;
     this.handleEvents();
     SHARED.uTime.value = now / 1000;
+    SHARED.uBoil.value = Math.floor(now / STOP_MS) * 1.37;
     this.fireTileEffects();
     this.updateFog();
     this.syncTrack();
@@ -889,7 +911,12 @@ export class Renderer {
       this.caption.style.transform = `translate(${this.canvas.offsetLeft + p.x}px, ${this.canvas.offsetTop + p.y - this.cssH * 0.18}px) translate(-50%, -50%)`;
     }
     this.drawBars();
-    this.post.render(this.gl, this.scene, this.camera, now / 1000);
+    // Stop motion: the set is photographed 12 times a second ("on twos").
+    if (this.smooth || now - this.lastShot >= STOP_MS - 1) {
+      this.lastShot = this.smooth ? now : now - ((now - this.lastShot) % STOP_MS);
+      this.post.mat.uniforms.uFocusD.value = this.focusD;
+      this.post.render(this.gl, this.scene, this.camera, now / 1000);
+    }
     if (this.photoReq && now >= this.photoReq.due) this.capturePhoto();
     this.drawWords();
     this.drawCombo();
@@ -939,6 +966,7 @@ export class Renderer {
       cam.position.y += (Math.random() - 0.5) * 2 * m;
     }
     cam.lookAt(target);
+    this.focusD = cam.position.distanceTo(target);
     if (roll) cam.rotateZ(roll);
     if (Math.abs(cam.fov - fov) > 1e-3) {
       cam.fov = fov;
@@ -1527,7 +1555,14 @@ export class Renderer {
     cam.lookAt(pose.look);
     cam.rotateZ((Math.random() < 0.5 ? -1 : 1) * 0.17);
     cam.updateMatrixWorld();
+    // Focus on the riders, with a gentler blur than the park view.
+    const focus = u.uFocusD.value;
+    const aperture = u.uAperture.value;
+    u.uFocusD.value = pose.eye.distanceTo(pose.look);
+    u.uAperture.value = aperture * 0.35;
     this.post.render(this.gl, this.scene, cam, this.now / 1000);
+    u.uFocusD.value = focus;
+    u.uAperture.value = aperture;
     const src = this.gl.domElement;
     const out = document.createElement('canvas');
     out.width = 640;

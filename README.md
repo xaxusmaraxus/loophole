@@ -28,6 +28,6 @@ tests/             unit tests (Vitest)
 ```
 
 ## Stack
-TypeScript, Vite, Three.js. No art assets: every model, the track and the island are built in code, then cel-shaded and inked by a post pass.
+TypeScript, Vite, Three.js. No art assets: every model, the track and the island are built in code and rendered as a stop-motion clay set (plasticine material, 12 fps, ambient occlusion, tilt-shift).
 
-Add `?noink` to the URL to switch the ink lines off, `?inkdebug` to see its depth (red) and normal (green) edges, and `?fixeddt=100` to step the game 100 ms per frame (for screenshots on slow machines).
+Add `?smooth` to the URL to render every frame instead of 12 a second, `?noink` to skip the post pass, `?inkdebug` to see the ambient occlusion, and `?fixeddt=100` to step the game 100 ms per frame (for screenshots on slow machines).

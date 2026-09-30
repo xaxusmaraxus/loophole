@@ -2145,3 +2145,103 @@ button:focus-visible {
   text-decoration: none;
   margin: 0 0 10px;
 }
+
+/* ==== Plasticine skin: every panel, card and button is a squished slab of clay ==== */
+:root {
+  --clay-hi: inset 0 3px 0 rgba(255, 255, 255, 0.45), inset 0 -5px 0 rgba(40, 20, 60, 0.16);
+  --clay-drop: 0 6px 0 rgba(20, 14, 40, 0.28), 0 12px 22px rgba(6, 8, 24, 0.35);
+}
+
+body {
+  background:
+    radial-gradient(120% 70% at 50% -10%, #4b5ba0 0%, transparent 60%),
+    radial-gradient(90% 60% at 100% 100%, #3a2f6e 0%, transparent 60%),
+    linear-gradient(180deg, #2a3668 0%, #1d2450 100%) fixed;
+}
+
+.panel,
+.card,
+.attraction:not(.empty),
+.day-banner {
+  border-radius: 20px;
+  box-shadow: var(--clay-hi), var(--clay-drop);
+}
+
+.rider {
+  border-radius: 16px;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), inset 0 -3px 0 rgba(40, 20, 60, 0.08);
+}
+
+.ghost,
+.open,
+.switch,
+.undo,
+.tool,
+.primary,
+.pad button,
+.ghost-dark,
+.perk,
+.map-node {
+  border-radius: 16px;
+  font-weight: 600;
+  transition: transform 0.12s cubic-bezier(0.2, 1.8, 0.4, 1), box-shadow 0.12s ease;
+}
+
+.open,
+.undo,
+.primary,
+.pad button {
+  box-shadow: var(--clay-hi), 0 5px 0 rgba(20, 14, 40, 0.3);
+}
+
+.open:hover:not(:disabled),
+.undo:hover:not(:disabled),
+.primary:hover,
+.pad button:hover,
+.tool:hover,
+.ghost:hover {
+  transform: translateY(-2px) scale(1.03, 0.97);
+}
+
+.open:active,
+.undo:active,
+.primary:active,
+.pad button:active {
+  transform: translateY(3px) scale(1.06, 0.9);
+  box-shadow: var(--clay-hi), 0 1px 0 rgba(20, 14, 40, 0.3);
+}
+
+.chip {
+  border-radius: 999px;
+  padding: 4px 12px;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), inset 0 -3px 0 rgba(40, 20, 60, 0.15);
+}
+
+.logo {
+  text-shadow:
+    0 2px 0 #ffe78a,
+    0 4px 0 var(--marquee),
+    0 7px 0 #a8303a,
+    0 10px 14px rgba(0, 0, 0, 0.4);
+  transform: rotate(-2deg);
+}
+
+/* The park sits in a chunky clay frame. */
+#park {
+  border-radius: 26px;
+  box-shadow:
+    0 0 0 6px #ffd23f,
+    inset 0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 0 0 9px #e0962a,
+    0 0 0 13px #2b2140,
+    0 7px 0 13px #2b2140,
+    0 18px 26px 6px rgba(6, 8, 24, 0.45);
+}
+
+.scoreshow {
+  border-radius: 20px;
+}
+
+.ss-box {
+  border-radius: 16px;
+}

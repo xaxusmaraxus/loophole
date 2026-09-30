@@ -173,6 +173,16 @@ The web park is now a real-time **cel-shaded, ink-lined toy diorama** in Three.j
 - **Slow motion goes pop art:** a wide-angle lens (the field of view nearly doubles) right up close, a tilted "dutch" horizon, punchier color and contrast, and halftone dots in the shade, on top of the speed lines and captions.
 - **The ride photo is a comic panel:** a wide-angle, tilted close-up from just ahead of the lead car, color cranked, halftone shade, a heavy border, and a yellow starburst with the loudest scream in it.
 
+## Claymation (v0.14)
+The park is now a **stop-motion clay set**, shot like a miniature.
+- **Plasticine material** (`src/render3d/toon.ts`): every vertex wanders a little by a slow 3D noise (hand-molded, nothing perfectly straight), and a finer wander re-seeds on every stop-motion frame (the "boil" of real clay animation). Thumbprints are pressed into every surface (a bump made in the shader: pits of concentric ridges in random cells, plus lumps and fine grain), colours are mottled, the shade glows a little warm (light scattering in clay), and highlights are a broad waxy sheen. Flat ground layers get prints but no wander, so they don't poke through each other.
+- **Soft forms:** normals are smoothed across any edge flatter than ~63°, so bevels round off and blobs turn soft while real corners stay.
+- **Stop motion:** the set is photographed 12 times a second ("on twos"); the game and the page UI still run smoothly. `?smooth` renders every frame.
+- **Miniature camera** (`src/render3d/post.ts`): screen-space ambient occlusion for contact shadows, a tilt-shift depth of field focused on the action (the slow-motion subject during shots), a film curve, grain that changes each frame, bloom and a vignette.
+- **Aardman faces:** googly eyes with pupils (tiny and terrified when screaming, heavy lids when sick), a big clay nose, a wide grin with teeth, a gaping scream, a queasy wobble with puffed green cheeks.
+- **Clay everywhere else:** puke, confetti and sparks are lumpy clay pellets; the sea is sculpted clay swells lit by the key light that shift each frame.
+- **Plasticine UI:** panels, cards and buttons are squished slabs with a soft top highlight and bottom shade, buttons squash when pressed, and the park sits in a chunky clay frame.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

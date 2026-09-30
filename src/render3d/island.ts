@@ -118,6 +118,21 @@ void main() {
   c = mix(c, vec3(1.0, 0.72, 0.45), streak * 0.5 * uGold);
   c *= mix(vec3(1.0), vec3(0.42, 0.45, 0.85), uDusk);
   c += uFoam * gl * uDusk * 0.8;
+  // Sculpted clay water: lumpy swells that shift once per stop-motion frame,
+  // lit by the key light, with a waxy sheen and thumb-smoothed mottling.
+  float tq = floor(uTime * 12.0) / 12.0;
+  vec2 q = p * (uMode < 0.5 ? 1.6 : 7.0);
+  float e = 0.05;
+  float h0 = noise(q + tq * 0.35) + noise(q * 2.3 - tq * 0.5) * 0.5;
+  float hx = noise(q + vec2(e, 0.0) + tq * 0.35) + noise((q + vec2(e, 0.0)) * 2.3 - tq * 0.5) * 0.5;
+  float hz = noise(q + vec2(0.0, e) + tq * 0.35) + noise((q + vec2(0.0, e)) * 2.3 - tq * 0.5) * 0.5;
+  vec3 nrm = normalize(vec3(-(hx - h0) / e * 0.35, 1.0, -(hz - h0) / e * 0.35));
+  vec3 L = normalize(vec3(-0.45, 0.85, 0.5));
+  float lam = dot(nrm, L);
+  c *= 0.72 + 0.38 * smoothstep(-0.2, 1.0, lam);
+  float sheen = pow(max(dot(nrm, normalize(L + vec3(0.0, 0.6, 0.8))), 0.0), 18.0);
+  c += vec3(1.0, 0.97, 0.9) * sheen * 0.18 * (1.0 - uDusk * 0.6);
+  c *= 1.0 + (noise(p * 9.0) - 0.5) * 0.08;
   gl_FragColor = vec4(c, 1.0);
 }`;
 
@@ -172,6 +187,8 @@ export function buildIsland(b: Board, park: ParkId, seed: number): Island {
   const r = rng(seed);
   const parts: Parts = { matte: new Geo(), gloss: new Geo(), leaf: new Geo(), cloth: new Geo(), glow: new Geo(), detail: new Geo() };
   const det = parts.detail!;
+  // Flat ground layers sit a hair apart, so their clay doesn't wander (or they'd poke through each other).
+  const gd = (parts.ground = new Geo());
   const m = parts.matte!;
   const group = new Group();
   // Plaza (margins) and verge extents.
@@ -187,8 +204,8 @@ export function buildIsland(b: Board, park: ParkId, seed: number): Island {
 
   // ---- Plaza surface: flat pavers or planks, colored, no steps (so no ink grid) ----
   const flat = (ax: number, az: number, bx: number, bz: number, y: number, c: string) =>
-    m.quad(v3(ax, y, az), v3(bx, y, az), v3(bx, y, bz), v3(ax, y, bz), c, v3((ax + bx) / 2, y - 1, (az + bz) / 2));
-  m.cube((px0 + px1) / 2, -0.03, (pz0 + pz1) / 2, px1 - px0, 0.06, pz1 - pz0, th.plaza[2]);
+    gd.quad(v3(ax, y, az), v3(bx, y, az), v3(bx, y, bz), v3(ax, y, bz), c, v3((ax + bx) / 2, y - 1, (az + bz) / 2));
+  gd.cube((px0 + px1) / 2, -0.03, (pz0 + pz1) / 2, px1 - px0, 0.06, pz1 - pz0, th.plaza[2]);
   if (th.plazaStyle === 'planks') {
     for (let z = pz0; z < pz1 - 1e-6; z += 0.2) {
       let x = px0 - r() * 0.8;
@@ -218,7 +235,7 @@ export function buildIsland(b: Board, park: ParkId, seed: number): Island {
     }
   }
   // ---- The grass board, raised a touch inside a stone kerb ----
-  m.cube(n / 2, GRASS_Y / 2 - 0.01, n / 2, n + 0.06, GRASS_Y + 0.02, n + 0.06, PAL.dirt[1]);
+  gd.cube(n / 2, GRASS_Y / 2 - 0.01, n / 2, n + 0.06, GRASS_Y + 0.02, n + 0.06, PAL.dirt[1]);
   const kerb = park === 'hollow' ? '#8a84a0' : park === 'boardwalk' ? '#e8d9b0' : '#e2dccb';
   const kw = 0.07;
   const kh = GRASS_Y + 0.03;
@@ -235,11 +252,11 @@ export function buildIsland(b: Board, park: ParkId, seed: number): Island {
       const i = idx(b, x, y);
       const base = (x + y) % 2 ? th.grass[1] : th.grass[2];
       if (b.soft[i]) {
-        m.cube(x + 0.5, GRASS_Y - 0.004, y + 0.5, 0.98, 0.012, 0.98, base);
-        softPatch(m, x + 0.5, y + 0.5, th.soft, seed + i * 31);
+        gd.cube(x + 0.5, GRASS_Y - 0.004, y + 0.5, 0.98, 0.012, 0.98, base);
+        softPatch(gd, x + 0.5, y + 0.5, th.soft, seed + i * 31);
         continue;
       }
-      m.cube(x + 0.5, GRASS_Y - 0.004, y + 0.5, 1, 0.012, 1, base);
+      gd.cube(x + 0.5, GRASS_Y - 0.004, y + 0.5, 1, 0.012, 1, base);
       // Tufts and flowers.
       if (b.obstacles[i] === 'pond') continue;
       const rr = rng(seed * 13 + i);
@@ -283,7 +300,7 @@ export function buildIsland(b: Board, park: ParkId, seed: number): Island {
     }
   // ---- Verge: hedges, flowers and trees around the plaza ----
   const flora = look.flora;
-  const verge = (vx0: number, vx1: number, vz0: number, vz1: number) => m.cube((vx0 + vx1) / 2, 0.01, (vz0 + vz1) / 2, vx1 - vx0, 0.04, vz1 - vz0, look.lip);
+  const verge = (vx0: number, vx1: number, vz0: number, vz1: number) => gd.cube((vx0 + vx1) / 2, 0.01, (vz0 + vz1) / 2, vx1 - vx0, 0.04, vz1 - vz0, look.lip);
   verge(x0, px0, z0, z1);
   verge(px1, x1, z0, z1);
   verge(px0, px1, z0, pz0);
