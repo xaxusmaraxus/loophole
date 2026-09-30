@@ -161,7 +161,7 @@ export interface Island {
 export const WATER_Y = -0.62;
 /** Plaza margins around the board (the front one holds the station and the queue). */
 export const PLAZA_SIDE = 0.6;
-export const PLAZA_FRONT = 2.4;
+export const PLAZA_FRONT = 2.95;
 const CLIFF_BOTTOM = -0.9;
 export const GRASS_Y = 0.03;
 

@@ -38,9 +38,8 @@ export function pickMoments(tiers: number[]): Set<number> {
 }
 
 /** Where the lead car waits in the station: at the top of the red end's leg of the U. */
-export function parkS(path: TrackPath, b: Board): number {
-  const i = path.indexOf(b.station.x, b.station.y);
-  return path.range(i)[1] - 0.14;
+export function parkS(path: TrackPath, _b?: Board): number {
+  return path.parkAt;
 }
 
 /** The train's route over the track's arc length: once round a circuit, out and back on a shuttle. */
@@ -191,8 +190,8 @@ export class RideAnim {
       for (let i = 0; i < this.cars; i++) h += this.path.sample(this.carS(i)).p.y;
       h /= this.cars;
       const lead = this.path.sample(this.carS(0));
-      let v = 0.9 + 2.0 * Math.sqrt(Math.max(0, this.hRef - h));
-      if (lead.lift) v = Math.min(v, 0.75);
+      let v = 0.75 + 1.7 * Math.sqrt(Math.max(0, this.hRef - h));
+      if (lead.lift) v = Math.min(v, 0.62);
       v *= Math.min(1, 0.2 + ((now - this.startAt) / 1000) * 1.4);
       v = Math.min(v, 0.3 + this.route.toTurn(this.d) * 2.4);
       this.v += (v - this.v) * Math.min(1, dt * 6);
@@ -230,14 +229,14 @@ export class RideAnim {
     this.r.requestPhoto(() => {
       const dir = this.route.dirAt(this.d);
       const lead = this.path.sample(this.carS(0));
-      const mid = this.path.sample(this.carS(Math.min(this.cars - 1, 1.6)));
+      const mid = this.path.sample(this.carS(Math.min(this.cars - 1, 1.3)));
       // Level with the world, ahead of the train and a little above, looking back at the faces.
       const fwd = lead.t.clone().multiplyScalar(dir).setY(0);
       if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, 1);
       fwd.normalize();
       const side = new Vector3(-fwd.z, 0, fwd.x).multiplyScalar(0.22);
       return {
-        eye: lead.p.clone().addScaledVector(fwd, 1.35).add(side).setY(lead.p.y + 0.8),
+        eye: lead.p.clone().addScaledVector(fwd, 0.72).add(side).setY(lead.p.y + 0.42),
         look: mid.p.clone().setY(mid.p.y + 0.18),
         up: new Vector3(0, 1, 0),
       };

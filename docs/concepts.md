@@ -167,6 +167,12 @@ The web park is now a real-time **cel-shaded, ink-lined toy diorama** in Three.j
 - **Slow motion is a show now:** a hit-stop freeze and a flash as it starts, a heartbeat thumping through it, manga speed lines streaming from the subject, a big stretched shout ("WHOOOAAA", "BLEEEEEGH" for a boss), every rider screaming with their arms flailing, a stretched, pitched-down scream, a wider orbit, and a speed ramp that snaps time back fast for a moment.
 - **The on-ride photo:** at the wildest piece of the ride (or partway round if there isn't one), a camera flash goes off and a track-mounted camera ahead of the train catches every face, upside down included. A polaroid slides in during the ride; the results card shows it as a photo card with the park, the day and the ride's stats, with a "Save the photo" button. Presentation only: no score effect yet (an idea for later: pukes caught on camera pay a bonus).
 
+## Full-width station, in-your-face shots (v0.13)
+- **The station runs the whole bottom edge:** the track drops out of the blue end's cell, runs an upper lane to the right end, turns, runs back along a long lower lane where the train waits, turns up and runs along the upper lane into the red end's cell. Riders board from an island platform between the lanes under a long striped canopy, and the train can be up to 16 cars (one per rider). Queue and curtain call moved down to make room.
+- **Slower again:** a lower base speed, smaller speed-up in the dips, a slower lift chain.
+- **Slow motion goes pop art:** a wide-angle lens (the field of view nearly doubles) right up close, a tilted "dutch" horizon, punchier color and contrast, and halftone dots in the shade, on top of the speed lines and captions.
+- **The ride photo is a comic panel:** a wide-angle, tilted close-up from just ahead of the lead car, color cranked, halftone shade, a heavy border, and a yellow starburst with the loudest scream in it.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

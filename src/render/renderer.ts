@@ -44,7 +44,7 @@ import { type CarKind, CRATE_H, type Face, M, type Parts, carGeo, crateGeo, myst
 import { Particles, Pool, bubbleMaterial, makeBubble, makeMarker, puddleGeo } from '../render3d/fx';
 import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
 import { MATS, SHARED, toon } from '../render3d/toon';
-import { TrackPath } from '../render3d/track';
+import { TrackPath, stationLayout } from '../render3d/track';
 import { buildCellTrack } from '../render3d/trackmesh';
 import { composeCard, photoStore } from '../ui/photo';
 import { ScoreShow } from '../ui/scoreshow';
@@ -304,8 +304,8 @@ export class Renderer {
 
   /** Where riders stand to board: the platform inside the station U. */
   stationCenter(): Vector3 {
-    const s = this.board.station;
-    return v3(s.x + 1, 0.1, s.y + 0.34);
+    const L = stationLayout(this.board.station.x, this.n);
+    return v3((L.xL + L.xR) / 2, 0.1, (L.zU + L.zD) / 2);
   }
 
   /** Feet position of the i-th rider in the snaking queue below the station. */
@@ -320,7 +320,7 @@ export class Renderer {
     const row = Math.floor(i / perRow);
     const k = i % perRow;
     const along = row % 2 === 0 ? k : perRow - 1 - k;
-    return v3(sc.x + dir * (QUEUE_START + along * spacing), 0, this.board.station.y + 1.44 + Math.min(row, 2) * 0.4);
+    return v3(sc.x + dir * (QUEUE_START + along * spacing), 0, this.board.station.y + 1.9 + Math.min(row, 2) * 0.4);
   }
 
   private queueDir(): number {
@@ -431,63 +431,59 @@ export class Renderer {
   private buildStation(): Group {
     const g = new Group();
     const s = this.board.station;
-    const xc = s.x + 1;
     const z = s.y;
+    const L = stationLayout(s.x, this.n);
+    const xc = (L.xL + L.xR) / 2;
     const parts: Parts = { matte: new Geo(), gloss: new Geo(), cloth: new Geo(), glow: new Geo() };
     const m = parts.matte!;
-    m.cube(xc, 0.03, z + 0.46, 1.9, 0.06, 0.94, '#8f96ae', 0.02, '#a9adc0');
-    for (let k = 0; k < 9; k++) m.cube(xc - 0.9 + k * 0.225, 0.061, z + 0.46, 0.012, 0.004, 0.9, '#7a7f99');
-    // Island platform, rounded at the front to follow the U.
-    const pts: Vector3[] = [];
-    const R = 0.37;
-    pts.push(v3(xc - R, 0, z + 0.02), v3(xc + R, 0, z + 0.02));
-    for (let k = 0; k <= 12; k++) {
-      const a = (Math.PI * k) / 12;
-      pts.push(v3(xc + Math.cos(a) * R, 0, z + 0.3 + Math.sin(a) * R));
+    // A long deck under the whole station loop.
+    const dx0 = L.xL - L.R - 0.14;
+    const dx1 = L.xR + L.R + 0.14;
+    const dz0 = z + 0.04;
+    const dz1 = L.zD + 0.2;
+    m.cube((dx0 + dx1) / 2, 0.03, (dz0 + dz1) / 2, dx1 - dx0, 0.06, dz1 - dz0, '#8f96ae', 0.02, '#a9adc0');
+    for (let x = dx0 + 0.25; x < dx1 - 0.1; x += 0.25) m.cube(x, 0.061, (dz0 + dz1) / 2, 0.012, 0.004, dz1 - dz0 - 0.04, '#7a7f99');
+    // The island platform between the lanes, where riders board.
+    const pz0 = L.zU + 0.1;
+    const pz1 = L.zD - 0.1;
+    m.cube(xc, 0.08, (pz0 + pz1) / 2, L.xR - L.xL, 0.05, pz1 - pz0, '#e8e4f4', 0.015, '#f1eefa');
+    for (let x = L.xL + 0.1; x < L.xR - 0.05; x += 0.18) {
+      m.cube(x, 0.106, pz0 + 0.02, 0.09, 0.006, 0.025, PAL.gold);
+      m.cube(x, 0.106, pz1 - 0.02, 0.09, 0.006, 0.025, PAL.gold);
     }
-    const top = pts.map((p) => p.clone().setY(0.1));
-    const inside = v3(xc, 0.05, z + 0.3);
-    m.disc(top, '#e8e4f4');
-    for (let k = 0; k < pts.length; k++) {
-      const a = pts[k];
-      const b2 = pts[(k + 1) % pts.length];
-      m.quad(a.clone().setY(0.06), b2.clone().setY(0.06), b2.clone().setY(0.1), a.clone().setY(0.1), '#b9bccd', inside);
-    }
-    for (let k = 0; k < 12; k += 2) {
-      const a = (Math.PI * (k + 0.5)) / 12;
-      m.cube(xc + Math.cos(a) * (R - 0.03), 0.102, z + 0.3 + Math.sin(a) * (R - 0.03), 0.05, 0.006, 0.05, PAL.gold);
-    }
-    // Canopy posts and a striped, scalloped roof over the platform.
-    for (const px of [-0.22, 0.22]) m.post(xc + px, 0.1, z + 0.12, 0.018, 0.4, '#2b2140', 6);
+    // A long striped canopy on posts down the middle of the platform.
     const cloth = parts.cloth!;
-    const stripes = 6;
+    const cw = L.xR - L.xL - 0.1;
+    const stripes = Math.max(6, Math.round(cw / 0.14));
+    const sw = cw / stripes;
     for (let i = 0; i < stripes; i++) {
-      const w = 0.62 / stripes;
-      const x0 = xc - 0.31 + i * w;
-      cloth.box(new Matrix4().makeRotationX(0.3).setPosition(x0 + w / 2, 0.52, z + 0.14), w, 0.014, 0.34, i % 2 ? PAL.white : PAL.red);
-      cloth.sphere(v3(x0 + w / 2, 0.47, z + 0.31), w * 0.5, i % 2 ? PAL.white : PAL.red, 1, 0.55, 0.35, 8, 4);
+      const x0 = L.xL + 0.05 + i * sw;
+      cloth.box(new Matrix4().makeRotationX(0.28).setPosition(x0 + sw / 2, 0.46, (pz0 + pz1) / 2 - 0.02), sw, 0.014, 0.2, i % 2 ? PAL.white : PAL.red);
+      cloth.sphere(v3(x0 + sw / 2, 0.42, (pz0 + pz1) / 2 + 0.08), sw * 0.5, i % 2 ? PAL.white : PAL.red, 1, 0.55, 0.35, 8, 4);
     }
-    m.cube(xc, 0.57, z - 0.02, 0.66, 0.04, 0.05, '#b83344', 0.012);
-    // The marquee along the front of the station deck.
+    for (let x = L.xL + 0.25; x < L.xR - 0.1; x += Math.max(0.6, (L.xR - L.xL - 0.5) / Math.max(1, Math.round((L.xR - L.xL) / 0.9)))) m.post(x, 0.1, (pz0 + pz1) / 2 - 0.04, 0.018, 0.34, '#2b2140', 6);
+    m.cube(xc, 0.5, (pz0 + pz1) / 2 - 0.12, cw + 0.04, 0.035, 0.04, '#b83344', 0.012);
+    // The marquee in front of the lower lane.
+    const signZ = L.zD + 0.34;
     const sign = new Mesh(new PlaneGeometry(0.98, 0.3), new BasicMat({ map: signTexture(), transparent: true }));
     const tilt = new Matrix4().makeRotationX(-0.55);
-    sign.position.set(xc, 0.165, z + 1.03);
+    sign.position.set(xc, 0.165, signZ + 0.03);
     sign.rotation.x = -0.55;
     sign.layers.set(GLOW_LAYER);
     this.stationSign = sign;
     g.add(sign);
-    m.box(new Matrix4().copy(tilt).setPosition(xc, 0.155, z + 0.99), 1.02, 0.33, 0.03, '#9a5a1c', 0.01);
-    for (const sx of [-0.4, 0.4]) m.post(xc + sx, 0, z + 1.02, 0.018, 0.12, '#2b2140', 6);
+    m.box(new Matrix4().copy(tilt).setPosition(xc, 0.155, signZ - 0.01), 1.02, 0.33, 0.03, '#9a5a1c', 0.01);
+    for (const sx of [-0.4, 0.4]) m.post(xc + sx, 0, signZ + 0.02, 0.018, 0.12, '#2b2140', 6);
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2;
       const lp = v3(Math.cos(a) * 0.52, Math.sin(a) * 0.17, 0.02).applyMatrix4(tilt);
-      parts.glow!.sphere(v3(xc + lp.x, 0.16 + lp.y, z + 1.0 + lp.z), 0.018, '#fff1b0', 1, 1, 1, 6, 4);
+      parts.glow!.sphere(v3(xc + lp.x, 0.16 + lp.y, signZ + lp.z), 0.018, '#fff1b0', 1, 1, 1, 6, 4);
     }
     // Queue barriers.
     const sc = this.stationCenter();
     const dir = this.queueDir();
     const far = dir > 0 ? this.n + 0.5 : -0.5;
-    const zr = s.y + 1.44;
+    const zr = s.y + 1.9;
     const ropeCol = '#e8484f';
     for (let r2 = 0; r2 < 2; r2++) {
       const zz = zr + 0.2 + r2 * 0.4;
@@ -914,6 +910,8 @@ export class Renderer {
     let dist = this.base.dist * (1 - f.w * 0.3);
     let pitch = PITCH;
     let yaw = 0;
+    let roll = 0;
+    let fov = FOV;
     const c = this.cine;
     if (c > 0) {
       // Product-video push-in: close on the subject, lower angle, a slow orbit.
@@ -926,8 +924,12 @@ export class Renderer {
       const e = c * c * (3 - 2 * c);
       target.lerp(this.shotAt, e);
       dist *= 1 + (this.shotZoom - 1) * e;
-      pitch += (0.6 - PITCH) * e;
+      pitch += (0.5 - PITCH) * e;
       yaw = this.shotYaw * e;
+      // In your face: a wide-angle lens right up close, and a tilted horizon.
+      fov += (62 - FOV) * e;
+      dist *= 1 - 0.5 * e;
+      roll = Math.sign(this.shotYaw || 1) * 0.2 * e;
     }
     const dir = v3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     cam.position.copy(target).addScaledVector(dir, dist);
@@ -937,6 +939,11 @@ export class Renderer {
       cam.position.y += (Math.random() - 0.5) * 2 * m;
     }
     cam.lookAt(target);
+    if (roll) cam.rotateZ(roll);
+    if (Math.abs(cam.fov - fov) > 1e-3) {
+      cam.fov = fov;
+      cam.updateProjectionMatrix();
+    }
     cam.updateMatrixWorld();
   }
 
@@ -1455,8 +1462,8 @@ export class Renderer {
     if (!this.path || this.path.pts.length < 2) return;
     const lead = parkS(this.path, this.board);
     const u0 = this.path.range(this.path.indexOf(this.board.station.x + 1, this.board.station.y))[0];
-    const fit = Math.max(1, Math.floor((lead - u0 - 0.1) / CAR_GAP) + 1);
-    const n = Math.max(2, Math.min(fit, Math.max(3, this.game.queue.length), 5));
+    const fit = Math.max(1, Math.floor((lead - u0 - 0.6) / CAR_GAP) + 1);
+    const n = Math.max(2, Math.min(fit, Math.max(3, this.game.queue.length), 16));
     for (let i = 0; i < n; i++) this.car(i === 0 ? 'lead' : i === n - 1 ? 'tail' : 'mid', lead - i * CAR_GAP);
   }
 
@@ -1515,9 +1522,10 @@ export class Renderer {
     const pose = req.pose();
     cam.up.copy(pose.up);
     cam.position.copy(pose.eye);
-    cam.fov = 50;
+    cam.fov = 78;
     cam.updateProjectionMatrix();
     cam.lookAt(pose.look);
+    cam.rotateZ((Math.random() < 0.5 ? -1 : 1) * 0.17);
     cam.updateMatrixWorld();
     this.post.render(this.gl, this.scene, cam, this.now / 1000);
     const src = this.gl.domElement;
@@ -1527,13 +1535,67 @@ export class Renderer {
     const sw = Math.min(src.width, (src.height * 4) / 3);
     const sh = (sw * 3) / 4;
     const o = out.getContext('2d')!;
+    // Comic-book punch: crank the color, add halftone shade and a shout.
+    o.filter = 'contrast(1.25) saturate(1.45)';
     o.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, 640, 480);
-    // A little flash falloff, like a real on-ride camera.
-    const g = o.createRadialGradient(320, 240, 120, 320, 240, 420);
-    g.addColorStop(0, 'rgba(255,250,235,0.18)');
-    g.addColorStop(1, 'rgba(20,10,40,0.35)');
+    o.filter = 'none';
+    const img = o.getImageData(0, 0, 640, 480);
+    const d = img.data;
+    for (let y = 0; y < 480; y += 6)
+      for (let x = 0; x < 640; x += 6) {
+        const i = (y * 640 + x) * 4;
+        const lum = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255;
+        const r = (1 - lum) * 2.6;
+        for (let yy = -2; yy <= 2; yy++)
+          for (let xx = -2; xx <= 2; xx++) {
+            if (xx * xx + yy * yy > r * r) continue;
+            const px = x + xx + (Math.floor(y / 6) % 2) * 3;
+            const py = y + yy;
+            if (px < 0 || py < 0 || px >= 640 || py >= 480) continue;
+            const j = (py * 640 + px) * 4;
+            d[j] *= 0.72;
+            d[j + 1] *= 0.7;
+            d[j + 2] *= 0.78;
+          }
+      }
+    o.putImageData(img, 0, 0);
+    const g = o.createRadialGradient(320, 240, 140, 320, 240, 440);
+    g.addColorStop(0, 'rgba(255,250,235,0.1)');
+    g.addColorStop(1, 'rgba(30,10,50,0.45)');
     o.fillStyle = g;
     o.fillRect(0, 0, 640, 480);
+    // A starburst with the loudest scream in it.
+    const shout = ['AAAAH!', 'WHEEE!', 'MOMMY!', 'OH NO!', 'YEEHAW!'][Math.floor(Math.random() * 5)];
+    const bx = 470;
+    const by = 88;
+    o.beginPath();
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2;
+      const r = k % 2 ? 62 : 104;
+      o.lineTo(bx + Math.cos(a) * r * 1.35, by + Math.sin(a) * r * 0.75);
+    }
+    o.closePath();
+    o.fillStyle = '#ffd23f';
+    o.fill();
+    o.lineWidth = 6;
+    o.strokeStyle = '#2b2140';
+    o.stroke();
+    o.save();
+    o.translate(bx, by + 4);
+    o.rotate(-0.12);
+    o.font = '400 40px Bungee, "Arial Black", Impact, sans-serif';
+    o.textAlign = 'center';
+    o.textBaseline = 'middle';
+    o.lineWidth = 8;
+    o.lineJoin = 'round';
+    o.strokeStyle = '#2b2140';
+    o.strokeText(shout, 0, 0);
+    o.fillStyle = '#f0584e';
+    o.fillText(shout, 0, 0);
+    o.restore();
+    o.lineWidth = 10;
+    o.strokeStyle = '#2b2140';
+    o.strokeRect(5, 5, 630, 470);
     const url = out.toDataURL('image/jpeg', 0.9);
     cam.up.set(0, 1, 0);
     cam.position.copy(saved.pos);
@@ -1611,7 +1673,7 @@ export class Renderer {
         x: sc.x,
         z: sc.z,
         tx,
-        tz: this.board.station.y + 1.35 + row * 0.42,
+        tz: this.board.station.y + 1.62 + row * 0.4,
         speed: 1.3,
         sick: pukes > 0,
         delay: i * 90,

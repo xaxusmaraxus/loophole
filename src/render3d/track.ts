@@ -12,9 +12,34 @@ import type { Board } from '../puzzle/board';
 /** Deck height of each tier's track, in cells. */
 export const DECK_H = [0.18, 0.22, 0.26, 0.38, 0.26, 0.26, 0.32, 0.3];
 export const STATION_H = 0.15;
-/** How far the station U reaches below the station row's top edge. */
-const U_LEG = 0.3;
-const U_R = 0.5;
+/**
+ * The station runs the full width of the board's bottom edge: the track comes
+ * down from the blue end's cell, runs along an upper lane to the right end,
+ * turns, runs back along a long lower lane (where the train waits), turns up
+ * and runs along the upper lane again into the red end's cell.
+ */
+export interface StationLayout {
+  xL: number;
+  xR: number;
+  zU: number;
+  zD: number;
+  R: number;
+  rc: number;
+  x0: number;
+  x1: number;
+}
+
+export function stationLayout(stationX: number, n: number): StationLayout {
+  const rc = 0.2;
+  const zU = n + 0.42;
+  const zD = n + 1.0;
+  const R = (zD - zU) / 2;
+  const x0 = stationX + 0.5;
+  const x1 = stationX + 1.5;
+  const xL = Math.min(0.3, x0 - rc - 0.08);
+  const xR = Math.max(n - 0.3, x1 + rc + 0.08);
+  return { xL, xR, zU, zD, R, rc, x0, x1 };
+}
 
 export interface ChainCell {
   x: number;
@@ -169,6 +194,8 @@ export class TrackPath {
   seg: TrackPt[][] = [];
   ranges: [number, number][] = [];
   length = 0;
+  /** Where the lead car waits: the left end of the station's lower lane. */
+  parkAt = 0;
 
   constructor(cells: ChainCell[], closed: boolean) {
     this.cells = cells;
@@ -202,7 +229,7 @@ export class TrackPath {
 
   private build(): void {
     const n = this.cells.length;
-    type Raw = { p: Vector3; up: Vector3 | null; lift: boolean; elem: boolean; ang: number; bank: Vector3 | null };
+    type Raw = { p: Vector3; up: Vector3 | null; lift: boolean; elem: boolean; ang: number; bank: Vector3 | null; park?: boolean };
     const raws: Raw[][] = [];
     for (let i = 0; i < n; i++) raws.push(this.cellSamples(i));
     // Frames over the whole chain, so tangents agree at the joints.
@@ -239,6 +266,8 @@ export class TrackPath {
       const up = t.clone().cross(right).normalize();
       return { p: r.p, t, up, right, s, cell, lift: r.lift, elem: r.elem, ang: r.ang };
     });
+    const pk = flat.findIndex((f) => f.r.park);
+    this.parkAt = pk >= 0 ? this.pts[pk].s : 0;
     this.length = s + (this.closed ? this.pts[m - 1].p.distanceTo(this.pts[0].p) : 0);
     // Per-cell sample lists, sharing joint points with their neighbors.
     this.seg = [];
@@ -321,39 +350,68 @@ export class TrackPath {
     return out;
   }
 
-  /** The station U: straight legs down from each station cell's top edge, joined by a half circle. */
+  /** The long station loop, split between the two station cells at the middle of the lower lane. */
   private stationSamples(i: number, _pi: number, _ni: number, hE: number, hX: number) {
     const c = this.cells[i];
     const n = c.y;
-    // st1 (the right cell) comes first in the chain: down its leg, then half the U.
-    const right = this.cells[i + 1]?.station === true;
-    const xc = right ? c.x : c.x + 1; // the U's center line, between the two cells
-    const top = n;
-    const out = [];
-    const legN = 6;
-    const arcN = 14;
-    const hEdge = right ? hE : hX;
-    const hAt = (s: number) => STATION_H + (hEdge - STATION_H) * (1 - smooth(0, 1, s));
-    if (right) {
-      for (let k = 0; k <= legN; k++) {
-        const s = k / legN;
-        out.push(new Vector3(xc + 0.5, hAt(s), top + U_LEG * s));
+    // st1 (the right cell) comes first in the chain.
+    const first = this.cells[i + 1]?.station === true;
+    const stX = first ? c.x - 1 : c.x;
+    const L = stationLayout(stX, n);
+    const { xL, xR, zU, zD, R, rc, x0, x1 } = L;
+    // Edge heights: st1's top edge (blue end) and st0's top edge (red end).
+    const j1 = first ? i : i - 1;
+    const j0 = first ? i + 1 : i;
+    const hTop1 = this.edgeHeight(j1, -1);
+    const hTop0 = this.edgeHeight(j0, 1);
+    type S = { p: Vector3; park?: boolean };
+    const pts: S[] = [];
+    const H = STATION_H;
+    const ramp = (h: number, k: number) => H + (h - H) * (1 - smooth(0, 1, k));
+    const line = (ax: number, az: number, bx: number, bz: number, steps: number, h0?: number) => {
+      for (let k = 1; k <= steps; k++) {
+        const t = k / steps;
+        pts.push({ p: new Vector3(ax + (bx - ax) * t, h0 === undefined ? H : ramp(h0, t), az + (bz - az) * t) });
       }
-      for (let k = 1; k <= arcN; k++) {
-        const a = (Math.PI / 2) * (k / arcN);
-        out.push(new Vector3(xc + Math.cos(a) * U_R, STATION_H, top + U_LEG + Math.sin(a) * U_R));
+    };
+    const arc = (cx: number, cz: number, r: number, a0: number, a1: number, steps: number) => {
+      for (let k = 1; k <= steps; k++) {
+        const a = a0 + (a1 - a0) * (k / steps);
+        pts.push({ p: new Vector3(cx + Math.cos(a) * r, H, cz + Math.sin(a) * r) });
       }
-    } else {
-      for (let k = 0; k <= arcN; k++) {
-        const a = Math.PI / 2 + (Math.PI / 2) * (k / arcN);
-        out.push(new Vector3(xc + Math.cos(a) * U_R, STATION_H, top + U_LEG + Math.sin(a) * U_R));
-      }
-      for (let k = 1; k <= legN; k++) {
-        const s = 1 - k / legN;
-        out.push(new Vector3(xc - 0.5, hAt(s), top + U_LEG * s));
-      }
+    };
+    // Down from the blue end, onto the upper lane heading right.
+    pts.push({ p: new Vector3(x1, hTop1, n) });
+    line(x1, n, x1, zU - rc, 5, hTop1);
+    arc(x1 + rc, zU - rc, rc, Math.PI, Math.PI / 2, 6);
+    line(x1 + rc, zU, xR, zU, Math.max(2, Math.round((xR - x1 - rc) * 8)));
+    // Round the right end and back along the lower lane.
+    arc(xR, zU + R, R, -Math.PI / 2, Math.PI / 2, 12);
+    const mid = (xL + xR) / 2;
+    line(xR, zD, mid, zD, Math.max(2, Math.round((xR - mid) * 8)));
+    const split = pts.length - 1;
+    line(mid, zD, xL + 0.12, zD, Math.max(2, Math.round((mid - xL) * 8)));
+    pts[pts.length - 1].park = true;
+    line(xL + 0.12, zD, xL, zD, 1);
+    // Round the left end, along the upper lane, and up into the red end.
+    arc(xL, zU + R, R, Math.PI / 2, (3 * Math.PI) / 2, 12);
+    line(xL, zU, x0 - rc, zU, Math.max(2, Math.round((x0 - rc - xL) * 8)));
+    arc(x0 - rc, zU - rc, rc, Math.PI / 2, 0, 6);
+    for (let k = 1; k <= 5; k++) {
+      const t = k / 5;
+      pts.push({ p: new Vector3(x0, ramp(hTop0, 1 - t), zU - rc + (n - (zU - rc)) * t) });
     }
-    return out.map((p) => ({ p, up: null, lift: false, elem: false, ang: -1, bank: null }));
+    const part = first ? pts.slice(0, split + 1) : pts.slice(split);
+    void hE;
+    void hX;
+    return part.map(({ p, park }) => ({ p, up: null, lift: false, elem: false, ang: -1, bank: null, park: !!park }));
+  }
+
+  /** Height where a station cell meets its neighbour up in the board (dir -1: previous, 1: next). */
+  private edgeHeight(i: number, dir: -1 | 1): number {
+    const j = this.neighbor(i, dir);
+    const h = STATION_H;
+    return j >= 0 && !this.cells[j].station ? (this.deck(j) + h) / 2 : h;
   }
 
   /** Frame at arc length s (wraps on a closed track, clamps on an open one). */

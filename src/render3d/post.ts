@@ -148,6 +148,17 @@ void main() {
   vec2 q = vUv - 0.5;
   s *= 1.0 - (uVignette + uCine * 0.35) * smoothstep(0.35, 0.95, length(q * vec2(1.1, 1.0)) * 1.25);
   s = mix(s, vec3(dot(s, vec3(0.3, 0.55, 0.15))) * vec3(1.02, 0.98, 0.94), uCine * 0.15);
+  // Slow motion goes pop art: punchier color and contrast, halftone dots in the shade.
+  if (uCine > 0.01) {
+    float lum = dot(s, vec3(0.299, 0.587, 0.114));
+    s = mix(vec3(lum), s, 1.0 + uCine * 0.45);
+    s = (s - 0.5) * (1.0 + uCine * 0.3) + 0.5;
+    vec2 hp = px * 0.7071;
+    vec2 cell = vec2(hp.x + hp.y, hp.y - hp.x) / 7.0;
+    float dotR = length(fract(cell) - 0.5);
+    float dots = 1.0 - smoothstep(0.0, 0.08, dotR - (1.0 - lum) * 0.5);
+    s *= 1.0 - dots * uCine * 0.35;
+  }
   // Slow motion: manga speed lines streaming out from the subject.
   if (uCine > 0.01) {
     vec2 d = (vUv - uFocus) * vec2(uPx.y / uPx.x, 1.0);
