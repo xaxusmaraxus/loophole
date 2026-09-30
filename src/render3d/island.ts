@@ -100,8 +100,8 @@ void main() {
   float dd = d + w * 0.6;
   float scale = uMode < 0.5 ? 1.0 : 0.12;
   vec3 c = uShallow;
-  c = mix(c, uMid, step(0.55 * scale, dd));
-  c = mix(c, uDeep, step(2.2 * scale, dd));
+  c = mix(c, uMid, smoothstep(0.2 * scale, 1.0 * scale, dd));
+  c = mix(c, uDeep, smoothstep(1.2 * scale, 3.2 * scale, dd));
   // Foam rings drifting out from the shore, and a hard foam line on it.
   float ring = fract(d * (uMode < 0.5 ? 1.4 : 9.0) - uTime * 0.3);
   float rings = step(0.9, ring) * (1.0 - smoothstep(0.2 * scale, 1.6 * scale, d)) * step(0.25, noise(p * 2.0 + uTime * 0.1));

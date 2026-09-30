@@ -1,15 +1,15 @@
 import { Color, DoubleSide, MeshToonMaterial, type Side } from 'three';
 import { type Col, col } from './geo';
 
-// Cel shading on top of three's toon material: two crisp, anti-aliased light
-// bands, a cool shade, a hard specular blob on glossy paint, a thin rim, and an
-// optional wind sway for foliage (by height above the object's base).
+// Soft stylized lighting on top of three's toon material: a smooth wrapped
+// falloff, a soft specular on glossy paint, a gentle rim, and an optional wind
+// sway for foliage (by height above the object's base).
 
 /** Uniforms shared by every toon material (time, rim color, shade depth). */
 export const SHARED = {
   uTime: { value: 0 },
   uRimColor: { value: new Color('#fff1d6') },
-  uShade: { value: 0.34 },
+  uShade: { value: 0.2 },
 };
 
 export interface ToonOpts {
@@ -69,26 +69,20 @@ export function toon(o: ToonOpts = {}): MeshToonMaterial {
       .replace(
         '#include <gradientmap_pars_fragment>',
         `vec3 getGradientIrradiance( vec3 normal, vec3 lightDirection ) {
+          // Soft wrapped light: a smooth falloff instead of cel bands.
           float d = dot( normal, lightDirection );
-          float fw = fwidth( d ) * 0.8 + 0.002;
-          float lit = smoothstep( 0.04 - fw, 0.04 + fw, d );
-          float hi = smoothstep( 0.62 - fw, 0.62 + fw, d ) * 0.1;
-          return vec3( mix( uShade, 1.0, lit ) + hi );
+          return vec3( mix( uShade, 1.0, smoothstep( -0.35, 0.95, d ) ) );
         }`,
       )
       .replace(
         '#include <opaque_fragment>',
         `{
           vec3 vdir = normalize( vViewPosition );
-          float nv = max( dot( normal, vdir ), 0.0 );
-          float rf = 1.0 - nv;
-          float rfw = fwidth( rf ) + 0.002;
-          outgoingLight += uRimColor * diffuseColor.rgb * smoothstep( 0.74 - rfw, 0.74 + rfw, rf ) * uRim;
+          float rf = 1.0 - max( dot( normal, vdir ), 0.0 );
+          outgoingLight += uRimColor * diffuseColor.rgb * pow( rf, 3.0 ) * uRim * 0.6;
           #if NUM_DIR_LIGHTS > 0
             vec3 hh = normalize( directionalLights[ 0 ].direction + vdir );
-            float sd = dot( normal, hh );
-            float sfw = fwidth( sd ) + 0.002;
-            outgoingLight += directionalLights[ 0 ].color * smoothstep( 0.955 - sfw, 0.955 + sfw, sd ) * uGloss * 0.55;
+            outgoingLight += directionalLights[ 0 ].color * pow( max( dot( normal, hh ), 0.0 ), 40.0 ) * uGloss * 0.35;
           #endif
         }
         #include <opaque_fragment>`,
