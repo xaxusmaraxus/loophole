@@ -1,0 +1,11 @@
+{
+ "edit": "art/paintover/plate_src_phone_day.png",
+ "refs": [
+  "docs/mood/coaster_town_mood.png"
+ ],
+ "prompt": "Repaint image 1 in the painted art style of image 2 (the style reference). This is the background of a portrait phone game, so keep the exact camera and layout of image 1: the empty square 5 by 5 grid of green lawn tiles with its stone rim must stay exactly where it is, same size, same angle, same corners, and stay EMPTY (no crates, no track, no people on it). Keep the carousel at the left edge, the trees, lamps and bench where they are. Fill the plaza with the richness of image 2: warm cobblestone paving, flower beds, painted grass with tiny flowers, dense round autumn trees and pines, soft outlines, warm afternoon light. No people, no rollercoaster, no text, no UI.",
+ "size": "900x1600",
+ "quality": "high",
+ "count": 1,
+ "model": "gpt-6-astra"
+}

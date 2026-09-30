@@ -40,6 +40,9 @@ var grid: Array = []
 var tile_nodes := {}
 var track_cells := {}
 var tiles_root: Node3D
+## Nodes that move or change during play (tiles, coaster, station, guests). The painted
+## plate replaces everything else.
+var dynamic_nodes: Array[Node] = []
 
 
 func _ready() -> void:
@@ -53,18 +56,110 @@ func _ready() -> void:
 	_build_backdrop()
 	_build_plaza()
 	_build_plot()
+	dynamic_nodes.append(tiles_root)
+	var n0 := get_child_count()
 	_build_coaster()
 	_build_station()
+	_mark_dynamic(n0)
 	_build_trees()
 	_build_props()
+	n0 = get_child_count()
 	_build_guests()
+	_mark_dynamic(n0)
 	cam = Camera3D.new()
 	add_child(cam)
 	_set_time(false)
 	_set_camera(0)
-	if "--shots" in OS.get_cmdline_user_args():
+	var args := OS.get_cmdline_user_args()
+	if "--plate" in args:
+		_use_plate(args[args.find("--plate") + 1])
+	if "--plate-source" in args:
+		shooting = true
+		_render_plate_source()
+	elif "--shots" in args:
 		shooting = true
 		_render_shots()
+
+
+func _mark_dynamic(from_index: int) -> void:
+	for i in range(from_index, get_child_count()):
+		dynamic_nodes.append(get_child(i))
+
+
+func _is_dynamic(n: Node) -> bool:
+	for d in dynamic_nodes:
+		if d == n or d.is_ancestor_of(n):
+			return true
+	return false
+
+
+# ---- Painted plate -------------------------------------------------------------
+# For the fixed phone camera, the static park can be a painting (made from a render
+# of this scene, see docs/asset-brief.md). The low-poly park stays as an invisible
+# stand-in that shows the painting, keeps depth and receives shadows.
+
+var plate_mode := false
+
+
+func _use_plate(path: String) -> void:
+	var tex: Texture2D = load(path) if path.begins_with("res://") else ImageTexture.create_from_image(Image.load_from_file(path))
+	var m := ShaderMaterial.new()
+	m.shader = load("res://plate.gdshader")
+	m.set_shader_parameter("plate", tex)
+	var sway_path := path.replace(".png", "_sway.png")
+	if ResourceLoader.exists(sway_path):
+		m.set_shader_parameter("sway_mask", load(sway_path))
+	var stack: Array[Node] = [self]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n != self and _is_dynamic(n):
+			continue
+		if n is GeometryInstance3D:
+			(n as GeometryInstance3D).material_override = m
+			(n as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		stack.append_array(n.get_children())
+	# Show the painting as painted: no tonemapping, grading or glow on top of it.
+	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	env.tonemap_exposure = 1.0
+	env.adjustment_enabled = false
+	env.glow_enabled = false
+	env.fog_enabled = false
+	plate_mode = true
+
+
+## Render `count` frames of the phone view at 15 fps (train running, wind on) into
+## res://shots/frames/, for a GIF of the painted plate in motion.
+func _render_frames(count: int) -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://shots/frames"))
+	get_window().size = Vector2i(720, 1280)
+	_set_time(false)
+	_set_camera(6)
+	for i in 6:
+		await get_tree().process_frame
+	var start := Time.get_ticks_msec()
+	for i in count:
+		var target := start + int(i * 1000.0 / 15.0)
+		while Time.get_ticks_msec() < target:
+			await get_tree().process_frame
+		_place_train(9.0 + i * 1.6 / 15.0)
+		await get_tree().process_frame
+		get_viewport().get_texture().get_image().save_png("res://shots/frames/%03d.png" % i)
+	print("saved %d frames" % count)
+
+
+## Render the phone view without the moving parts, as the source for painting a plate.
+func _render_plate_source() -> void:
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://shots"))
+	for d in dynamic_nodes:
+		d.visible = false
+	get_window().size = Vector2i(720, 1280)
+	_set_time(false)
+	_set_camera(6)
+	for i in 6:
+		await get_tree().process_frame
+	get_viewport().get_texture().get_image().save_png("res://shots/plate_src_phone_day.png")
+	print("saved plate_src_phone_day")
+	get_tree().quit()
 
 
 # ---- Drop-in assets -----------------------------------------------------------
@@ -1014,6 +1109,10 @@ func _render_shots() -> void:
 	]
 	if "--phone-yaw" in OS.get_cmdline_user_args():
 		PHONE_YAW = float(OS.get_cmdline_user_args()[OS.get_cmdline_user_args().find("--phone-yaw") + 1])
+	if plate_mode:
+		shots = [["10_phone_plate_day", 6, false, 9.0, Vector2i(720, 1280)]]
+		if "--frames" in OS.get_cmdline_user_args():
+			await _render_frames(int(OS.get_cmdline_user_args()[OS.get_cmdline_user_args().find("--frames") + 1]))
 	for s in shots:
 		var size: Vector2i = s[4] if s.size() > 4 else Vector2i(1600, 1000)
 		if get_window().size != size:

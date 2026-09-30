@@ -141,6 +141,8 @@ First modeled characters in the Godot style test: three guests (tourist, balloon
 
 Paint-over test: the mood image's painted look is out of reach for flat low-poly rendering alone, so we tried a painted background plate. A 3D render from a new mood camera, repainted by Krea image-to-image at denoise 0.45, keeps the layout and matches the mood closely (`docs/style-test/round-1/paintover_test.png`). If it holds up, the art plan shifts: the static park gets painted, and 3D modeling is only for the moving parts.
 
+Phone portrait is the target. A compositing test works end to end: a GPT-painted plate lined up with the 3D scene by the plot corners, the live 3D board, coaster and guests on top, and wind in the painted trees (`docs/style-test/round-1/phone_plate_motion.gif`). Main open issue: the 3D pieces need a painted look to sit in the painting.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

@@ -101,7 +101,7 @@ def build_commands(job, out_dir, edit_refs_supported=True):
         cmd += ["--model", "oauth/" + job["model"]] if job.get("model") else ["--provider", "oauth"]
         for r in job.get("refs", []):
             cmd += ["--ref", repo_path(r)]
-        return [cmd + ["-s", size, "-q", quality, "-n", str(job.get("count", 1)), "-d", out_dir, "--json"]]
+        return [cmd + ["--timeout", "900", "-s", size, "-q", quality, "-n", str(job.get("count", 1)), "-d", out_dir, "--json"]]
     cmds = []
     for i in range(job.get("count", 1)):
         cmd = ["ima2", "edit", repo_path(job["edit"]), "--prompt", job["prompt"], "--provider", "oauth"]
@@ -109,7 +109,7 @@ def build_commands(job, out_dir, edit_refs_supported=True):
             cmd += ["--model", job["model"]]
         for r in job.get("refs", []):
             cmd += ["--ref", repo_path(r)]
-        cmds.append(cmd + ["-s", size, "-q", quality, "-o", os.path.join(out_dir, "edit-%d.png" % i),
+        cmds.append(cmd + ["--timeout", "900", "-s", size, "-q", quality, "-o", os.path.join(out_dir, "edit-%d.png" % i),
                            "--timeout", "600", "--json"])
     return cmds
 
