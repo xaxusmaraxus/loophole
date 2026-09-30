@@ -65,6 +65,42 @@ func _ready() -> void:
 		_render_shots()
 
 
+# ---- Drop-in assets -----------------------------------------------------------
+# Any model exported to res://assets/models/<name>.glb replaces its procedural
+# placeholder. Names are listed in docs/asset-brief.md. Variants like guest_01,
+# guest_02... are picked at random.
+
+const MODEL_DIR := "res://assets/models/"
+var _variant_cache := {}
+
+
+func model(name: String, parent: Node3D, pos: Vector3, scale3 := Vector3.ONE, yaw := 0.0) -> Node3D:
+	var path := MODEL_DIR + name + ".glb"
+	if not ResourceLoader.exists(path):
+		return null
+	var inst: Node3D = (load(path) as PackedScene).instantiate()
+	inst.position = pos
+	inst.scale = scale3
+	inst.rotation.y = yaw
+	parent.add_child(inst)
+	return inst
+
+
+## A random existing variant of `prefix` (prefix_01.glb, prefix_02.glb, ...), or "".
+func variant(prefix: String) -> String:
+	if not _variant_cache.has(prefix):
+		var found: Array[String] = []
+		var dir := DirAccess.open(MODEL_DIR)
+		if dir:
+			for f in dir.get_files():
+				var base := f.trim_suffix(".import").trim_suffix(".glb")
+				if f.ends_with(".glb") and base.begins_with(prefix + "_"):
+					found.append(base)
+		_variant_cache[prefix] = found
+	var list: Array = _variant_cache[prefix]
+	return "" if list.is_empty() else list[rng.randi() % list.size()]
+
+
 # ---- Helpers -----------------------------------------------------------------
 
 func mat(c: Color, rough := 0.9, metal := 0.0) -> StandardMaterial3D:
@@ -429,6 +465,8 @@ func _weighted(weights: Array) -> int:
 
 func _tile(tier: int) -> Node3D:
 	var n := Node3D.new()
+	if model("tile_%d" % tier, n, Vector3.ZERO):
+		return n
 	var col: Color = TIER_COLORS[tier]
 	box(Vector3(0.84, 0.2, 0.84), col, Vector3(0, 0.1, 0), n)
 	box(Vector3(0.78, 0.04, 0.78), col.lightened(0.18), Vector3(0, 0.215, 0), n)
@@ -690,8 +728,9 @@ func _build_train() -> void:
 		track_path.add_child(pf)
 		var car := Node3D.new()
 		pf.add_child(car)
-		box(Vector3(0.26, 0.1, 0.3), Color("#e34a3c"), Vector3(0, 0.1, 0), car)
-		box(Vector3(0.27, 0.03, 0.31), Color("#ffd23f"), Vector3(0, 0.07, 0), car)
+		if not model("coaster_car", car, Vector3.ZERO):
+			box(Vector3(0.26, 0.1, 0.3), Color("#e34a3c"), Vector3(0, 0.1, 0), car)
+			box(Vector3(0.27, 0.03, 0.31), Color("#ffd23f"), Vector3(0, 0.07, 0), car)
 		for side in [-0.06, 0.06]:
 			sphere(0.045, Color("#f2c9a5"), Vector3(side, 0.21, 0), Vector3.ONE, car)
 			sphere(0.03, shirts[rng.randi() % shirts.size()], Vector3(side, 0.16, 0), Vector3(1.4, 1.0, 1.0), car)
@@ -709,6 +748,8 @@ func _place_train(progress: float) -> void:
 
 func _build_station() -> void:
 	var c := (cell_pos(Vector2i(1, 5)) + cell_pos(Vector2i(2, 5))) / 2.0 + Vector3(0, 0, 0.15)
+	if model("station", self, c):
+		return
 	box(Vector3(2.2, 0.3, 0.9), Color("#c8c4bd"), c + Vector3(0, 0.12, 0))
 	box(Vector3(2.2, 0.02, 0.06), Color("#ffd23f"), c + Vector3(0, 0.28, 0.4))
 	for x in [-1.0, 0.0, 1.0]:
@@ -725,7 +766,11 @@ func _tree(pos: Vector3) -> void:
 	var autumn := [Color("#e8883a"), Color("#d9542f"), Color("#f2b33d"), Color("#b8472e")]
 	var green := [Color("#3f8a4a"), Color("#4f9e4f"), Color("#2f6f45"), Color("#5aa653")]
 	var s := rng.randf_range(0.8, 1.3)
-	if rng.randf() < 0.45:
+	var pine := rng.randf() < 0.45
+	var drop_in := variant("tree_pine" if pine else "tree_round")
+	if drop_in != "" and model(drop_in, self, pos, Vector3.ONE * s, rng.randf() * TAU):
+		return
+	if pine:
 		# Pine.
 		cyl(0.06 * s, 0.08 * s, 0.4 * s, Color("#6b4428"), pos + Vector3(0, 0.2 * s, 0), 5)
 		var c: Color = jitter(green[rng.randi() % green.size()], 0.03)
@@ -765,6 +810,16 @@ func _build_trees() -> void:
 func _build_props() -> void:
 	# Carousel.
 	var cp := Vector3(-4.6, 0, -1.6)
+	var fp := Vector3(4.8, 0, 0.8)
+	_build_carousel(cp)
+	if not model("food_stand", self, fp):
+		_build_food_stand(fp)
+	_build_lamps_and_dressing()
+
+
+func _build_carousel(cp: Vector3) -> void:
+	if model("carousel", self, cp):
+		return
 	cyl(1.0, 1.05, 0.18, Color("#e8d8b8"), cp + Vector3(0, 0.09, 0), 16)
 	cyl(0.06, 0.06, 1.2, Color("#ffd23f"), cp + Vector3(0, 0.7, 0), 8)
 	for k in 8:
@@ -774,14 +829,18 @@ func _build_props() -> void:
 	cyl(0.0, 1.25, 0.6, Color("#e8484f"), cp + Vector3(0, 1.5, 0), 16)
 	cyl(0.9, 1.26, 0.08, Color("#fbf6ec"), cp + Vector3(0, 1.22, 0), 16)
 	sphere(0.08, Color("#ffd23f"), cp + Vector3(0, 1.85, 0))
-	# Food stand.
-	var fp := Vector3(4.8, 0, 0.8)
+
+
+func _build_food_stand(fp: Vector3) -> void:
 	box(Vector3(1.1, 0.8, 0.8), Color("#fbf6ec"), fp + Vector3(0, 0.4, 0))
 	box(Vector3(0.9, 0.25, 0.05), Color("#3b2f4a"), fp + Vector3(0, 0.55, 0.41))
 	for k in 6:
 		var stripe := box(Vector3(0.2, 0.05, 0.6), Color("#e8484f") if k % 2 == 0 else Color("#fbf6ec"), fp + Vector3(-0.5 + k * 0.2, 0.95, 0.55))
 		stripe.rotation_degrees = Vector3(20, 0, 0)
 	box(Vector3(0.5, 0.18, 0.05), Color("#ffd23f"), fp + Vector3(0, 1.2, 0.3))
+
+
+func _build_lamps_and_dressing() -> void:
 	# Lamps around the plaza.
 	for k in 8:
 		var a := TAU * k / 8.0 + 0.2
@@ -810,6 +869,9 @@ func _peep(pos: Vector3, big := false) -> void:
 	var shirts := [Color("#f0584e"), Color("#45a8e0"), Color("#72c457"), Color("#ffd23f"), Color("#9d6ef0"), Color("#ff9a3c"), Color("#ff8fb8"), Color("#35c2b0")]
 	var hairs := [Color("#3a2718"), Color("#6b4428"), Color("#b0602e"), Color("#e8bf5a"), Color("#e4e4ec"), Color("#232338")]
 	var s := 1.9 if big else rng.randf_range(0.9, 1.05)
+	var drop_in := "boss_barry" if big else variant("guest")
+	if drop_in != "" and model(drop_in, self, pos, Vector3.ONE, rng.randf() * TAU):
+		return
 	var n := Node3D.new()
 	n.position = pos
 	n.rotation.y = rng.randf() * TAU

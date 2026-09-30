@@ -1,0 +1,63 @@
+# Asset brief: round 1
+
+**Goal:** move the Godot style test (`docs/style-test/`) toward the mockup: a cozy, hand-painted-looking theme park diorama. Keep the low-poly readability of the current test. Add warmth, detail and character.
+
+**Mood:** a warm autumn afternoon on a small island park. Chunky, friendly shapes, soft light, saturated but not neon. Think of a painted board game rather than a realistic render. No text on models (UI text stays in the UI).
+
+## Pipeline
+1. **Concept sheet per asset** (image model or ComfyUI/Krea): front, side and 3/4 views on a plain background, using the style prompt below. These are references for modeling, not in-game art.
+2. **Model in Blender (Blender MCP):** low-poly, flat or softly painted. Keep the poly budgets below.
+3. **Export glTF binary** to `godot/assets/models/<name>.glb`:
+   - +Z up in Blender (glTF export converts to Godot's Y-up); apply scale and rotation before export.
+   - Origin at the **bottom center** of the object, resting on the ground.
+   - Units in meters; 1 grid cell = 1 m.
+   - Front faces Blender **−Y**, which becomes the camera-facing side in Godot. Exception: the coaster car's front faces Blender **+Y** (its direction of travel).
+4. **Textures** (optional in round 1): one 512–1024 px painted atlas per asset, or plain vertex or material colors. No normal or roughness maps needed. Roughness around 0.8.
+5. **Check in Godot:** `godot --path godot -- --shots`, then compare with the previous round.
+
+**Style prompt** (prefix for every concept or texture prompt):
+> cozy hand-painted stylized theme park asset, chunky low-poly shapes, soft warm autumn light, saturated friendly palette, clean silhouette, board-game miniature look, plain light background, no text, no logos
+
+## Palette
+| Use | Hex |
+| --- | --- |
+| Grass | `#6fb84a` `#63a944` `#7cc453` |
+| Paving | `#e3cfa6` `#d6bf94` |
+| Cliffs | `#a47a55` `#8b6a4f` `#b58a5e` |
+| Water | `#1a5c9e` → `#4dbdd1` |
+| Autumn leaves | `#e8883a` `#d9542f` `#f2b33d` `#b8472e` |
+| Evergreen | `#3f8a4a` `#4f9e4f` `#2f6f45` |
+| Track rails / canopy red | `#e34a3c` / `#e8484f` |
+| Accent gold | `#ffd23f` |
+| Piece tiers 1–7 | `#e0b06a` `#7cc45f` `#4fa7dc` `#9d74e6` `#ee5d50` `#ff9b45` `#ffd447` |
+
+## Models (in priority order)
+Names must match exactly; `main.gd` loads them automatically.
+
+| # | File name | What | Size (m) | Tris |
+| --- | --- | --- | --- | --- |
+| 1 | `guest_01` … `guest_06` | Guests: a stubby, big-headed body (head about ⅓ of height). Vary the outfits: tourist with a camera, kid with a balloon, grandma with a bun and glasses, a teen with spiky hair and shades, a guy holding a corn dog, an influencer with a phone. | 0.45 tall | ≤ 800 |
+| 2 | `boss_barry` | **Big Barry**, the first boss: huge, round, cheerful, bright red shirt, tiny cap. | 0.9 tall | ≤ 1500 |
+| 3 | `tree_round_01` … `_04` | Round deciduous trees: 2 autumn (orange, red), 1 yellow, 1 green. Chunky clustered canopies. | 1.2–1.6 tall | ≤ 400 |
+| 4 | `tree_pine_01` … `_03` | Stylized pines, stacked tiers. | 1.3–1.8 tall | ≤ 300 |
+| 5 | `station` | The coaster station: a two-cell platform with a striped red and white canopy over the **front half only** (the board behind must stay visible), plus a gold sign. | 2.2 × 0.9 | ≤ 3000 |
+| 6 | `coaster_car` | A two-seat coaster car, red with a gold stripe, and a lap bar. Seats open at the top so guest heads show. | 0.27 × 0.31 | ≤ 600 |
+| 7 | `tile_1` … `tile_7` | Piece tiles: beveled crates in the tier colors, each with a small sculpted icon on top. 1 Bump (low hump), 2 Hill (tall hump), 3 Drop (steep ramp), 4 Helix (coil spring), 5 Loop (upright ring), 6 Corkscrew (twisted double ring), 7 Mega Loop (big gold ring with a star). | 0.84 × 0.84, ≤ 0.5 tall | ≤ 800 |
+| 8 | `carousel` | Carousel: striped cone roof, gold pole, 8 horses. | ⌀ 2.5, 1.9 tall | ≤ 3000 |
+| 9 | `food_stand` | Snack stand: striped awning, counter facing front, a giant corn dog on the roof. | 1.1 × 0.8 | ≤ 1500 |
+
+**Later (round 2), no hook yet:** lamp post, bench, fence segment, flower bed, bunting string, rocks, pond, the other bosses (Iron-Gut Ivy, an old sailor; Dr. Vertigo, a coaster scientist in a lab coat; The Mayor), and guest animations (idle, walk, sit, cheer, puke).
+
+## Textures (round 2)
+Tileable, 1024 px, same style prompt plus `seamless tileable top-down texture`:
+- `grass_painted`: painterly grass with tiny flowers
+- `paving`: warm sandstone pavers
+- `cliff_strata`: layered orange and brown rock bands (side view)
+- `sand`: soft beach sand; `mud`: dark wet mud with puddles
+
+Save to `godot/assets/textures/`. Wiring them into `main.gd` is a round 2 task.
+
+## Status
+_The local session updates this after each batch: what's done, what's blocked, and any questions for the cloud session._
+
+- Round 1: not started.

@@ -22,6 +22,9 @@ VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json xvfb-run -a -s "-screen 0 
 ```
 The latest set is copied to `docs/style-test/`.
 
+## Drop-in models
+Export a model to `assets/models/<name>.glb` and it replaces its procedural placeholder on the next run (names and specs are in `../docs/asset-brief.md`). A missing file falls back to the procedural version.
+
 ## What's placeholder
 Everything is primitive shapes with flat colors. To get closer to the painted mockup:
 - hand-painted textures for grass, paving and cliffs
