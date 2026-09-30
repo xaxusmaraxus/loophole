@@ -20,11 +20,14 @@ src/core/          seeded RNG (runs are reproducible from their seed)
 src/puzzle/        board rules and the merge ladder (pure logic, tested)
 src/riders/        rider types, their wants, procedural looks
 src/run/           roguelike layer: days, perks, park generation
-src/render/        procedural pixel art: palette, sprites, font, renderer
+src/render/        the park renderer (Three.js) and palette
+src/render3d/      procedural 3D: geometry, toon + ink shaders, track, models, island, effects
 src/ride/          end-of-day ride animation
 src/ui/            HUD, queue cards, overlays
 tests/             unit tests (Vitest)
 ```
 
 ## Stack
-TypeScript, Vite, Canvas 2D. No art assets: every sprite is drawn in code.
+TypeScript, Vite, Three.js. No art assets: every model, the track and the island are built in code, then cel-shaded and inked by a post pass.
+
+Add `?noink` to the URL to switch the ink lines off, `?inkdebug` to see its depth (red) and normal (green) edges, and `?fixeddt=100` to step the game 100 ms per frame (for screenshots on slow machines).

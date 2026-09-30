@@ -153,6 +153,8 @@ export interface Island {
   z1: number;
   ferris: Group | null;
   swing: Group | null;
+  boat: Group;
+  clouds: Group[];
   look: Look3D;
 }
 
@@ -215,8 +217,19 @@ export function buildIsland(b: Board, park: ParkId, seed: number): Island {
       }
     }
   }
-  // ---- The grass board, raised a touch with a soil edge ----
+  // ---- The grass board, raised a touch inside a stone kerb ----
   m.cube(n / 2, GRASS_Y / 2 - 0.01, n / 2, n + 0.06, GRASS_Y + 0.02, n + 0.06, PAL.dirt[1]);
+  const kerb = park === 'hollow' ? '#8a84a0' : park === 'boardwalk' ? '#e8d9b0' : '#e2dccb';
+  const kw = 0.07;
+  const kh = GRASS_Y + 0.03;
+  m.cube(n / 2, kh / 2, -kw / 2, n + kw * 2, kh, kw, kerb, 0.012);
+  m.cube(-kw / 2, kh / 2, n / 2, kw, kh, n, kerb, 0.012);
+  m.cube(n + kw / 2, kh / 2, n / 2, kw, kh, n, kerb, 0.012);
+  // The front kerb leaves a gap where the track runs down to the station.
+  const gap0 = b.station.x;
+  const gap1 = b.station.x + 2;
+  if (gap0 > 0) m.cube(gap0 / 2 - kw / 2, kh / 2, n + kw / 2, gap0 + kw, kh, kw, kerb, 0.012);
+  if (gap1 < n) m.cube((gap1 + n) / 2 + kw / 2, kh / 2, n + kw / 2, n - gap1 + kw, kh, kw, kerb, 0.012);
   for (let y = 0; y < n; y++)
     for (let x = 0; x < n; x++) {
       const i = idx(b, x, y);
@@ -356,7 +369,18 @@ export function buildIsland(b: Board, park: ParkId, seed: number): Island {
     d.layers.set(GLOW_LAYER);
     group.add(d);
   }
-  return { group, lamps, waters, x0, x1, z0, z1, ferris: ferris.wheel, swing: swing.spin, look };
+  const boat = sailboat(seed);
+  group.add(boat);
+  const clouds: Group[] = [];
+  const cr = rng(seed + 3);
+  for (let k = 0; k < 4; k++) {
+    const c = cloud(seed + k * 17);
+    c.position.set(x0 + cr() * (x1 - x0), 1.1 + cr() * 0.6, z0 - 1.6 - cr() * 2.2);
+    c.userData.speed = 0.05 + cr() * 0.06;
+    clouds.push(c);
+    group.add(c);
+  }
+  return { group, lamps, waters, x0, x1, z0, z1, ferris: ferris.wheel, swing: swing.spin, boat, clouds, look };
 }
 
 /** Bulbs and lanterns: unlit, and brighter at dusk. */
@@ -431,6 +455,39 @@ function cliffs(g: Geo, x0: number, x1: number, z0: number, z1: number, look: Lo
   side(x0, z0, x1, z0, 0, -1);
   side(x0, z0, x0, z1, -1, 0);
   side(x1, z0, x1, z1, 1, 0);
+}
+
+/** A small sailboat that circles the island. */
+function sailboat(seed: number): Group {
+  const g = new Group();
+  const hull = new Geo();
+  const r = rng(seed + 5);
+  const col = [PAL.red, '#45a8e0', PAL.gold][Math.floor(r() * 3)];
+  hull.box(M(0, 0.04, 0), 0.14, 0.08, 0.36, col, 0.03, PAL.white);
+  hull.sphere(v3(0, 0.05, 0.18), 0.07, col, 1, 0.6, 1.4, 8, 5, true);
+  hull.post(0, 0.08, -0.02, 0.008, 0.42, '#7a4e2f', 5);
+  const mh = new Mesh(hull.build(), MATS.gloss);
+  mh.castShadow = true;
+  g.add(mh);
+  const sail = new Geo();
+  sail.tri(v3(0.005, 0.48, -0.02), v3(0.005, 0.12, -0.02), v3(0.005, 0.12, 0.2), PAL.white, v3(-1, 0.3, 0));
+  sail.tri(v3(-0.005, 0.46, -0.04), v3(-0.005, 0.12, -0.04), v3(-0.005, 0.12, -0.2), '#ffd0c8', v3(1, 0.3, 0));
+  g.add(new Mesh(sail.build(), MATS.cloth));
+  g.userData.phase = r() * Math.PI * 2;
+  return g;
+}
+
+/** A puffy cloud of a few blobs. */
+function cloud(seed: number): Group {
+  const g = new Group();
+  const geo = new Geo();
+  const r = rng(seed);
+  const n = 3 + Math.floor(r() * 3);
+  for (let k = 0; k < n; k++) geo.blob(v3((k - n / 2) * 0.28 + r() * 0.1, r() * 0.12, r() * 0.2), 0.2 + r() * 0.14, '#ffffff', seed + k, 0.12, 1, 0.75, 1, 0.0);
+  const m = new Mesh(geo.build(), MATS.matte);
+  m.castShadow = true;
+  g.add(m);
+  return g;
 }
 
 /** A little Ferris wheel on its own islet; returns the wheel so it can turn. */

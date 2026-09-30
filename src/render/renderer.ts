@@ -39,7 +39,7 @@ import {
 import { RideAnim, parkS } from '../ride/ride';
 import type { Rider } from '../riders/riders';
 import { Geo, rng, v3 } from '../render3d/geo';
-import { GLOW_MAT, GRASS_Y, type Island, buildIsland } from '../render3d/island';
+import { GLOW_MAT, GRASS_Y, type Island, WATER_Y, buildIsland } from '../render3d/island';
 import { type CarKind, CRATE_H, type Face, M, type Parts, carGeo, crateGeo, mysteryGeo, personGeo, rope } from '../render3d/models';
 import { Particles, Pool, bubbleMaterial, makeBubble, makeMarker, puddleGeo } from '../render3d/fx';
 import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
@@ -61,6 +61,8 @@ const FOV = 30;
 export const CAR_GAP = 0.3;
 /** Guests on foot are drawn a little larger than riders, so the crowd reads. */
 const STAND_SCALE = 1.3;
+/** The queue starts beside the station's sign, not in front of it. */
+const QUEUE_START = 0.7;
 
 export interface Walker {
   look: Rider['look'];
@@ -141,6 +143,9 @@ export class Renderer {
   private mists: Pool<Sprite>;
   private pennants: Group[] = [];
   readonly particles: Particles;
+  private sparks: Particles;
+  private later: { at: number; fn: () => void }[] = [];
+  private compact = false;
   private puddles: { x: number; y: number; z: number; r: number; seed: number }[] = [];
   private puddleMesh: Mesh | null = null;
   private puddleDirty = false;
@@ -213,6 +218,8 @@ export class Renderer {
       this.dyn.add(p);
     }
     this.particles = new Particles(this.dyn);
+    this.sparks = new Particles(this.dyn, true);
+    this.sparks.ground = () => -5;
     this.particles.ground = (x, z) => this.groundAt(x, z);
     this.particles.onSplat = (x, z, size) => this.splat(x, z, size);
     const wrap = canvas.parentElement!;
@@ -262,14 +269,14 @@ export class Renderer {
     const sc = this.stationCenter();
     const n = this.n;
     const dir = this.queueDir();
-    const room = dir > 0 ? n + 0.45 - sc.x : sc.x + 0.45;
+    const room = (dir > 0 ? n + 0.45 - sc.x : sc.x + 0.45) - QUEUE_START;
     const total = Math.max(1, this.game.queue.length);
     const perRow = Math.max(4, Math.min(Math.floor(room / 0.3) + 1, Math.ceil(total / 3)));
     const spacing = Math.min(0.3, room / Math.max(1, perRow - 1));
     const row = Math.floor(i / perRow);
     const k = i % perRow;
     const along = row % 2 === 0 ? k : perRow - 1 - k;
-    return v3(sc.x + dir * along * spacing, 0, this.board.station.y + 1.28 + Math.min(row, 2) * 0.42);
+    return v3(sc.x + dir * (QUEUE_START + along * spacing), 0, this.board.station.y + 1.44 + Math.min(row, 2) * 0.4);
   }
 
   private queueDir(): number {
@@ -290,11 +297,18 @@ export class Renderer {
     const ndc = new Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     const ray = new Raycaster();
     ray.setFromCamera(ndc, this.camera);
+    // A crate's lid first, then the ground.
     const hit = new Vector3();
-    if (!ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -CRATE_H * 0.6), hit)) return null;
+    const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < this.n && y < this.n;
+    if (ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -(GRASS_Y + CRATE_H)), hit)) {
+      const x = Math.floor(hit.x);
+      const y = Math.floor(hit.z);
+      if (inside(x, y) && this.board.tiles[idx(this.board, x, y)]) return { x, y };
+    }
+    if (!ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -GRASS_Y), hit)) return null;
     const x = Math.floor(hit.x);
     const y = Math.floor(hit.z);
-    return x >= 0 && y >= 0 && x < this.n && y < this.n ? { x, y } : null;
+    return inside(x, y) ? { x, y } : null;
   }
 
   /** Shake the park (keeps the stronger of overlapping shakes). */
@@ -313,7 +327,13 @@ export class Renderer {
   private setupDay(): void {
     const b = this.board;
     this.n = b.size;
+    this.world.traverse((o) => {
+      const m = o as Mesh;
+      m.geometry?.dispose();
+      if (m.material && !Array.isArray(m.material) && (m.material as { isShaderMaterial?: boolean }).isShaderMaterial) m.material.dispose();
+    });
     for (const c of [...this.world.children]) this.world.remove(c);
+    this.later = [];
     const park = this.game.cfg.park.id;
     const seed = this.game.dayNum * 977 + this.game.seed.charCodeAt(0) * 13 + (this.game.seed.charCodeAt(1) || 0);
     this.island = buildIsland(b, park, seed);
@@ -352,7 +372,6 @@ export class Renderer {
     cam.near = 0.5;
     cam.far = 40;
     cam.updateProjectionMatrix();
-    this.aspect = this.naturalAspect();
     this.fit();
     this.dusk = -1;
   }
@@ -417,11 +436,11 @@ export class Renderer {
     const sc = this.stationCenter();
     const dir = this.queueDir();
     const far = dir > 0 ? this.n + 0.5 : -0.5;
-    const zr = s.y + 1.28;
+    const zr = s.y + 1.44;
     const ropeCol = '#e8484f';
     for (let r2 = 0; r2 < 2; r2++) {
-      const zz = zr + 0.21 + r2 * 0.42;
-      const a = r2 % 2 === 0 ? v3(sc.x - dir * 0.15, 0, zz) : v3(sc.x + dir * 0.35, 0, zz);
+      const zz = zr + 0.2 + r2 * 0.4;
+      const a = r2 % 2 === 0 ? v3(sc.x + dir * (QUEUE_START - 0.2), 0, zz) : v3(sc.x + dir * (QUEUE_START + 0.3), 0, zz);
       const b = r2 % 2 === 0 ? v3(far - dir * 0.35, 0, zz) : v3(far + dir * 0.1, 0, zz);
       const steps = Math.max(1, Math.round(Math.abs(b.x - a.x) / 0.7));
       for (let k = 0; k < steps; k++) rope(parts, a.clone().lerp(b, k / steps), a.clone().lerp(b, (k + 1) / steps), ropeCol);
@@ -446,6 +465,15 @@ export class Renderer {
   private framePoints(): Vector3[] {
     const is = this.island!;
     const pts: Vector3[] = [];
+    if (this.compact) {
+      // Phones: the board, station and queue fill the frame; the verge can crop.
+      for (const x of [-0.35, this.n + 0.35])
+        for (const z of [-0.2, this.n + 2.1]) {
+          pts.push(v3(x, 0, z));
+          pts.push(v3(x, 0.8, z));
+        }
+      return pts;
+    }
     for (const x of [is.x0 - 0.1, is.x1 + 0.1])
       for (const z of [is.z0 - 0.05, is.z1 + 0.1]) {
         pts.push(v3(x, 0, z));
@@ -505,6 +533,8 @@ export class Renderer {
     const above = ['attractions', 'dayBanner'].reduce((h, id) => h + (document.getElementById(id)?.offsetHeight ?? 0), 0);
     const reserved = (document.fullscreenElement ? 190 : 235) + above;
     const availH = Math.max(300, window.innerHeight - reserved);
+    this.compact = availW < 620;
+    this.aspect = this.naturalAspect();
     let w = availW;
     let h = w / this.aspect;
     if (h > availH) {
@@ -515,7 +545,8 @@ export class Renderer {
     this.cssH = Math.max(200, Math.floor(h));
     this.canvas.style.width = `${this.cssW}px`;
     this.canvas.style.height = `${this.cssH}px`;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    // The ink and bloom passes cost per pixel; cap the resolution a little on phones.
+    const dpr = Math.min(this.compact ? 1.6 : 2, window.devicePixelRatio || 1);
     this.gl.setPixelRatio(dpr);
     this.gl.setSize(this.cssW, this.cssH, false);
     this.post.setSize(Math.round(this.cssW * dpr), Math.round(this.cssH * dpr), dpr);
@@ -667,6 +698,41 @@ export class Renderer {
         spin: v3(Math.random() * 10 - 5, Math.random() * 10 - 5, Math.random() * 10 - 5),
       });
     this.burst(this.stationCenter().setY(0.5), Math.round(30 * power), [PAL.gold, PAL.heart, PAL.white]);
+    if (power >= 1) this.fireworks(Math.round(1 + power * 2));
+  }
+
+  /** Rockets from behind the island that burst into glowing sparks. */
+  fireworks(n: number): void {
+    const is = this.island;
+    if (!is) return;
+    const colors = [['#ffd23f', '#fff1b0'], ['#ff5d8a', '#ffd0e0'], ['#45e0ff', '#d8f8ff'], ['#a6f05a', '#f0ffd0'], ['#c49dff', '#f0e4ff']];
+    for (let k = 0; k < n; k++) {
+      const delay = k * 260 + Math.random() * 200;
+      const from = v3(0.3 + Math.random() * (this.n - 0.6), -0.4, is.z0 - 0.6 - Math.random() * 0.8);
+      const top = v3(from.x + (Math.random() - 0.5) * 0.6, 1.05 + Math.random() * 0.45, Math.random() * 1.6);
+      const rise = 700;
+      const pal = colors[Math.floor(Math.random() * colors.length)];
+      this.after(delay, () => {
+        const v = top.clone().sub(from).multiplyScalar(1000 / rise);
+        this.sparks.add({ p: from.clone(), v, g: 0, max: rise / 1000, color: pal[1], size: 0.05, drag: 0 });
+        sfx.whistle();
+      });
+      this.after(delay + rise, () => {
+        for (let i = 0; i < 70; i++) {
+          const u = Math.random() * 2 - 1;
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.sqrt(1 - u * u);
+          const sp = 1.9 + Math.random() * 0.4;
+          this.sparks.add({ p: top.clone(), v: v3(r * Math.cos(a) * sp, u * sp, r * Math.sin(a) * sp), g: 0.9, max: 1 + Math.random() * 0.5, color: pal[i % 2], size: 0.045 + Math.random() * 0.025, drag: 1.8 });
+        }
+        this.flash = Math.max(this.flash, 0.12);
+        sfx.pop();
+      });
+    }
+  }
+
+  private after(ms: number, fn: () => void): void {
+    this.later.push({ at: this.now + ms, fn });
   }
 
   hat(at: Vector3, color: string): void {
@@ -675,7 +741,7 @@ export class Renderer {
 
   word(text: string, at: Vector3, color: string, big = 1): void {
     // Stack shouts that land on the same spot instead of piling them up.
-    const near = this.words.filter((w) => this.now - w.born < 600 && w.at.distanceTo(at) < 0.5).length;
+    const near = this.words.filter((w) => this.now - w.born < 700 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 0.9).length;
     at = at.clone().setY(at.y + near * 0.22);
     const el = document.createElement('span');
     el.className = 'w3d';
@@ -726,7 +792,11 @@ export class Renderer {
       }
     } else if (this.game.phase !== 'ride') this.drawParkedTrain();
     this.show.tick(dt, now);
+    const due = this.later.filter((l) => l.at <= now);
+    this.later = this.later.filter((l) => l.at > now);
+    for (const l of due) l.fn();
     this.particles.update(dt);
+    this.sparks.update(dt);
     if (this.puddleDirty) this.rebuildPuddles();
     this.animateScenery(now);
     this.crates.end();
@@ -817,6 +887,20 @@ export class Renderer {
     if (is.swing) {
       is.swing.rotation.y = now / 1400;
       is.swing.rotation.z = Math.sin(now / 2100) * 0.08;
+    }
+    // The sailboat circles the island; the clouds drift by.
+    const t = now / 1000;
+    const a = t * 0.05 + is.boat.userData.phase;
+    const rx = (is.x1 - is.x0) / 2 + 1.4;
+    const rz = (is.z1 - is.z0) / 2 + 1.2;
+    const cx = (is.x0 + is.x1) / 2;
+    const cz = (is.z0 + is.z1) / 2;
+    is.boat.position.set(cx + Math.cos(a) * rx, WATER_Y + Math.sin(t * 2.1) * 0.012, cz + Math.sin(a) * rz);
+    is.boat.rotation.set(Math.sin(t * 1.7) * 0.05, Math.atan2(-Math.sin(a) * rx, Math.cos(a) * rz), Math.sin(t * 1.3) * 0.08);
+    const span = is.x1 - is.x0 + 6;
+    for (const c of is.clouds) {
+      c.userData.x0 ??= c.position.x - is.x0 + 3;
+      c.position.x = is.x0 - 3 + ((c.userData.x0 + c.userData.speed * t) % span);
     }
   }
 
@@ -921,7 +1005,9 @@ export class Renderer {
         for (let x = 0; x < b.size; x++) {
           const i = idx(b, x, y);
           const t = b.tiles[i];
-          if (t) this.crate(t, x, y, i, this.flashAt(i));
+          if (!t) continue;
+          this.crate(t, x, y, i, this.flashAt(i));
+          if (t === 7 && Math.random() < 0.04 && !this.fogged.has(i)) this.sparks.add({ p: v3(x + 0.2 + Math.random() * 0.6, CRATE_H + 0.1 + Math.random() * 0.25, y + 0.2 + Math.random() * 0.6), v: v3(0, 0.25, 0), g: 0, max: 0.5, color: '#fff6c8', size: 0.03, drag: 0 });
         }
       return;
     }

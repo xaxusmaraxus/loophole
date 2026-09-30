@@ -30,7 +30,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 - `src/run/run.ts`: parks, route map, day configs and targets, upgrades, tools, rewards, shop, eggs.
 - `src/run/attractions.ts`: attractions and the left-to-right scoring pipeline.
 - `src/game.ts`: the controller: phases, actions, undo, scoring, season flow.
-- `src/render/*`: procedural pixel-art canvas renderer (3/4 view), sprites, font, palette. `src/ride/ride.ts`: the ride animation. `src/ui/hud.ts`: HUD, map, tally, shop, egg screens. `src/core/sfx.ts`: synth sound.
+- `src/render/renderer.ts` + `src/render3d/*`: the Three.js park renderer (procedural models, toon and ink shaders, the 3D track and island). `src/ride/ride.ts`: the ride animation on the 3D track. `src/ui/hud.ts`: HUD, map, tally, shop, egg screens. `src/core/sfx.ts`: synth sound.
 
 ## Decisions so far (and why)
 1. **Swipe and build are separate actions,** so the player has real choices each turn. Early versions laid track on every swipe and felt cramped.

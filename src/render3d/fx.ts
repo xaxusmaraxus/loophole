@@ -17,7 +17,7 @@ import {
   Vector3,
 } from 'three';
 import { Geo, rng, v3 } from './geo';
-import { GLOW_LAYER } from './post';
+import { BLOOM_LAYER, GLOW_LAYER } from './post';
 import { MATS, toon } from './toon';
 
 // Effects: voxel particles (sparkles, dust, confetti, puke that splats into
@@ -77,14 +77,16 @@ export class Particles {
   onSplat: (x: number, z: number, size: number) => void = () => {};
   ground: (x: number, z: number) => number = () => 0;
 
-  constructor(parent: Object3D) {
-    const mat = toon({ vertexColors: false, rim: 0.2 });
+  /** `glow` particles are unlit and bloom (sparks, fireworks). */
+  constructor(parent: Object3D, glow = false) {
+    const mat = glow ? new MeshBasicMaterial({ color: 0xffffff }) : toon({ vertexColors: false, rim: 0.2 });
     this.mesh = new InstancedMesh(new BoxGeometry(1, 1, 1), mat, MAX);
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);
     this.mesh.setColorAt(0, new Color(1, 1, 1));
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
     this.mesh.layers.set(GLOW_LAYER);
+    if (glow) this.mesh.layers.enable(BLOOM_LAYER);
     parent.add(this.mesh);
   }
 

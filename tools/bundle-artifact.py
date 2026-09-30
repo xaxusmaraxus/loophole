@@ -15,7 +15,7 @@ body = re.sub(r'<script[^>]*src="[^"]*"[^>]*></script>', '', body)
 fonts = (
     '<link rel="preconnect" href="https://fonts.googleapis.com" />\n'
     '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />\n'
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Pixelify+Sans:wght@400;600&display=swap" />'
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Fredoka:wght@400;500;600;700&display=swap" />'
 )
 # The artifact host adds its own <!doctype>/<head>/<body>, so emit only the page contents.
 out = f'<title>Loophole</title>\n{fonts}\n<style>\n{css}\n</style>\n{body.strip()}\n<script type="module">\n{js}\n</script>\n'

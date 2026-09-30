@@ -146,6 +146,13 @@ export const sfx = {
     [0, 7, 12, 16].forEach((k) => tone(262 * 2 ** (k / 12), 0.9, 'sawtooth', 0.025, 0.03));
     [0, 4, 7, 12].forEach((k, i) => tone(523 * 2 ** (k / 12), 0.25, 'triangle', 0.06, 0.25 + i * 0.06));
   },
+  /** A firework rocket goes up: a thin rising whistle. */
+  whistle: () => tone(900 + Math.random() * 200, 0.6, 'sine', 0.018, 0, 2200),
+  /** ...and bursts: a soft crackling pop. */
+  pop: () => {
+    noise(0.35, 0.12, 0, 2600, 400, 2);
+    tone(120, 0.25, 'sine', 0.12, 0, 50);
+  },
   /** The total rolls: a soft register click (throttled by the caller). */
   roll: (n: number) => tone(semi(880, n), 0.025, 'square', 0.012),
   isMuted: () => muted,

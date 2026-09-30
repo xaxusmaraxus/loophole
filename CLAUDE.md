@@ -7,7 +7,7 @@ open the ride, and score every puke (excitement × multiplier, Balatro-style).
 **Start with `docs/HANDOVER.md`:** current state, commands, decisions, next steps.
 
 ## Repo layout
-- `src/`, `tests/`, `index.html`: the playable **web prototype** (TypeScript + Vite, Canvas 2D). The game rules live and get tested here.
+- `src/`, `tests/`, `index.html`: the playable **web prototype** (TypeScript + Vite + Three.js: a cel-shaded, ink-lined 3D diorama built in code). The game rules live and get tested here.
 - `godot/`: the **Godot 4.3 style test**, a procedural 3D diorama for the art direction. Models dropped into `godot/assets/models/<name>.glb` replace placeholders automatically (see `godot/README.md`).
 - `tools/`: `season-bot.ts` (balance simulation) and `bundle-artifact.py` (single-file build for the playable link).
 - `docs/concepts.md`: design notes and roadmap. `docs/asset-brief.md`: art tasks. `docs/style-test/`: Godot renders.

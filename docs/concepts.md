@@ -88,6 +88,8 @@ The v0.1 board drained: the track eats a tile each swipe and only one spawned, s
 - **Juice escalates with each link:** rising pentatonic pitch, bigger bursts, screen shake, a pop-up COMBO / MEGA counter.
 
 ## Art direction
+*(v0.10: the pixel canvas became a 3D diorama; see "The 3D park" below. The principles still hold, except the outlines: ink lines are now part of the look.)*
+
 A modern take on the cozy RCT2 theme-park look, without copying it:
 - Square grid in a 3/4 top-down view instead of isometric, so swipe directions stay readable.
 - The park is a small diorama slab with a visible earth edge.
@@ -143,6 +145,17 @@ The score is no longer revealed after the ride: it **builds up while the train r
 - **Sound** (all WebAudio synth): every event climbs one semitone, reset each ride. Chip ticks, a mult zing, a heavy ×mult hit with a chord, a wet puke squelch with a falling pitch, a crunchy boss puke with a beat of slow motion and a green flash, a register-click roll on the total, a fanfare arpeggio for the target, and a big slam.
 - **Skip:** click the park or press Space/Enter during the ride to resolve everything at once (same totals). The results card is now brief (verdict, total, rating × pukes, funds, with the breakdown folded away) since the show already did the counting.
 - Screenshots: `docs/ride-scoring/`.
+
+## The 3D park (v0.10)
+The web park is now a real-time **cel-shaded, ink-lined toy diorama** in Three.js, built entirely in code (no model or texture files). Game rules, the scoring timeline and the balance are untouched; only the presentation changed.
+- **Look:** two-band toon light with a cool shade, a hard specular blob on glossy paint and a warm rim. A post pass draws ink where depth creases or normals turn (so every crate, rail and guest gets a hand-drawn outline), then grades the frame: saturation, warm lights, cool shade, vignette, paper grain. A small bloom pass makes bulbs, lanterns and the mega loop's lights glow at dusk.
+- **The island:** a slab of stepped rock strata in a toon sea (color bands, drifting foam rings, glints), flat pavers or boardwalk planks, the grass board inside a stone kerb, a verge of trees, hedges and flower beds, lamps with bunting, benches, and islets with a Ferris wheel, a swing ride, a circling sailboat and drifting clouds. Each park has its own palette and flora (autumn trees, palms, spooky pines and mist, blossoms).
+- **The coaster:** the laid track is one continuous 3D centerline through the station U-turn, with a frame at every sample. Each piece is sculpted: Bump and Hill are camelbacks, the Drop has a lift chain and a plunge, the Helix is a banked 360° climbing turn round a central pylon, Loops are teardrops that drift sideways so the exit clears the entry, the Corkscrew is a heartline roll hung from a gantry, and the gold Mega Loop has bulbs. Rails keep the tier colors; corners bank. Newly built pieces pop out of the ground.
+- **The train** rides the same samples as the rails, so it banks, climbs and goes upside down with them. Its speed follows the height of the train (slow over the crowns, fast in the dips, steady on the lift chain), and the camera leans in and follows it. Riders throw their arms up and scream on the big pieces, turn green when they're sick, and their puke is voxels that fall with gravity (from wherever the car is, upside down included) and splat into puddles that stay for the day. Hats fly off on inversions.
+- **Guests** are chibi models with faces tilted up at the camera: hair styles, glasses, shades, cameras, corn dogs, balloons, ghosts, and big bosses with a cap and a moustache. They hop in the snaking queue with thought bubbles, walk to the platform, and wander off afterwards. Rider cards show 3D portraits of the same models.
+- **Juice:** crates squash as they slide, pop and flash on merges; chain hops arc over; voxel bursts, dust and sparkles; confetti that flutters; fireworks (with a whistle and a pop) when the target falls; shouts pinned to the 3D scene; mega crates glint.
+- **Time of day:** golden light and warm water streaks late in the day, then dusk: blue-violet shade, the lamps cast warm pools of light, bulbs bloom. The Haunted Hollow is always half in dusk.
+- Code: `src/render/renderer.ts` (scene, camera framing, people, crates, effects), `src/render3d/` (`geo` batcher, `toon` material, `post` ink/bloom, `track` centerline + frames, `trackmesh`, `models`, `island`, `fx`, `portrait`), `src/ride/ride.ts` (route, speed, event timing).
 
 ## Roadmap ideas
 

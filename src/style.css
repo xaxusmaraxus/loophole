@@ -13,7 +13,7 @@
   --mint: #72c457;
   --sick: #8cc23e;
   --font-sign: 'Bungee', 'Arial Black', Impact, sans-serif;
-  --font-body: 'Pixelify Sans', ui-rounded, 'Trebuchet MS', system-ui, sans-serif;
+  --font-body: 'Fredoka', ui-rounded, 'Trebuchet MS', system-ui, sans-serif;
   color-scheme: dark;
 }
 
@@ -413,11 +413,6 @@ button:focus-visible {
 .portrait {
   width: 33px;
   height: 42px;
-  image-rendering: pixelated;
-}
-
-.portrait.p3d {
-  image-rendering: auto;
   filter: drop-shadow(0 1.5px 0 var(--ink)) drop-shadow(0 -1px 0 var(--ink)) drop-shadow(1px 0 0 var(--ink)) drop-shadow(-1px 0 0 var(--ink));
 }
 
