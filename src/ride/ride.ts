@@ -215,10 +215,12 @@ export class RideAnim {
       this.d += this.v * dt;
       // The on-ride camera fires as the train rolls into the wildest piece.
       // Snap on the level run just before it, while everyone's still facing the camera.
-      if (!this.photoTaken && lead.up.y > 0.92 && this.nearTopPick(this.carS(0))) this.snap();
+      const level = lead.up.y > 0.95 && Math.abs(lead.t.y) < 0.2;
+      if (!this.photoTaken && level && this.nearTopPick(this.carS(0))) this.snap();
       this.checkMoment(now, lead.p.y, lead.up.y, lead.cell);
       // No wild piece (or it was missed)? The camera fires partway round instead.
-      if (!this.photoTaken && this.d > this.route.total * (this.momentPicks.size ? 0.8 : 0.45)) this.snap();
+      // (On a level stretch if there is one; right before the station at the latest.)
+      if (!this.photoTaken && this.d > this.route.total * (this.momentPicks.size ? 0.6 : 0.45) && (level || this.d > this.route.total * 0.95)) this.snap();
       for (let i = 0; i < this.cars; i++) {
         const stop = this.route.stopAt(this.d - i * CAR_GAP);
         if (stop < 0 || stop === this.carCell[i]) continue;
@@ -261,7 +263,7 @@ export class RideAnim {
       const back = this.heads[k].clone().add(this.heads[Math.min(this.cars - 1, 1)]).multiplyScalar(0.5);
       const eye = h0.clone().addScaledVector(lead.t, 0.72).addScaledVector(lead.up, 0.2);
       const look = h0.clone().lerp(back, 0.5).addScaledVector(lead.up, -0.05);
-      return { eye, look, up: lead.up.clone() };
+      return { eye, look, up: lead.up.clone().lerp(new Vector3(0, 1, 0), 0.6).normalize() };
     });
   }
 
