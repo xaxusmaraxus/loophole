@@ -58,6 +58,6 @@ Tileable, 1024 px, same style prompt plus `seamless tileable top-down texture`:
 Save to `godot/assets/textures/`. Wiring them into `main.gd` is a round 2 task.
 
 ## Status
-_The local session updates this after each batch: what's done, what's blocked, and any questions for the cloud session._
+_Update after each batch: what's done, what's blocked, open questions. Save renders to `docs/style-test/round-<n>/`._
 
 - Round 1: not started.
