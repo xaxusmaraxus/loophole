@@ -1,6 +1,6 @@
-# Concept: Grid-Is-The-Park (Direction B)
+# Loophole: Concept
 
-Working title pending (see "Names" at the bottom).
+Direction B from the first brainstorm ("the grid is the park").
 
 ## One-line pitch
 Slide and merge coaster pieces 2048-style, but every swipe also lays one piece of real track. Close the circuit back to the station whenever you dare. Then watch the queue of riders board and live with what you built.
@@ -59,11 +59,33 @@ Layer in physics: the lift hill gives the train energy, and each element spends 
 - Patience drain per swipe
 - Spawn weights (occasional Straight or a rare Curve)
 
-## Names
-- **Thrill Issues**
-- **Loop Holes**
-- **Hold Your Lunch**
-- **Queasy Does It**
-- **Upchuck Express**
-- **Please Keep Arms Inside**
-- **Loopty Doo**
+## Prototype v0.1 decisions
+- **Order of a swipe:** the head swallows the cell in front of it *first*, then the rest slides. So the tile you take is always visible before you swipe, and each swipe is a choice between up to three neighbors.
+- **Blocked swipes do nothing.** Every legal swipe lays track, so there is no free merging.
+- **Min loop:** 3 pieces before the station accepts the train.
+- **Dead end** = the day fails and costs a heart.
+
+## Art direction
+A modern take on the cozy RCT2 theme-park look, without copying it:
+- Square grid in a 3/4 top-down view instead of isometric, so swipe directions stay readable.
+- The park is a small diorama slab with a visible earth edge.
+- Tiles are crates with a front face; track is raised on timber (low) or steel (tall) supports and casts shadows.
+- Hue-shifted color ramps with no black outlines. Each piece tier has its own rail color, like coaster paint schemes.
+- Tiny guests with thought bubbles that show how they'd feel if you opened the ride now.
+- Everything is procedural: tree shapes, pavers, grass, guest looks.
+
+## Roguelike layer (light, puzzle stays in front)
+- A run is a series of **days**. Each day is a fresh, seeded park: the station on a random edge, obstacles (trees, rocks, ponds, snack stands), and starting tiles.
+- Each day has a **happy-rider quota**. Missing it, or hitting a dead end, costs one of 3 hearts.
+- After each day, **pick 1 of 3 perks** (Free Churros, Barf Bags, Hype Guy, Scenic Route...). They bend the puzzle without replacing it.
+- The board grows from 5x5 to 6x6 on day 3, with more obstacles and pickier riders (Kid and Just Ate unlock on day 2).
+
+## Ideas parked for later
+- Energy budget (step 2 above).
+- Rare special tiles: Tunnel (passes under track), Bridge (crosses a pond), Bulldozer.
+- Weather days: rain makes riders impatient faster.
+- Boss days: a VIP rider with a very specific request.
+- Voxel or HD-2D version of the ride only, as the "reward camera".
+
+## Name
+**Loophole** (picked). Other candidates: Thrill Issues, Hold Your Lunch, Queasy Does It.

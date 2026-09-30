@@ -2,11 +2,73 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Coaster Merge</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Loophole</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Pixelify+Sans:wght@400;600&display=swap" />
   </head>
   <body>
-    <div id="app"></div>
+    <div class="app">
+      <header class="top">
+        <h1 class="logo">Loop<span>hole</span></h1>
+        <div class="run">
+          <span id="day" class="chip">Day 1</span>
+          <span id="hearts" class="hearts"></span>
+          <span id="quota" class="chip quota"></span>
+        </div>
+        <button id="newRun" class="ghost" type="button">New run</button>
+      </header>
+
+      <main class="stage">
+        <section class="park" aria-label="Park">
+          <div class="canvas-wrap" id="canvasWrap">
+            <canvas id="park" aria-label="The park grid. Swipe or use arrow keys to lay track."></canvas>
+            <div class="overlay" id="overlay" hidden></div>
+          </div>
+          <p id="station" class="station" aria-live="polite"></p>
+          <div class="controls">
+            <div class="pad" role="group" aria-label="Lay track">
+              <button type="button" data-dir="up" class="up" aria-label="Up">↑</button>
+              <button type="button" data-dir="left" class="left" aria-label="Left">←</button>
+              <button type="button" data-dir="down" class="down" aria-label="Down">↓</button>
+              <button type="button" data-dir="right" class="right" aria-label="Right">→</button>
+            </div>
+            <button id="undo" type="button" class="undo">Undo <span id="undoCount" class="count">1</span></button>
+          </div>
+        </section>
+
+        <aside class="side">
+          <section class="panel">
+            <h2>Your coaster so far</h2>
+            <dl class="stats">
+              <div><dt>Length</dt><dd id="statLength">0</dd></div>
+              <div><dt>Thrill</dt><dd id="statThrill">0</dd></div>
+              <div><dt>Nausea</dt><dd id="statNausea">0</dd></div>
+              <div><dt>Upside down</dt><dd id="statInversions">0</dd></div>
+            </dl>
+            <p class="perk-line"><span class="label">Perks</span> <span id="perks">None yet</span></p>
+          </section>
+
+          <section class="panel">
+            <h2>In line <span id="queueCount" class="count">0</span></h2>
+            <p class="hint">How each rider would feel if you opened the ride right now.</p>
+            <ul id="queue" class="queue"></ul>
+          </section>
+
+          <details class="panel howto" open>
+            <summary>How to play</summary>
+            <ol>
+              <li>Every swipe does two things: the <strong>track grows one cell</strong> in that direction and swallows the tile it lands on, then all loose tiles <strong>slide and merge</strong> like 2048.</li>
+              <li>Two equal pieces merge into a bigger one: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
+              <li>Laid track is a wall. Tiles trapped behind it are gone for good.</li>
+              <li>Swipe back into the station to open the ride. Riders lose patience every swipe, so don't dawdle.</li>
+            </ol>
+            <p class="keys">Arrow keys or WASD to swipe, Z to undo. Seed <span id="seed"></span></p>
+          </details>
+        </aside>
+      </main>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
