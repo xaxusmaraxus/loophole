@@ -18,4 +18,4 @@ box((0.05, 0.01, 0.01), "#8a5a34", (0, -0.2, 0.67))
 # Handbag in the left hand
 box((0.1, 0.05, 0.08), "#b8472e", (-b["hand_x"] - 0.03, -0.02, 0.24))
 box((0.06, 0.01, 0.05), "#8a3a26", (-b["hand_x"] - 0.03, -0.02, 0.3))
-finish("guest_03", 800, scale=0.45 / 0.9 * 0.95)
+finish("guest_03", 800, scale=0.45 / 0.9 * 0.95, paint="art/textures/guest_03_front.png")

@@ -156,23 +156,24 @@ var _brush: Texture2D
 func _paint(root: Node) -> void:
 	if _brush == null:
 		_brush = load("res://assets/textures/painted_brush.png")
-	var stack: Array = [[root, _outline_width_of(root), root.get_meta("crisp", false)]]
+	var stack: Array = [[root, _outline_width_of(root), root.get_meta("crisp", false), root.get_meta("saturation", 1.35)]]
 	while not stack.is_empty():
 		var item: Array = stack.pop_back()
 		var n: Node = item[0]
 		var w: float = n.get_meta("outline_width", item[1])
 		var crisp: bool = n.get_meta("crisp", item[2])
+		var sat: float = n.get_meta("saturation", item[3])
 		for c in n.get_children():
-			stack.append([c, w, crisp])
+			stack.append([c, w, crisp, sat])
 		if not n is MeshInstance3D or (n as MeshInstance3D).mesh == null:
 			continue
 		var mi := n as MeshInstance3D
 		if mi.material_override:
-			mi.material_override = _painted_material(mi.material_override, w, mi.get_meta("ink", 0.0), mi.get_meta("crate", Vector3.ZERO), crisp, mi.get_meta("saturation", 1.35))
+			mi.material_override = _painted_material(mi.material_override, w, mi.get_meta("ink", 0.0), mi.get_meta("crate", Vector3.ZERO), crisp, sat)
 			continue
 		for i in mi.mesh.get_surface_count():
 			var src := mi.get_active_material(i)
-			mi.set_surface_override_material(i, _painted_material(src, w, 0.0, Vector3.ZERO, crisp))
+			mi.set_surface_override_material(i, _painted_material(src, w, 0.0, Vector3.ZERO, crisp, sat))
 
 
 ## Outline width inherited from the nearest ancestor with an "outline_width" meta.
@@ -650,6 +651,8 @@ func _weighted(weights: Array) -> int:
 func _tile(tier: int) -> Node3D:
 	var n := Node3D.new()
 	if model("tile_%d" % tier, n, Vector3.ZERO):
+		# The crate textures are already tinted; a milder boost keeps them from glaring.
+		n.set_meta("saturation", 1.1)
 		return n
 	var col: Color = TIER_COLORS[tier]
 	box(Vector3(0.84, 0.2, 0.84), col, Vector3(0, 0.1, 0), n).set_meta("crate", Vector3(0.84, 0.84, 0.84))

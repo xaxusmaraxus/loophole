@@ -105,7 +105,8 @@ def tris(obs=None):
     return n
 
 
-def finish(name, max_tris, height=None, scale=None):
+def finish(name, max_tris, height=None, scale=None, paint=None, paint_zmax=1.0):
+    """paint: optional image path, projected from the front after joining (front_paint)."""
     """Join, origin to bottom center, apply transforms, export GLB. Returns (tris, dims)."""
     bpy.ops.object.select_all(action="DESELECT")
     for ob in _parts:
@@ -128,6 +129,8 @@ def finish(name, max_tris, height=None, scale=None):
         v.co -= offset
     ob.location = (0, 0, 0)
     bpy.ops.object.shade_smooth_by_angle(angle=math.radians(40))
+    if paint:
+        front_paint(ob, paint, name + "_paint", zmax_frac=paint_zmax)
     n = tris([ob])
     dims = tuple(round(d, 3) for d in ob.dimensions)
     print("%s: %d tris (budget %d), dims %s" % (name, n, max_tris, dims))
@@ -204,6 +207,7 @@ def mat_tex(name, image_path, rough=0.8):
     bsdf.inputs["Roughness"].default_value = rough
     tex = nt.nodes.new("ShaderNodeTexImage")
     tex.image = bpy.data.images.load(os.path.join(REPO, image_path), check_existing=True)
+    tex.image.reload()  # pick up edits to the file since Blender first loaded it
     nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
     return m
 
@@ -232,3 +236,95 @@ def textured(ob, material, size, axis_v="z"):
     bm.to_mesh(ob.data)
     bm.free()
     return ob
+
+
+def tube(points, r, color, sides=6, closed=False, name=None):
+    """A tube along `points` (list of (x, y, z)), built as rings of `sides` vertices."""
+    import mathutils
+    bm = bmesh.new()
+    pts = [Vector(p) for p in points]
+    n = len(pts)
+    rings = []
+    prev_side = None
+    for i, p in enumerate(pts):
+        a = pts[(i - 1) % n] if (closed or i > 0) else p
+        b = pts[(i + 1) % n] if (closed or i < n - 1) else p
+        t = (b - a).normalized()
+        side = prev_side if prev_side is not None else (Vector((0, 0, 1)).cross(t) if abs(t.z) < 0.9 else Vector((1, 0, 0)))
+        side = (side - t * side.dot(t)).normalized()
+        up = t.cross(side).normalized()
+        prev_side = side
+        ring = []
+        for k in range(sides):
+            ang = 2 * math.pi * k / sides
+            ring.append(bm.verts.new(p + (side * math.cos(ang) + up * math.sin(ang)) * r))
+        rings.append(ring)
+    last = n if closed else n - 1
+    for i in range(last):
+        r0, r1 = rings[i], rings[(i + 1) % n]
+        for k in range(sides):
+            k2 = (k + 1) % sides
+            bm.faces.new((r0[k], r0[k2], r1[k2], r1[k]))
+    if not closed:
+        bm.faces.new(list(reversed(rings[0])))
+        bm.faces.new(rings[-1])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name or "tube")
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name or "tube", me)
+    bpy.context.collection.objects.link(ob)
+    bpy.context.view_layer.objects.active = ob
+    return _add(ob, color, name)
+
+
+def star(r_out, r_in, depth, color, loc, rot=(0, 0, 0), name=None):
+    """A chunky five-pointed star, extruded `depth` along its local Y (faces -Y)."""
+    bm = bmesh.new()
+    front, back = [], []
+    for k in range(10):
+        ang = math.pi / 2 + k * math.pi / 5
+        rr = r_out if k % 2 == 0 else r_in
+        x, z = math.cos(ang) * rr, math.sin(ang) * rr
+        front.append(bm.verts.new((x, -depth / 2, z)))
+        back.append(bm.verts.new((x, depth / 2, z)))
+    bm.faces.new(front)
+    bm.faces.new(list(reversed(back)))
+    for k in range(10):
+        k2 = (k + 1) % 10
+        bm.faces.new((front[k], back[k], back[k2], front[k2]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name or "star")
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name or "star", me)
+    bpy.context.collection.objects.link(ob)
+    ob.location = loc
+    ob.rotation_euler = rot
+    return _add(ob, color, name)
+
+
+def front_paint(ob, image_path, name, facing=0.35, zmax_frac=1.0):
+    """Project a painted front view onto `ob` from the front (-Y): the image spans the
+    object's X width and Z height. Only faces pointing forward (normal.y < -facing) get
+    the painting; the rest keep their flat material colors. zmax_frac: only the part
+    below this fraction of the height is painted (e.g. to leave out a held balloon)."""
+    m = mat_tex(name, image_path)
+    ob.data.materials.append(m)
+    slot = len(ob.data.materials) - 1
+    ztop = max(v.co.z for v in ob.data.vertices) * zmax_frac
+    body = [v.co for v in ob.data.vertices if v.co.z <= ztop]
+    xs = [c.x for c in body]
+    zs = [c.z for c in body]
+    x0, x1, z0, z1 = min(xs), max(xs), min(zs), max(zs)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    uv = bm.loops.layers.uv.verify()
+    for f in bm.faces:
+        if f.normal.y < -facing and max(v.co.z for v in f.verts) <= ztop:
+            f.material_index = slot
+        for loop in f.loops:
+            co = loop.vert.co
+            loop[uv].uv = ((co.x - x0) / (x1 - x0), (co.z - z0) / (z1 - z0))
+    bm.to_mesh(ob.data)
+    bm.free()

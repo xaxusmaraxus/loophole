@@ -16,4 +16,4 @@ cyl(0.035, 0.04, "#2a2a33", (0, -0.2, 0.395), seg=8, rot=(1.5708, 0, 0))
 box((0.03, 0.02, 0.02), "#e8733a", (-0.05, -0.19, 0.44))
 for sx in (-1, 1):
     box((0.025, 0.012, 0.13), "#7a4a28", (sx * 0.07, -0.16, 0.47), rot=(0, sx * 0.45, 0))
-finish("guest_01", 800, height=0.45)
+finish("guest_01", 800, height=0.45, paint="art/textures/guest_01_front.png")
