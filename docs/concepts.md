@@ -59,17 +59,32 @@ Layer in physics: the lift hill gives the train energy, and each element spends 
 - Patience drain per swipe
 - Spawn weights (occasional Straight or a rare Curve)
 
-## Prototype v0.1 decisions
-- **Order of a swipe:** the head swallows the cell in front of it *first*, then the rest slides. So the tile you take is always visible before you swipe, and each swipe is a choice between up to three neighbors.
-- **Blocked swipes do nothing.** Every legal swipe lays track, so there is no free merging.
-- **Min loop:** 3 pieces before the station accepts the train.
-- **Dead end** = the day fails and costs a heart.
+## Core loop (v0.3)
+v0.1 tied track-laying to every swipe, which left 3 choices at most and punished long rides through rider patience. v0.3 splits the actions and flips the incentives.
+
+**Two actions, both spend one unit of daylight:**
+- **Swipe:** pure 2048. Slide, merge, chain. A swipe that moves nothing is refused and costs nothing.
+- **Build:** tap a highlighted cell next to a track end. The tile there becomes that piece (empty cell = Flat).
+
+**Two track ends.** The track grows out of both sides of the station (red and blue pennants). When the pennants are next to each other, the full circuit can open. Before that, you can cash out any time as a **shuttle** (out and back) at half excitement.
+
+**Daylight is the only clock.** At dusk the ride opens with whatever you have: the circuit if the ends meet, otherwise a shuttle.
+
+**Rewards, not punishments:**
+- **Excitement** = (thrill + length) × (1 + 10% per distinct piece type past the first). Every rider pays it as a ticket.
+- A rider whose wish is met pays double. A rider who gets sick asks for half back.
+- The crowd grows as you build. A walk-in arrives every 5 actions, one more every 12 excitement ("word gets around"), and one per chain link. Nobody leaves.
+- Each day has a ticket target. Miss it and the park loses a heart.
+
+**Risk/reward now lives in:** spending daylight on merges vs. building, closing the loop vs. banking a shuttle, and routing the two ends so they can still meet (plus trapping good tiles behind track).
+
+Targets were set from a simple bot (median about 330 tickets on day 1, about 430 later, closing the full circuit only a third of the time). Day targets: 250, 320, 420, 520, 620, 720, 820, then +120 a day.
 
 ## Cascades (v0.2)
 The v0.1 board drained: the track eats a tile each swipe and only one spawned, so merges rarely snowballed. Now:
 - **Chain reactions:** after the slide, every freshly merged tile grabs one matching orthogonal neighbor and merges again. The result can grab again in the next wave, and so on. Waves resolve one at a time, on screen.
 - **Two spawns per swipe** keep the board under pressure. In random play about 1 in 3 swipes chains, and 1 in 4 merges 3+ tiles.
-- **Payoff inside the puzzle:** each chain link gives every rider in line +1 patience (up to their max). Cascades buy time for a longer, riskier ride.
+- **Payoff inside the puzzle:** each chain link draws one more rider to the queue (v0.2 gave patience instead; patience was removed in v0.3).
 - **Juice escalates with each link:** rising pentatonic pitch, bigger bursts, screen shake, a pop-up COMBO / MEGA counter.
 
 ## Art direction
@@ -83,8 +98,8 @@ A modern take on the cozy RCT2 theme-park look, without copying it:
 
 ## Roguelike layer (light, puzzle stays in front)
 - A run is a series of **days**. Each day is a fresh, seeded park: the station on a random edge, obstacles (trees, rocks, ponds, snack stands), and starting tiles.
-- Each day has a **happy-rider quota**. Missing it, or hitting a dead end, costs one of 3 hearts.
-- After each day, **pick 1 of 3 perks** (Free Churros, Barf Bags, Hype Guy, Scenic Route...). They bend the puzzle without replacing it.
+- Each day has a **ticket target**. Missing it costs one of 3 hearts.
+- After each day, **pick 1 of 3 perks** (Late Closing, Tip Jar, Barf Bags, Hype Guy, Scenic Route...). They bend the puzzle without replacing it.
 - The board grows from 5x5 to 6x6 on day 3, with more obstacles and pickier riders (Kid and Just Ate unlock on day 2).
 
 ## Ideas parked for later

@@ -5,9 +5,18 @@ import {
   type Dir,
   type Pt,
   type ChainStep,
-  type MoveResult,
+  type End,
+  type SwipeResult as MoveResult,
+  type TrackCell,
+  buildTargets,
+  canConnect,
+  head,
+  rideOrder,
+  samePt,
+  trackAt,
+  trackCells,
+  trackLinks,
   idx,
-  layKind,
   step,
 } from '../puzzle/board';
 import type { Rider } from '../riders/riders';
@@ -33,6 +42,8 @@ import {
 const FRONT = 8;
 const SLIDE_MS = 100;
 const WAVE_MS = 170;
+/** Pennant colors for the two track ends. */
+const END_COLORS = ['#f0584e', '#45a8e0'];
 
 interface Particle {
   x: number;
@@ -85,7 +96,8 @@ export class Renderer {
   private words: Word[] = [];
   private walkers: Walker[] = [];
   private riderPos = new Map<number, { x: number; y: number; moving: boolean }>();
-  private blocked: { at: Pt; t: number } | null = null;
+  private links = new Map<string, Pt[]>();
+  private lamps: Pt[] = [];
   private ride: RideAnim | null = null;
   private now = 0;
   private stuckUntil = 0;
@@ -181,7 +193,7 @@ export class Renderer {
   fit(): void {
     const area = this.canvas.closest('.park') ?? this.canvas.parentElement!;
     const availW = area.clientWidth;
-    const reserved = document.fullscreenElement ? 150 : 190;
+    const reserved = document.fullscreenElement ? 200 : 250;
     const availH = Math.max(260, window.innerHeight - reserved);
     // Fractional scales are fine: the canvas is upscaled with nearest-neighbor.
     this.scale = Math.max(1, Math.min(availW / this.W, availH / this.H));
@@ -228,12 +240,14 @@ export class Renderer {
         else if (v < 0.074) px(ctx, bx + x, by + y, 1, 1, hash(x, y) < 0.5 ? PAL.gold : PAL.heart);
       }
     // A few lamp posts on the plaza corners.
+    this.lamps = [];
     for (const [lx, ly] of [
       [6, 10],
       [this.W - 8, 10],
       [6, ground - 6],
       [this.W - 8, ground - 6],
     ]) {
+      this.lamps.push({ x: lx, y: ly - 10 });
       px(ctx, lx, ly - 9, 1, 10, PAL.ink);
       px(ctx, lx - 1, ly - 11, 3, 2, PAL.gold);
       px(ctx, lx - 1, ly + 1, 3, 1, PAL.shadow);
@@ -248,73 +262,75 @@ export class Renderer {
         case 'day':
           this.setupDay();
           break;
-        case 'move': {
-          const r = e.result;
-          if (r.kind === 'lay' && r.laid) {
-            this.tileAnim = { start: this.now, move: r, fired: -1 };
-            this.combo = null;
-            const c = this.center(r.laid);
-            this.dust(c.x, c.y, 6, PAL.plaza[2]);
-            sfx.lay();
-          } else if (r.kind === 'close') sfx.open();
+        case 'swipe':
+          this.tileAnim = { start: this.now, move: e.result, fired: -1 };
+          this.combo = null;
+          break;
+        case 'build': {
+          const c = this.center(e.laid);
+          this.dust(c.x, c.y, 8, PAL.plaza[2]);
+          this.flashes.set(idx(this.board, e.laid.x, e.laid.y), this.now + 150);
+          sfx.lay();
           break;
         }
         case 'blocked':
-          this.blocked = { at: step(this.headPos(), e.dir), t: this.now };
+          this.shake = { until: this.now + 90, mag: 1 };
           sfx.blocked();
           break;
-        case 'hype':
-          for (const r of this.game.queue) {
-            const p = this.riderPos.get(r.id);
-            if (p) this.word(`+${e.amount}`, p.x, p.y - 22, PAL.grass[0]);
-          }
-          break;
-        case 'leave': {
-          const p = this.riderPos.get(e.rider.id) ?? this.slot(0);
-          this.riderPos.delete(e.rider.id);
-          const side = this.sideDir();
-          this.walkers.push({ look: e.rider.look, x: p.x, y: p.y, tx: p.x + side.x * this.W, ty: p.y + side.y * this.H, speed: 40, mood: 'angry', delay: 0 });
-          this.word('UGH', p.x, p.y - 16, PAL.red);
-          break;
-        }
         case 'arrive': {
           const s = this.slot(this.game.queue.indexOf(e.rider));
           const side = this.sideDir();
           this.riderPos.set(e.rider.id, { x: s.x + side.x * 60, y: s.y + side.y * 60, moving: true });
+          if (e.reason !== 'walkin') this.word(e.reason === 'chain' ? 'WOW' : 'OOH', s.x, s.y - 24, PAL.gold);
           break;
         }
         case 'undo':
           this.tileAnim = null;
           break;
-        case 'close':
+        case 'open':
+          sfx.open();
           this.startRide();
           break;
-        case 'stuck': {
-          const h = this.center(this.headPos());
-          this.word('STUCK!', h.x, h.y - 14, PAL.red);
-          const side = this.sideDir();
-          this.game.queue.forEach((r, i) => {
-            const p = this.riderPos.get(r.id);
-            if (!p) return;
-            this.word('BOO', p.x, p.y - 18, PAL.white);
-            this.walkers.push({ look: r.look, x: p.x, y: p.y, tx: p.x + side.x * this.W, ty: p.y + side.y * this.H, speed: 35, mood: 'angry', delay: 500 + i * 80 });
-          });
-          this.riderPos.clear();
-          this.stuckUntil = this.now + 1600;
+        case 'dark':
+          if (this.game.result && !this.game.result.kind) this.closeEmpty();
+          else {
+            const sc = this.center(this.board.station);
+            this.word('CLOSING TIME', sc.x, sc.y - 24, PAL.gold);
+          }
           break;
-        }
       }
     }
   }
 
-  private headPos(): Pt {
-    const b = this.board;
-    return b.path.length ? b.path[b.path.length - 1] : b.station;
+  /** Dusk with nothing built: the queue goes home. */
+  private closeEmpty(): void {
+    const sc = this.center(this.board.station);
+    this.word('CLOSED', sc.x, sc.y - 22, PAL.red);
+    const side = this.sideDir();
+    this.game.queue.forEach((r, i) => {
+      const p = this.riderPos.get(r.id);
+      if (!p) return;
+      this.word('BOO', p.x, p.y - 18, PAL.white);
+      this.walkers.push({ look: r.look, x: p.x, y: p.y, tx: p.x + side.x * this.W, ty: p.y + side.y * this.H, speed: 35, mood: 'angry', delay: 500 + i * 80 });
+    });
+    this.riderPos.clear();
+    this.stuckUntil = this.now + 1600;
+  }
+
+  /** Board cell under a page coordinate, or null. */
+  cellAt(clientX: number, clientY: number): Pt | null {
+    const r = this.canvas.getBoundingClientRect();
+    const px = ((clientX - r.left) / r.width) * this.W;
+    const py = ((clientY - r.top) / r.height) * this.H;
+    const x = Math.floor(px / C) - this.margin.l;
+    const y = Math.floor(py / C) - this.margin.t;
+    return x >= 0 && y >= 0 && x < this.board.size && y < this.board.size ? { x, y } : null;
   }
 
   private startRide(): void {
     const result = this.game.result!;
     const sc = this.center(this.board.station);
+    if (!result.kind) return;
     // Riders walk onto the platform, then the train leaves.
     this.game.queue.forEach((r, i) => {
       const p = this.riderPos.get(r.id);
@@ -322,7 +338,7 @@ export class Renderer {
       this.walkers.push({ look: r.look, x: p.x, y: p.y, tx: sc.x, ty: sc.y, speed: 45, delay: i * 70 });
     });
     this.riderPos.clear();
-    this.ride = new RideAnim(this, this.board, result, this.game.mods.toleranceBonus, this.now + 900);
+    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.game.mods.toleranceBonus, this.now + 900);
   }
 
   // ---- Effects ---------------------------------------------------------------
@@ -403,14 +419,38 @@ export class Renderer {
       this.stuckUntil = 0;
       this.onRideDone();
     }
+    this.drawDusk();
     this.drawParticles(dt);
     this.drawCombo();
     ctx.restore();
   }
 
+  /** Late in the day the light warms up, then turns to dusk and the lamps come on. */
+  private drawDusk(): void {
+    const frac = this.game.daylight / this.game.cfg.daylight;
+    const ctx = this.ctx;
+    if (frac < 0.6 && frac >= 0.3) {
+      ctx.fillStyle = `rgba(255, 150, 70, ${((0.6 - frac) / 0.3) * 0.12})`;
+      ctx.fillRect(0, 0, this.W, this.H);
+    } else if (frac < 0.3) {
+      const k = Math.min(1, (0.3 - frac) / 0.3);
+      ctx.fillStyle = `rgba(255, 150, 70, ${0.12 * (1 - k)})`;
+      ctx.fillRect(0, 0, this.W, this.H);
+      ctx.fillStyle = `rgba(40, 30, 100, ${0.1 + k * 0.28})`;
+      ctx.fillRect(0, 0, this.W, this.H);
+      for (const l of this.lamps) {
+        ctx.fillStyle = `rgba(255, 220, 120, ${0.18 + k * 0.2})`;
+        ctx.beginPath();
+        ctx.arc(l.x, l.y, 7, 0, Math.PI * 2);
+        ctx.fill();
+        px(ctx, l.x - 1, l.y - 1, 3, 2, '#fff3b0');
+      }
+    }
+  }
+
   private drawTrackShadows(): void {
     const b = this.board;
-    for (const c of b.path) {
+    for (const c of trackCells(b)) {
       const p = this.center(c);
       px(this.ctx, p.x - 5, p.y + 1, 11, 3, PAL.shadow);
     }
@@ -421,6 +461,7 @@ export class Renderer {
     const ctx = this.ctx;
     const anim = this.tileAnim !== null;
     const dayKey = this.game.dayNum * 131 + this.game.seed.charCodeAt(1);
+    this.links = trackLinks(b);
     for (let y = 0; y < b.size; y++)
       for (let x = 0; x < b.size; x++) {
         const cx = this.cellX(x);
@@ -435,8 +476,8 @@ export class Renderer {
         else if (ob === 'rock') drawRock(ctx, cx, cy, dayKey + x + y * 5);
         else if (ob === 'pond') drawPond(ctx, cx, cy, this.now);
         else if (ob === 'stand') drawStand(ctx, cx, cy);
-        const ti = b.path.findIndex((c) => c.x === x && c.y === y);
-        if (ti >= 0) this.drawTrackCell(ti);
+        const tc = trackAt(b, x, y);
+        if (tc) this.drawTrackCell(tc);
         const tier = b.tiles[idx(b, x, y)];
         if (tier && !anim) drawCrate(ctx, tier, cx, cy, this.flashAt(idx(b, x, y)));
       }
@@ -565,11 +606,10 @@ export class Renderer {
 
   // ---- Track -----------------------------------------------------------------
 
-  private deckAt(p: Pt | null): number {
-    if (!p) return 0;
+  private deckAt(p: Pt): number {
     const b = this.board;
-    if (p.x === b.station.x && p.y === b.station.y) return STATION_DECK;
-    const c = b.path.find((q) => q.x === p.x && q.y === p.y);
+    if (samePt(p, b.station)) return STATION_DECK;
+    const c = trackAt(b, p.x, p.y);
     return c ? DECK[c.tier] : 0;
   }
 
@@ -577,22 +617,18 @@ export class Renderer {
     return { x: Math.sign(b.x - a.x), y: Math.sign(b.y - a.y) };
   }
 
+  private linksOf(p: Pt): Pt[] {
+    return this.links.get(`${p.x},${p.y}`) ?? [];
+  }
+
   private drawStationTrack(): void {
     const b = this.board;
     const sc = this.center(b.station);
-    if (b.path.length) this.halfSegment(sc, STATION_DECK, this.dirBetween(b.station, b.path[0]), (STATION_DECK + DECK[b.path[0].tier]) / 2, 0);
-    if (b.closed && b.path.length) {
-      const last = b.path[b.path.length - 1];
-      this.halfSegment(sc, STATION_DECK, this.dirBetween(b.station, last), (STATION_DECK + DECK[last.tier]) / 2, 0);
-    }
+    for (const q of this.linksOf(b.station)) this.halfSegment(sc, STATION_DECK, this.dirBetween(b.station, q), (STATION_DECK + this.deckAt(q)) / 2, 0);
   }
 
-  private drawTrackCell(i: number): void {
-    const b = this.board;
+  private drawTrackCell(cell: TrackCell): void {
     const ctx = this.ctx;
-    const cell = b.path[i];
-    const prev = i === 0 ? b.station : b.path[i - 1];
-    const next = i < b.path.length - 1 ? b.path[i + 1] : b.closed ? b.station : null;
     const h = DECK[cell.tier];
     const c = this.center(cell);
     // Supports: timber for low track, steel lattice for tall pieces.
@@ -603,9 +639,8 @@ export class Renderer {
     } else {
       px(ctx, c.x - 1, c.y - h + 2, 2, h + 1, PAL.wood);
     }
-    this.halfSegment(c, h, this.dirBetween(cell, prev), (h + this.deckAt(prev)) / 2, cell.tier);
-    if (next) this.halfSegment(c, h, this.dirBetween(cell, next), (h + this.deckAt(next)) / 2, cell.tier);
-    else px(ctx, c.x - 2, c.y - h - 2, 5, 5, PAL.gold);
+    const links = this.linksOf(cell);
+    for (const q of links) this.halfSegment(c, h, this.dirBetween(cell, q), (h + this.deckAt(q)) / 2, cell.tier);
     this.drawElement(c, h, cell.tier);
   }
 
@@ -653,35 +688,39 @@ export class Renderer {
     }
   }
 
-  // ---- Targets (where the next swipe lays track) -----------------------------
+  // ---- Build targets and track ends -----------------------------------------
 
   private drawTargets(): void {
     if (this.game.phase !== 'build') return;
     const b = this.board;
     const ctx = this.ctx;
     const blink = Math.floor(this.now / 300) % 2 === 0;
-    const h = this.headPos();
-    for (const dir of Object.keys(DELTA) as Dir[]) {
-      const kind = layKind(b, dir);
-      if (!kind) continue;
-      const t = step(h, dir);
-      const x = this.cellX(t.x);
-      const y = this.cellY(t.y);
-      if (kind === 'close') {
-        const c = this.center(t);
-        drawText(ctx, 'GO!', c.x - 5, c.y - 22 + (blink ? 0 : -1), PAL.gold, PAL.ink);
-        continue;
-      }
-      const col = blink ? PAL.gold : PAL.white;
+    const sel = this.game.selected;
+    const corners = (x: number, y: number, col: string) => {
       for (const [cx, cy, w, hh] of [
         [x, y, 4, 1], [x, y, 1, 4], [x + 12, y, 4, 1], [x + 15, y, 1, 4],
         [x, y + 15, 4, 1], [x, y + 12, 1, 4], [x + 12, y + 15, 4, 1], [x + 15, y + 12, 1, 4],
       ])
         px(ctx, cx, cy, w, hh, col);
+    };
+    const targets = buildTargets(b);
+    // The other end's targets first, so the selected end's gold corners win on shared cells.
+    for (const t of targets.filter((t) => t.end !== sel)) corners(this.cellX(t.x), this.cellY(t.y), END_COLORS[t.end]);
+    for (const t of targets.filter((t) => t.end === sel)) corners(this.cellX(t.x), this.cellY(t.y), blink ? PAL.gold : PAL.white);
+    // Pennants mark each open end; the selected one waves.
+    for (const end of [0, 1] as End[]) {
+      const h = head(b, end);
+      const c = this.center(h);
+      const wave = end === sel && blink ? 1 : 0;
+      const ox = end === 0 ? -5 : 3;
+      const top = c.y - this.deckAt(h) - 12;
+      px(ctx, c.x + ox, top, 1, 9, PAL.ink);
+      px(ctx, c.x + ox + 1, top + wave, 4, 3, END_COLORS[end]);
+      px(ctx, c.x + ox + 1, top + 1 + wave, 2, 1, PAL.white);
     }
-    if (this.blocked && this.now - this.blocked.t < 350) {
-      const c = this.center(this.blocked.at);
-      drawText(ctx, 'X', c.x - 1, c.y - 8, PAL.red, PAL.ink);
+    if (canConnect(b)) {
+      const [a, c] = [this.center(head(b, 0)), this.center(head(b, 1))];
+      drawText(ctx, 'GO!', (a.x + c.x) / 2 - 5, Math.min(a.y, c.y) - 26 + (blink ? 0 : -1), PAL.gold, PAL.ink);
     }
   }
 
@@ -716,9 +755,9 @@ export class Renderer {
       const stepFrame = p.moving ? 1 + (Math.floor(this.now / 120) % 2) : 0;
       drawPerson(this.ctx, r.look, p.x, p.y, { step: stepFrame });
       if (this.game.phase === 'build' && !p.moving) {
-        const mood = r.patience <= 3 ? 'angry' : this.game.predict(r);
+        const mood = this.game.predict(r);
         const top = p.y - (r.look.small ? 9 : 11) - 2;
-        if (mood !== 'angry' || Math.floor(this.now / 250) % 2) drawBubble(this.ctx, mood, p.x, top);
+        drawBubble(this.ctx, mood, p.x, top);
       }
     }
   }

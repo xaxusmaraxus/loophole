@@ -30,6 +30,10 @@ export interface RideStats {
   nausea: number;
   inversions: number;
   topTier: number;
+  /** Distinct piece types used (Flat doesn't count). */
+  variety: number;
+  /** The headline rating: every rider pays this as their ticket. */
+  excitement: number;
 }
 
 export interface StatMods {
@@ -37,17 +41,27 @@ export interface StatMods {
   flatThrill: number;
 }
 
-export function rideStats(path: readonly { tier: number }[], mods: StatMods): RideStats {
+/**
+ * Excitement rewards everything wild: each cell of length, all the thrill,
+ * and +10% for every distinct piece type past the first.
+ */
+export function rideStats(path: readonly { tier: number }[], mods: StatMods, shuttle = false): RideStats {
   let thrill = 0;
   let nausea = 0;
   let inversions = 0;
   let topTier = 0;
+  const kinds = new Set<number>();
   for (const { tier } of path) {
     const p = PIECES[tier];
     thrill += p.thrill + (tier === 0 ? mods.flatThrill : 0);
     nausea += p.nausea;
     if (p.inversion) inversions++;
+    if (tier > 0) kinds.add(tier);
     topTier = Math.max(topTier, tier);
   }
-  return { length: path.length, thrill: Math.round(thrill * mods.thrillMult), nausea, inversions, topTier };
+  thrill = Math.round(thrill * mods.thrillMult);
+  const variety = kinds.size;
+  const raw = (thrill + path.length) * (1 + 0.1 * Math.max(0, variety - 1));
+  const excitement = Math.round(raw * (shuttle ? 0.5 : 1));
+  return { length: path.length, thrill, nausea, inversions, topTier, variety, excitement };
 }

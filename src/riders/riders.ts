@@ -1,7 +1,7 @@
 import type { Rng } from '../core/rng';
 import type { RideStats } from '../puzzle/pieces';
 
-export type RiderKind = 'thrill' | 'looper' | 'grandma' | 'nerd' | 'corndog' | 'kid';
+export type RiderKind = 'thrill' | 'looper' | 'grandma' | 'nerd' | 'corndog' | 'kid' | 'critic';
 export type HairStyle = 'short' | 'long' | 'bun' | 'spiky' | 'bald' | 'cap';
 export type Accessory = 'none' | 'glasses' | 'shades' | 'corndog' | 'camera' | 'balloon';
 
@@ -20,20 +20,18 @@ export interface Rider {
   kind: RiderKind;
   name: string;
   look: Look;
-  patience: number;
-  maxPatience: number;
   tolerance: number;
   /** Kind-specific threshold (thrill, length, inversions...). */
   target: number;
 }
 
+/** happy = wish met, pays double; meh = pays the ticket; sick = wants half back. */
 export type Verdict = 'happy' | 'meh' | 'sick';
 
 interface KindDef {
   label: string;
   minDay: number;
   weight: number;
-  patience: [number, number];
   tolerance: (day: number) => number;
   target: (day: number) => number;
   want: (r: Rider) => string;
@@ -46,7 +44,6 @@ export const KINDS: Record<RiderKind, KindDef> = {
     label: 'Thrill Seeker',
     minDay: 1,
     weight: 3,
-    patience: [13, 17],
     tolerance: (d) => 14 + d,
     target: (d) => 6 + d * 3,
     want: (r) => `Thrill ${r.target} or more`,
@@ -57,7 +54,6 @@ export const KINDS: Record<RiderKind, KindDef> = {
     label: 'Loop Lover',
     minDay: 1,
     weight: 2,
-    patience: [12, 16],
     tolerance: (d) => 12 + d,
     target: (d) => (d >= 5 ? 2 : 1),
     want: (r) => (r.target > 1 ? `${r.target} inversions` : 'Go upside down'),
@@ -68,7 +64,6 @@ export const KINDS: Record<RiderKind, KindDef> = {
     label: 'Grandma',
     minDay: 1,
     weight: 2,
-    patience: [20, 26],
     tolerance: () => 5,
     target: () => 3,
     want: () => 'Nothing upside down',
@@ -79,7 +74,6 @@ export const KINDS: Record<RiderKind, KindDef> = {
     label: 'Coaster Nerd',
     minDay: 1,
     weight: 2,
-    patience: [16, 22],
     tolerance: () => 13,
     target: (d) => 6 + d,
     want: (r) => `Ride length ${r.target}+`,
@@ -90,18 +84,26 @@ export const KINDS: Record<RiderKind, KindDef> = {
     label: 'Just Ate',
     minDay: 2,
     weight: 2,
-    patience: [14, 18],
     tolerance: (d) => 3 + Math.floor(d / 3),
     target: (d) => 3 + d,
     want: (r) => `Thrill ${r.target}+, easy on the stomach`,
     happy: (r, s) => s.thrill >= r.target,
     look: () => ({ accessory: 'corndog' }),
   },
+  critic: {
+    label: 'Coaster Critic',
+    minDay: 2,
+    weight: 2,
+    tolerance: () => 14,
+    target: (d) => Math.min(6, 3 + Math.floor(d / 2)),
+    want: (r) => `${r.target} different piece types`,
+    happy: (r, s) => s.variety >= r.target,
+    look: () => ({ accessory: 'glasses', hairStyle: 'short' }),
+  },
   kid: {
     label: 'Kid',
     minDay: 2,
     weight: 2,
-    patience: [8, 11],
     tolerance: () => 9,
     target: () => 3,
     want: () => 'A big Drop!',
@@ -116,7 +118,7 @@ const FIRST = [
 ];
 const PREFIX: Partial<Record<RiderKind, string>> = { grandma: 'Nana', kid: 'Lil' };
 
-export function makeRider(rng: Rng, day: number, id: number, patienceBonus: number): Rider {
+export function makeRider(rng: Rng, day: number, id: number): Rider {
   const kinds = (Object.keys(KINDS) as RiderKind[]).filter((k) => KINDS[k].minDay <= day);
   const total = kinds.reduce((a, k) => a + KINDS[k].weight, 0);
   let roll = rng.next() * total;
@@ -139,15 +141,12 @@ export function makeRider(rng: Rng, day: number, id: number, patienceBonus: numb
     small: false,
     ...def.look(rng),
   };
-  const patience = rng.range(def.patience[0], def.patience[1]) + patienceBonus;
   const first = rng.pick(FIRST);
   return {
     id,
     kind,
     name: PREFIX[kind] ? `${PREFIX[kind]} ${first}` : first,
     look,
-    patience,
-    maxPatience: patience,
     tolerance: def.tolerance(day),
     target: def.target(day),
   };

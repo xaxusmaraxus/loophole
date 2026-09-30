@@ -26,33 +26,43 @@
 
       <main class="stage">
         <section class="park" aria-label="Park">
+          <div class="daylight" aria-live="off">
+            <div class="daylight-track"><span id="daylightBar"></span></div>
+            <span id="daylightLeft" class="daylight-left"></span>
+          </div>
           <div class="canvas-wrap" id="canvasWrap">
-            <canvas id="park" aria-label="The park grid. Swipe or use arrow keys to lay track."></canvas>
+            <canvas id="park" aria-label="The park. Swipe to slide and merge tiles. Tap a highlighted cell to build track."></canvas>
             <div class="combo" id="combo" aria-hidden="true"></div>
             <div class="overlay" id="overlay" hidden></div>
           </div>
-          <div class="below">
           <p id="station" class="station" aria-live="polite"></p>
           <div class="controls">
-            <div class="pad" role="group" aria-label="Lay track">
-              <button type="button" data-dir="up" class="up" aria-label="Up">↑</button>
-              <button type="button" data-dir="left" class="left" aria-label="Left">←</button>
-              <button type="button" data-dir="down" class="down" aria-label="Down">↓</button>
-              <button type="button" data-dir="right" class="right" aria-label="Right">→</button>
-            </div>
+            <button id="open" type="button" class="open">Open the ride</button>
+            <button id="switchEnd" type="button" class="switch" title="Switch which pennant keyboard building extends (Tab)">Switch end</button>
             <button id="undo" type="button" class="undo">Undo <span id="undoCount" class="count">1</span></button>
-          </div>
+            <div class="pad" role="group" aria-label="Swipe">
+              <button type="button" data-dir="up" class="up" aria-label="Swipe up">↑</button>
+              <button type="button" data-dir="left" class="left" aria-label="Swipe left">←</button>
+              <button type="button" data-dir="down" class="down" aria-label="Swipe down">↓</button>
+              <button type="button" data-dir="right" class="right" aria-label="Swipe right">→</button>
+            </div>
           </div>
         </section>
 
         <aside class="side">
           <section class="panel">
-            <h2>Your coaster so far</h2>
+            <h2>Today's ride</h2>
+            <div class="excitement">
+              <span class="label">Excitement</span>
+              <strong id="statExcitement">0</strong>
+              <span class="hint-inline">Every rider pays this. Meet their wish and they pay double.</span>
+            </div>
             <dl class="stats">
               <div><dt>Length</dt><dd id="statLength">0</dd></div>
               <div><dt>Thrill</dt><dd id="statThrill">0</dd></div>
-              <div><dt>Nausea</dt><dd id="statNausea">0</dd></div>
+              <div><dt>Variety</dt><dd id="statVariety">0</dd></div>
               <div><dt>Upside down</dt><dd id="statInversions">0</dd></div>
+              <div><dt>Nausea</dt><dd id="statNausea">0</dd></div>
             </dl>
             <p class="perk-line"><span class="label">Best combo today</span> <span id="bestCombo">none yet</span></p>
             <p class="perk-line"><span class="label">Perks</span> <span id="perks">None yet</span></p>
@@ -60,20 +70,20 @@
 
           <section class="panel">
             <h2>In line <span id="queueCount" class="count">0</span></h2>
-            <p class="hint">How each rider would feel if you opened the ride right now.</p>
+            <p class="hint">A wilder ride draws a bigger crowd. Chain reactions draw one rider per link.</p>
             <ul id="queue" class="queue"></ul>
           </section>
 
           <details class="panel howto" open>
             <summary>How to play</summary>
             <ol>
-              <li>Every swipe does two things: the <strong>track grows one cell</strong> in that direction and swallows the tile it lands on, then all loose tiles <strong>slide and merge</strong> like 2048.</li>
-              <li>Two equal pieces merge into a bigger one: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
-              <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again. Every chain link gives the whole queue +1 patience.</li>
-              <li>Laid track is a wall. Tiles trapped behind it are gone for good.</li>
-              <li>Swipe back into the station to open the ride. Riders lose patience every swipe, so don't dawdle.</li>
+              <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
+              <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
+              <li><strong>Tap a highlighted cell</strong> to build: the tile there becomes that piece of track. Track grows from both sides of the station (the red and blue pennants).</li>
+              <li>When the pennants meet, <strong>open the full circuit</strong>. Or cash out any time as a shuttle for half.</li>
+              <li>Every swipe and build uses daylight. At dusk the ride opens with whatever you have.</li>
             </ol>
-            <p class="keys">Arrow keys or WASD to swipe, Z to undo. Seed <span id="seed"></span></p>
+            <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
           </details>
         </aside>
       </main>

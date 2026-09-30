@@ -2,14 +2,15 @@ import type { Rng } from '../core/rng';
 import { type Board, type ObstacleKind, idx, isWall } from '../puzzle/board';
 
 export type PerkId =
-  | 'churros'
+  | 'latenight'
   | 'lumber'
   | 'wrench'
   | 'hype'
   | 'barfbags'
-  | 'fastpass'
+  | 'billboard'
   | 'dynamite'
-  | 'scenic';
+  | 'scenic'
+  | 'tipjar';
 
 export interface PerkDef {
   name: string;
@@ -17,26 +18,28 @@ export interface PerkDef {
 }
 
 export const PERKS: Record<PerkId, PerkDef> = {
-  churros: { name: 'Free Churros', desc: 'Every rider waits 4 swipes longer.' },
+  latenight: { name: 'Late Closing', desc: '5 more actions of daylight every day.' },
   lumber: { name: 'Better Lumber', desc: 'New tiles are Hills more often.' },
   wrench: { name: 'Spare Wrench', desc: '+1 undo every day.' },
   hype: { name: 'Hype Guy', desc: 'Rides count +25% thrill.' },
   barfbags: { name: 'Barf Bags', desc: 'Everyone stomachs 3 more nausea.' },
-  fastpass: { name: 'Fast Pass', desc: 'Riders join the queue every 2 swipes.' },
+  billboard: { name: 'Billboard', desc: '2 extra riders are waiting each morning.' },
   dynamite: { name: 'Dynamite', desc: 'Parks have 2 fewer obstacles.' },
   scenic: { name: 'Scenic Route', desc: 'Flat track is worth 1 thrill.' },
+  tipjar: { name: 'Tip Jar', desc: 'Riders whose wish you meet pay triple instead of double.' },
 };
 
 export interface Mods {
   thrillMult: number;
   flatThrill: number;
   toleranceBonus: number;
-  patienceBonus: number;
   hillChance: number;
-  arrivalEvery: number;
   undos: number;
   obstacleDelta: number;
   spawns: number;
+  daylightBonus: number;
+  extraRiders: number;
+  tipMult: number;
 }
 
 export function modsFor(perks: readonly PerkId[]): Mods {
@@ -45,12 +48,13 @@ export function modsFor(perks: readonly PerkId[]): Mods {
     thrillMult: 1 + 0.25 * n('hype'),
     flatThrill: n('scenic'),
     toleranceBonus: 3 * n('barfbags'),
-    patienceBonus: 4 * n('churros'),
     hillChance: Math.min(0.6, 0.1 + 0.15 * n('lumber')),
-    arrivalEvery: n('fastpass') ? 2 : 3,
     undos: 1 + n('wrench'),
     obstacleDelta: -2 * n('dynamite'),
-    spawns: 2,
+    spawns: 1,
+    daylightBonus: 5 * n('latenight'),
+    extraRiders: 2 * n('billboard'),
+    tipMult: n('tipjar') ? 3 : 2,
   };
 }
 
@@ -62,7 +66,10 @@ export interface DayConfig {
   day: number;
   size: number;
   obstacles: number;
-  quota: number;
+  /** Tickets to sell today. */
+  target: number;
+  /** Actions (swipes and builds) before the park closes. */
+  daylight: number;
   startRiders: number;
   maxQueue: number;
 }
@@ -72,11 +79,15 @@ export function dayConfig(day: number, mods: Mods): DayConfig {
     day,
     size: day <= 2 ? 5 : 6,
     obstacles: Math.max(0, Math.min(day + 1, 7) + mods.obstacleDelta),
-    quota: Math.min(2 + Math.floor((day - 1) / 2), 6),
-    startRiders: 4 + Math.floor(day / 3),
-    maxQueue: 7,
+    target: TARGETS[Math.min(day, TARGETS.length) - 1] + Math.max(0, day - TARGETS.length) * 120,
+    daylight: (day <= 2 ? 30 : 36) + mods.daylightBonus,
+    startRiders: 3 + mods.extraRiders,
+    maxQueue: 10,
   };
 }
+
+// Calibrated against a simple bot (see docs/concepts.md); a player should beat these.
+const TARGETS = [250, 320, 420, 520, 620, 720, 820];
 
 const OBSTACLES: ObstacleKind[] = ['tree', 'tree', 'tree', 'rock', 'pond', 'stand'];
 
@@ -93,8 +104,8 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
       tiles: new Array(n * n).fill(0),
       obstacles: new Array(n * n).fill(null),
       station,
-      path: [],
-      closed: false,
+      ends: [[], []],
+      opened: null,
     };
     // Keep a 3x3 area around the station clear so a first loop is always possible.
     const nearStation = (x: number, y: number) => Math.abs(x - station.x) <= 1 && Math.abs(y - station.y) <= 1;

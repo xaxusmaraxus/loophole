@@ -1,9 +1,12 @@
 import type { Rng } from '../core/rng';
 import { MAX_TIER } from './pieces';
 
-// The core rule: every swipe first lays the tile in front of the track head
-// into the track, then slides/merges the loose tiles 2048-style. Laid track
-// becomes a wall that loose tiles can't pass.
+// Two separate actions:
+//  - Swipe: 2048 rules. Loose tiles slide and merge, fresh merges chain.
+//  - Build: turn the tile next to one of the two track ends into track.
+// The track grows from both sides of the station. When the two ends meet,
+// the circuit can open as a full ride; before that, as a half-price shuttle.
+// Laid track is a wall that loose tiles can't pass.
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export const DIRS: readonly Dir[] = ['up', 'down', 'left', 'right'];
@@ -24,6 +27,7 @@ export interface TrackCell extends Pt {
 }
 
 export type ObstacleKind = 'tree' | 'rock' | 'pond' | 'stand';
+export type End = 0 | 1;
 
 export interface Board {
   size: number;
@@ -31,9 +35,9 @@ export interface Board {
   tiles: number[];
   obstacles: (ObstacleKind | null)[];
   station: Pt;
-  /** Laid track, in order, starting next to the station. */
-  path: TrackCell[];
-  closed: boolean;
+  /** Track grown out of each side of the station, in build order. */
+  ends: [TrackCell[], TrackCell[]];
+  opened: 'circuit' | 'shuttle' | null;
 }
 
 /** Track cells needed before the circuit may close (smallest loop is 2x2). */
@@ -51,44 +55,115 @@ export function samePt(a: Pt, b: Pt): boolean {
   return a.x === b.x && a.y === b.y;
 }
 
-export function isTrack(b: Board, x: number, y: number): boolean {
-  return b.path.some((c) => c.x === x && c.y === y);
+export function adjacent(a: Pt, b: Pt): boolean {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
+}
+
+export function trackCells(b: Board): TrackCell[] {
+  return [...b.ends[0], ...b.ends[1]];
+}
+
+export function trackAt(b: Board, x: number, y: number): TrackCell | undefined {
+  return b.ends[0].find((c) => c.x === x && c.y === y) ?? b.ends[1].find((c) => c.x === x && c.y === y);
+}
+
+export function trackLength(b: Board): number {
+  return b.ends[0].length + b.ends[1].length;
 }
 
 export function isWall(b: Board, x: number, y: number): boolean {
   if (!inBounds(b, x, y)) return true;
   if (b.obstacles[idx(b, x, y)]) return true;
   if (b.station.x === x && b.station.y === y) return true;
-  return isTrack(b, x, y);
+  return !!trackAt(b, x, y);
 }
 
-export function head(b: Board): Pt {
-  return b.path.length ? b.path[b.path.length - 1] : b.station;
+export function head(b: Board, end: End): Pt {
+  const e = b.ends[end];
+  return e.length ? e[e.length - 1] : b.station;
 }
 
 export function step(p: Pt, dir: Dir): Pt {
   return { x: p.x + DELTA[dir].x, y: p.y + DELTA[dir].y };
 }
 
-export type LayKind = 'lay' | 'close';
-
-export function layKind(b: Board, dir: Dir): LayKind | null {
-  if (b.closed) return null;
-  const t = step(head(b), dir);
-  if (samePt(t, b.station)) return b.path.length >= MIN_LOOP ? 'close' : null;
-  return isWall(b, t.x, t.y) ? null : 'lay';
+export interface BuildTarget extends Pt {
+  end: End;
 }
 
-export function validDirs(b: Board): Dir[] {
-  return DIRS.filter((d) => layKind(b, d) !== null);
+/** Cells the given end (or either end) could build into next. */
+export function buildTargets(b: Board, only?: End): BuildTarget[] {
+  if (b.opened) return [];
+  const out: BuildTarget[] = [];
+  for (const end of [0, 1] as End[]) {
+    if (only !== undefined && end !== only) continue;
+    for (const d of DIRS) {
+      const t = step(head(b, end), d);
+      if (!isWall(b, t.x, t.y)) out.push({ ...t, end });
+    }
+  }
+  return out;
 }
 
-export function isStuck(b: Board): boolean {
-  return !b.closed && validDirs(b).length === 0;
+/** The two ends meet: the ride can open as a full circuit. */
+export function canConnect(b: Board): boolean {
+  if (b.opened || trackLength(b) < MIN_LOOP) return false;
+  const [a, c] = [head(b, 0), head(b, 1)];
+  return !samePt(a, c) && adjacent(a, c);
 }
 
-export function canClose(b: Board): Dir | null {
-  return DIRS.find((d) => layKind(b, d) === 'close') ?? null;
+export function canShuttle(b: Board): boolean {
+  return !b.opened && trackLength(b) >= 1;
+}
+
+export function isBoxedIn(b: Board): boolean {
+  return !b.opened && !canConnect(b) && buildTargets(b).length === 0;
+}
+
+/** Lays the tile at (x, y) into the track from the given end. */
+export function build(b: Board, end: End, x: number, y: number): TrackCell | null {
+  if (!buildTargets(b, end).some((t) => t.x === x && t.y === y)) return null;
+  const i = idx(b, x, y);
+  const laid: TrackCell = { x, y, tier: b.tiles[i] };
+  b.tiles[i] = 0;
+  b.ends[end].push(laid);
+  return laid;
+}
+
+export interface RideStop extends Pt {
+  tier: number;
+  station: boolean;
+}
+
+/** The order the train visits cells, from station back to station. */
+export function rideOrder(b: Board, kind: 'circuit' | 'shuttle'): RideStop[] {
+  const st: RideStop = { ...b.station, tier: 0, station: true };
+  const cells = (e: TrackCell[]) => e.map((c) => ({ ...c, station: false }));
+  const [a, c] = [cells(b.ends[0]), cells(b.ends[1])];
+  if (kind === 'circuit') return [st, ...a, ...[...c].reverse(), st];
+  // Shuttle: out along each end and back again.
+  const out: RideStop[] = [st];
+  for (const e of [a, c]) if (e.length) out.push(...e, ...[...e].reverse().slice(1), st);
+  return out;
+}
+
+/** Neighbors each track cell (and the station) is connected to, for drawing rails. */
+export function trackLinks(b: Board): Map<string, Pt[]> {
+  const key = (p: Pt) => `${p.x},${p.y}`;
+  const links = new Map<string, Pt[]>();
+  const link = (p: Pt, q: Pt) => {
+    for (const [u, v] of [
+      [p, q],
+      [q, p],
+    ]) {
+      const l = links.get(key(u)) ?? [];
+      l.push(v);
+      links.set(key(u), l);
+    }
+  };
+  for (const e of b.ends) e.forEach((c, i) => link(i === 0 ? b.station : e[i - 1], c));
+  if (b.opened === 'circuit') link(head(b, 0), head(b, 1));
+  return links;
 }
 
 export function cloneBoard(b: Board): Board {
@@ -97,9 +172,11 @@ export function cloneBoard(b: Board): Board {
     tiles: [...b.tiles],
     obstacles: [...b.obstacles],
     station: { ...b.station },
-    path: b.path.map((c) => ({ ...c })),
+    ends: [b.ends[0].map((c) => ({ ...c })), b.ends[1].map((c) => ({ ...c }))],
   };
 }
+
+// ---- Swiping ----------------------------------------------------------------
 
 export interface SlideMove {
   from: Pt;
@@ -112,6 +189,7 @@ export interface SlideResult {
   tiles: number[];
   slides: SlideMove[];
   merges: TrackCell[];
+  moved: boolean;
 }
 
 export function slide(b: Board, dir: Dir): SlideResult {
@@ -121,6 +199,7 @@ export function slide(b: Board, dir: Dir): SlideResult {
   const slides: SlideMove[] = [];
   const merges: TrackCell[] = [];
   const reversed = d.x === 1 || d.y === 1;
+  let moved = false;
 
   for (let lane = 0; lane < n; lane++) {
     // Leading edge first, so tiles pile up against it.
@@ -147,32 +226,18 @@ export function slide(b: Board, dir: Dir): SlideResult {
         tiles[idx(b, q.x, q.y)] = last.tier;
         slides.push({ from: p, to: q, tier, merged: true });
         merges.push({ x: q.x, y: q.y, tier: last.tier });
+        moved = true;
       } else {
         const q = line[dest];
         tiles[idx(b, q.x, q.y)] = tier;
         slides.push({ from: p, to: q, tier, merged: false });
+        if (!samePt(p, q)) moved = true;
         last = { pos: dest, tier, merged: false };
         dest++;
       }
     }
   }
-  return { tiles, slides, merges };
-}
-
-export function emptyCells(b: Board): Pt[] {
-  const out: Pt[] = [];
-  for (let y = 0; y < b.size; y++)
-    for (let x = 0; x < b.size; x++) if (!isWall(b, x, y) && !b.tiles[idx(b, x, y)]) out.push({ x, y });
-  return out;
-}
-
-export function spawnTile(b: Board, rng: Rng, hillChance: number): TrackCell | undefined {
-  const cells = emptyCells(b);
-  if (!cells.length) return undefined;
-  const c = rng.pick(cells);
-  const tier = rng.chance(hillChance) ? 2 : 1;
-  b.tiles[idx(b, c.x, c.y)] = tier;
-  return { ...c, tier };
+  return { tiles, slides, merges, moved };
 }
 
 export interface ChainStep {
@@ -227,10 +292,24 @@ export function resolveChains(b: Board, seeds: readonly Pt[]): ChainResult {
   return { waves, frames };
 }
 
-export interface MoveResult {
-  kind: LayKind;
+export function emptyCells(b: Board): Pt[] {
+  const out: Pt[] = [];
+  for (let y = 0; y < b.size; y++)
+    for (let x = 0; x < b.size; x++) if (!isWall(b, x, y) && !b.tiles[idx(b, x, y)]) out.push({ x, y });
+  return out;
+}
+
+export function spawnTile(b: Board, rng: Rng, hillChance: number): TrackCell | undefined {
+  const cells = emptyCells(b);
+  if (!cells.length) return undefined;
+  const c = rng.pick(cells);
+  const tier = rng.chance(hillChance) ? 2 : 1;
+  b.tiles[idx(b, c.x, c.y)] = tier;
+  return { ...c, tier };
+}
+
+export interface SwipeResult {
   dir: Dir;
-  laid?: TrackCell;
   slides: SlideMove[];
   merges: TrackCell[];
   /** Tile state right after the slide, before any chain. */
@@ -241,25 +320,16 @@ export interface MoveResult {
   mergeCount: number;
 }
 
-export interface MoveOptions {
+export interface SwipeOptions {
   hillChance: number;
   spawns: number;
 }
 
-/** Applies a swipe in place. Returns null if the head can't move that way. */
-export function applyMove(b: Board, dir: Dir, rng: Rng, opts: MoveOptions): MoveResult | null {
-  const kind = layKind(b, dir);
-  if (!kind) return null;
-  if (kind === 'close') {
-    b.closed = true;
-    return { kind, dir, slides: [], merges: [], slid: [...b.tiles], chain: { waves: [], frames: [] }, spawned: [], mergeCount: 0 };
-  }
-  const t = step(head(b), dir);
-  const i = idx(b, t.x, t.y);
-  const laid: TrackCell = { ...t, tier: b.tiles[i] };
-  b.tiles[i] = 0;
-  b.path.push(laid);
+/** Applies a swipe in place. Returns null if nothing would move (like 2048). */
+export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeResult | null {
+  if (b.opened) return null;
   const s = slide(b, dir);
+  if (!s.moved) return null;
   b.tiles = s.tiles;
   const slid = [...b.tiles];
   const chain = resolveChains(b, s.merges);
@@ -269,5 +339,5 @@ export function applyMove(b: Board, dir: Dir, rng: Rng, opts: MoveOptions): Move
     if (t) spawned.push(t);
   }
   const mergeCount = s.merges.length + chain.waves.reduce((a, w) => a + w.length, 0);
-  return { kind, dir, laid, slides: s.slides, merges: s.merges, slid, chain, spawned, mergeCount };
+  return { dir, slides: s.slides, merges: s.merges, slid, chain, spawned, mergeCount };
 }

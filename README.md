@@ -1,6 +1,6 @@
 # Loophole
 
-A merge puzzle where the tiles are rollercoaster pieces. Every swipe merges tiles 2048-style *and* lays one piece of track. Close the circuit back to the station, then watch the queue ride what you built.
+A merge puzzle where the tiles are rollercoaster pieces. Swipe to merge them 2048-style, tap to build them into track from both sides of the station, and connect the ends before dusk. Then watch the queue ride what you built.
 
 ## Run
 ```
@@ -10,8 +10,8 @@ npm test
 npm run build
 ```
 
-Controls: swipe on the park, arrow keys / WASD, or the on-screen pad. Z undoes.
-The current game is on `window.loophole` in the browser console for playtesting.
+Controls: drag on the park (or arrows / WASD) to swipe; tap a highlighted cell to build. Shift + arrows builds from the waving pennant, Tab switches pennant, Enter opens the ride, Z undoes.
+The game and renderer are on `window.loophole` and `window.loopholeRenderer` in the browser console for playtesting.
 
 ## Layout
 ```

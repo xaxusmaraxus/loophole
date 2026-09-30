@@ -17,7 +17,7 @@ function act(fn: () => void): void {
 }
 
 // Handy for playtesting from the browser console.
-(window as unknown as { loophole: Game }).loophole = game;
+Object.assign(window, { loophole: game, loopholeRenderer: renderer });
 
 renderer.onRideDone = () => act(() => game.rideDone());
 
@@ -31,13 +31,18 @@ window.addEventListener('keydown', (e) => {
   const dir = KEYS[e.key];
   if (dir && (e.key.startsWith('Arrow') || game.phase === 'build')) {
     e.preventDefault();
-    act(() => game.swipe(dir));
+    act(() => (e.shiftKey ? game.buildDir(dir) : game.swipe(dir)));
+  } else if (e.key === 'Tab' && game.phase === 'build') {
+    e.preventDefault();
+    act(() => game.selectEnd());
+  } else if (e.key === 'Enter' && game.phase === 'build' && !(e.target instanceof HTMLButtonElement)) {
+    act(() => game.open());
   } else if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') {
     act(() => game.undo());
   }
 });
 
-// Swipe on the park.
+// On the park: a drag is a swipe, a tap builds on the tapped cell.
 const wrap = document.getElementById('canvasWrap')!;
 let start: { x: number; y: number } | null = null;
 wrap.addEventListener('pointerdown', (e) => {
@@ -49,7 +54,11 @@ wrap.addEventListener('pointerup', (e) => {
   const dx = e.clientX - start.x;
   const dy = e.clientY - start.y;
   start = null;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) {
+    const cell = renderer.cellAt(e.clientX, e.clientY);
+    if (cell) act(() => game.buildAt(cell.x, cell.y));
+    return;
+  }
   const dir: Dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
   act(() => game.swipe(dir));
 });
@@ -58,6 +67,8 @@ wrap.addEventListener('pointercancel', () => (start = null));
 document.querySelectorAll<HTMLButtonElement>('[data-dir]').forEach((b) =>
   b.addEventListener('click', () => act(() => game.swipe(b.dataset.dir as Dir))),
 );
+document.getElementById('open')!.addEventListener('click', () => act(() => game.open()));
+document.getElementById('switchEnd')!.addEventListener('click', () => act(() => game.selectEnd()));
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
 document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));
 
