@@ -163,7 +163,7 @@ def preview(name, out=None):
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
-    scene.display.shading.color_type = "MATERIAL"
+    scene.display.shading.color_type = "TEXTURE"
     scene.display.shading.show_cavity = True
     scene.render.resolution_x, scene.render.resolution_y = 512, 640
     scene.render.film_transparent = False
@@ -171,7 +171,7 @@ def preview(name, out=None):
     h = ob.dimensions.z
     cam_data = bpy.data.cameras.new("prev_cam")
     cam_data.type = "ORTHO"
-    cam_data.ortho_scale = h * 1.25
+    cam_data.ortho_scale = max(ob.dimensions) * 1.3
     cam = bpy.data.objects.new("prev_cam", cam_data)
     scene.collection.objects.link(cam)
     scene.camera = cam
@@ -180,7 +180,7 @@ def preview(name, out=None):
     paths = []
     for tag, yaw in (("front", 0), ("side", 90), ("34", 35)):
         a = math.radians(yaw)
-        d = h * 3
+        d = max(ob.dimensions) * 3
         cam.location = (math.sin(a) * d, -math.cos(a) * d, h * 0.5 + d * 0.25)
         direction = Vector((0, 0, h * 0.5)) - cam.location
         cam.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
@@ -190,3 +190,45 @@ def preview(name, out=None):
         paths.append(p)
     bpy.data.objects.remove(cam, do_unlink=True)
     return paths
+
+
+def mat_tex(name, image_path, rough=0.8):
+    """Material with a painted image texture (embedded in the GLB on export)."""
+    m = bpy.data.materials.get(name)
+    if m:
+        return m
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    bsdf = nt.nodes["Principled BSDF"]
+    bsdf.inputs["Roughness"].default_value = rough
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = bpy.data.images.load(os.path.join(REPO, image_path), check_existing=True)
+    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    return m
+
+
+def textured(ob, material, size, axis_v="z"):
+    """Give `ob` a textured material and box-projected UVs: one texture tile per `size` meters.
+    axis_v: which world axis runs along the texture's V on side faces ('z' or 'y')."""
+    ob.data.materials.clear()
+    ob.data.materials.append(material)
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    uv = bm.loops.layers.uv.verify()
+    mw = ob.matrix_world
+    for f in bm.faces:
+        n = (mw.to_3x3() @ f.normal).normalized()
+        an = [abs(n.x), abs(n.y), abs(n.z)]
+        for loop in f.loops:
+            co = mw @ loop.vert.co
+            if an[2] >= an[0] and an[2] >= an[1]:
+                u, v = co.x, co.y
+            elif an[0] >= an[1]:
+                u, v = co.y, (co.z if axis_v == "z" else co.y)
+            else:
+                u, v = co.x, co.z
+            loop[uv].uv = (u / size, v / size)
+    bm.to_mesh(ob.data)
+    bm.free()
+    return ob

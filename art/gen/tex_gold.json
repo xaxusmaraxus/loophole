@@ -1,0 +1,10 @@
+{
+ "refs": [
+  "docs/mood/coaster_town_mood.png"
+ ],
+ "prompt": "A square texture of painted gold metal trim: warm yellow gold with soft painted highlights and a few darker ochre strokes, like a fairground sign frame. Hand-painted in the cozy painterly style of the reference image, visible brush strokes, soft even light, flat front view, filling the whole square edge to edge, seamless and tileable, no text, no perspective, no background.",
+ "size": "1024x1024",
+ "quality": "high",
+ "count": 1,
+ "model": "gpt-6-astra"
+}

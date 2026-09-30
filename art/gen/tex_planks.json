@@ -1,0 +1,10 @@
+{
+ "refs": [
+  "docs/mood/coaster_town_mood.png"
+ ],
+ "prompt": "A square texture of warm wooden deck planks running horizontally, about six planks, soft painted wood grain, small dark gaps between planks, gentle wear. Hand-painted in the cozy painterly style of the reference image, visible brush strokes, soft even light, flat front view, filling the whole square edge to edge, seamless and tileable, no text, no perspective, no background.",
+ "size": "1024x1024",
+ "quality": "high",
+ "count": 1,
+ "model": "gpt-6-astra"
+}
