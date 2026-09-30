@@ -31,7 +31,8 @@ void vertex() {
 void fragment() {
 	vec3 c = albedo.rgb * texture(albedo_texture, UV).rgb;
 	if (use_vertex_color) {
-		c *= COLOR.rgb;
+		// Vertex colors come in as sRGB values; the rest of the math is linear.
+		c *= pow(COLOR.rgb, vec3(2.2));
 	}
 	float l = dot(c, vec3(0.299, 0.587, 0.114));
 	c = max(mix(vec3(l), c, saturation), 0.0);

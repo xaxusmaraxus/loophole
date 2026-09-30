@@ -1,0 +1,11 @@
+{
+ "edit": "art/paintover/track_crop.png",
+ "refs": [
+  "docs/mood/coaster_town_mood.png"
+ ],
+ "prompt": "Repaint image 1 as a finished hand-painted game illustration in the style of image 2 (the reference). Keep the exact shapes and positions: the rollercoaster track with its loops, helix and corkscrew, the red coaster car, the colored wooden crates on the green lawn grid, the striped station canopy. Paint the rollercoaster like the coaster in image 2: chunky red steel rails with painted highlights and darker undersides, dark wooden cross ties, sturdy brown wooden support posts and lattice trestles down to the ground, soft painted shading, crisp dark outlines, warm afternoon light. No text.",
+ "size": "1024x1024",
+ "quality": "high",
+ "count": 1,
+ "model": "gpt-6-astra"
+}

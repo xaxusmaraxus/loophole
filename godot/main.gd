@@ -168,7 +168,7 @@ func _paint(root: Node) -> void:
 			continue
 		var mi := n as MeshInstance3D
 		if mi.material_override:
-			mi.material_override = _painted_material(mi.material_override, w, mi.get_meta("ink", 0.0), mi.get_meta("crate", Vector3.ZERO), crisp)
+			mi.material_override = _painted_material(mi.material_override, w, mi.get_meta("ink", 0.0), mi.get_meta("crate", Vector3.ZERO), crisp, mi.get_meta("saturation", 1.35))
 			continue
 		for i in mi.mesh.get_surface_count():
 			var src := mi.get_active_material(i)
@@ -184,16 +184,17 @@ func _outline_width_of(n: Node) -> float:
 	return 0.014
 
 
-func _painted_material(src: Material, width: float, ink := 0.0, crate := Vector3.ZERO, crisp := false) -> Material:
+func _painted_material(src: Material, width: float, ink := 0.0, crate := Vector3.ZERO, crisp := false, saturation := 1.35) -> Material:
 	if src is ShaderMaterial and (src as ShaderMaterial).shader in [load("res://painted.gdshader"), load("res://painted_crisp.gdshader")]:
 		return src
-	var key := "%d/%s/%s/%s/%s" % [src.get_instance_id() if src else 0, width, ink, crate, crisp]
+	var key := "%d/%s/%s/%s/%s/%s" % [src.get_instance_id() if src else 0, width, ink, crate, crisp, saturation]
 	if _painted.has(key):
 		return _painted[key]
 	var m := ShaderMaterial.new()
 	m.shader = load("res://painted_crisp.gdshader" if crisp else "res://painted.gdshader")
 	m.set_shader_parameter("brush", _brush)
 	m.set_shader_parameter("ink", ink)
+	m.set_shader_parameter("saturation", saturation)
 	if crate != Vector3.ZERO:
 		m.set_shader_parameter("use_crate", true)
 		m.set_shader_parameter("crate_size", crate)
@@ -854,15 +855,19 @@ func _oriented_box(st: SurfaceTool, c: Vector3, x: Vector3, y: Vector3, z: Vecto
 
 
 func _build_track_mesh(curve: Curve3D) -> void:
+	# Painted-coaster look (target: art/paintover/track_target.png): chunky red rails
+	# with a lighter top and darker underside baked into vertex colors, dark wooden
+	# ties wider than the gauge, and wooden trestles with cross-bracing.
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var total := curve.get_baked_length()
 	var step := 0.05
 	var rails := [[], []]
-	var spine := []
+	var rail_cols := [[], []]
 	var o := 0.0
 	var i := 0
 	var supports := []
+	var last_support := -1.0
 	while o <= total + 0.001:
 		var f := _frame(curve, o)
 		var p: Vector3 = f[0]
@@ -870,40 +875,83 @@ func _build_track_mesh(curve: Curve3D) -> void:
 		var up: Vector3 = f[2]
 		var right: Vector3 = f[3]
 		for s in 2:
-			var c: Vector3 = p + right * (0.12 if s == 0 else -0.12) + up * 0.03
+			var c: Vector3 = p + right * (0.12 if s == 0 else -0.12) + up * 0.05
 			var ring := []
-			for k in 6:
-				var a := TAU * k / 6.0
-				ring.append(c + (right * cos(a) + up * sin(a)) * 0.032)
+			var cols := []
+			for k in 8:
+				var a := TAU * k / 8.0
+				var d := right * cos(a) + up * sin(a)
+				ring.append(c + d * 0.05)
+				var t := d.dot(up)
+				cols.append(RAIL_MID.lerp(RAIL_TOP, pow(maxf(t, 0.0), 3.0)) if t > 0.0 else RAIL_MID.lerp(RAIL_UNDER, -t))
 			rails[s].append(ring)
-		var sp := []
-		for k in 6:
-			var a := TAU * k / 6.0
-			sp.append(p - up * 0.05 + (right * cos(a) + up * sin(a)) * 0.045)
-		spine.append(sp)
-		if i % 3 == 0:
-			_oriented_box(st, p - up * 0.01, right * 0.155, up * 0.018, fwd * 0.026, Color("#5b3f2e"))
-		if i % 8 == 0 and up.y > 0.7 and p.y > PLOT_TOP + 0.25:
-			supports.append(p - up * 0.07)
+			rail_cols[s].append(cols)
+		if i % 4 == 0:
+			_oriented_box(st, p - up * 0.005, right * 0.2, up * 0.024, fwd * 0.03, jitter(Color("#7e5638"), 0.06))
+		var height := p.y - PLOT_TOP
+		if up.y > 0.7 and height > 0.3 and o - last_support > 0.45:
+			supports.append([p - up * 0.03, right])
+			last_support = o
 		o += step
 		i += 1
-	_tube(st, rails[0], Color("#e34a3c"))
-	_tube(st, rails[1], Color("#e34a3c"))
-	_tube(st, spine, Color("#f3efe6"))
-	# Supports: timber posts down to the plot.
-	for s in supports:
-		var h: float = s.y - PLOT_TOP
-		_oriented_box(st, Vector3(s.x, PLOT_TOP + h / 2.0, s.z), Vector3(0.035, 0, 0), Vector3(0, h / 2.0, 0), Vector3(0, 0, 0.035), Color("#8a6038"))
+	for s in 2:
+		_tube_colored(st, rails[s], rail_cols[s])
+	for sp in supports:
+		_trestle(st, sp[0], sp[1])
 	st.generate_normals()
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
 	m.roughness = 0.55
 	var track_mi := add_mesh(st.commit(), m, Vector3.ZERO)
-	# Painted look: rails are too thin for an outline hull; ink their edges instead.
-	track_mi.set_meta("outline_width", 0.0)
-	track_mi.set_meta("ink", 0.75)
+	track_mi.set_meta("outline_width", 0.006)
+	track_mi.set_meta("ink", 0.35)
+	track_mi.set_meta("saturation", 1.05)
 	track_mi.set_meta("crisp", true)
 
+
+const RAIL_MID := Color("#d23a2c")
+const RAIL_TOP := Color("#ff8f74")
+const RAIL_UNDER := Color("#6e1d17")
+const WOOD := Color("#9a6a3e")
+
+
+## Two wooden posts from the track down to the plot, with a cap beam and X-bracing.
+func _trestle(st: SurfaceTool, top: Vector3, right: Vector3) -> void:
+	var r := Vector3(right.x, 0, right.z).normalized()
+	var fz := r.cross(Vector3.UP)
+	var legs := [top + r * 0.15, top - r * 0.15]
+	for leg in legs:
+		_beam(st, Vector3(leg.x, PLOT_TOP, leg.z), leg, 0.045, fz, jitter(WOOD, 0.05))
+	_beam(st, legs[0], legs[1], 0.04, fz, jitter(WOOD.darkened(0.15), 0.04))
+	var h: float = top.y - PLOT_TOP
+	var levels := maxi(1, int(h / 0.4))
+	for k in levels:
+		var z0: float = PLOT_TOP + h * k / levels
+		var z1: float = PLOT_TOP + h * (k + 1) / levels
+		var a0 := Vector3(legs[0].x, z0, legs[0].z)
+		var b1 := Vector3(legs[1].x, z1, legs[1].z)
+		_beam(st, a0, b1, 0.024, fz, jitter(WOOD.darkened(0.1), 0.05))
+		if k > 0:
+			_beam(st, a0, Vector3(legs[1].x, z0, legs[1].z), 0.024, fz, jitter(WOOD.darkened(0.1), 0.05))
+
+
+## A square wooden beam from a to b; `side` fixes which way its faces point.
+func _beam(st: SurfaceTool, a: Vector3, b: Vector3, half: float, side: Vector3, col: Color) -> void:
+	var axis := (b - a) * 0.5
+	var x := side.cross(axis.normalized()).normalized() * half
+	_oriented_box(st, (a + b) * 0.5, x, axis, side.normalized() * half, col)
+
+
+func _tube_colored(st: SurfaceTool, rings: Array, cols: Array) -> void:
+	for i in rings.size() - 1:
+		var a: Array = rings[i]
+		var b: Array = rings[i + 1]
+		for k in a.size():
+			var k2 := (k + 1) % a.size()
+			var verts := [[a[k], cols[i][k]], [b[k2], cols[i + 1][k2]], [b[k], cols[i + 1][k]], [a[k], cols[i][k]], [a[k2], cols[i][k2]], [b[k2], cols[i + 1][k2]]]
+			for v in verts:
+				st.set_color(v[1])
+				st.add_vertex(v[0])
 
 func _build_train() -> void:
 	var shirts := [Color("#f0584e"), Color("#45a8e0"), Color("#ffd23f"), Color("#72c457"), Color("#9d6ef0"), Color("#ff8fb8")]
@@ -1189,6 +1237,9 @@ func _process(delta: float) -> void:
 
 func _render_shots() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://shots"))
+	# macOS applies window resizes a few frames late; let the first one settle.
+	for i in 10:
+		await get_tree().process_frame
 	var shots := [
 		["01_overview_day", 0, false, 9.0],
 		["02_overview_sunset", 0, true, 9.0],
@@ -1216,6 +1267,8 @@ func _render_shots() -> void:
 		var size: Vector2i = s[4] if s.size() > 4 else Vector2i(1600, 1000)
 		if get_window().size != size:
 			get_window().size = size
+			for i in 10:
+				await get_tree().process_frame
 		_set_time(s[2])
 		_set_camera(s[1])
 		_place_train(s[3])
