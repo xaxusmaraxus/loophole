@@ -1,6 +1,6 @@
 import type { Rng } from '../core/rng';
 import { type Board, type ObstacleKind, idx, isWall } from '../puzzle/board';
-import type { BossId } from '../riders/riders';
+import { type BossId, KINDS, type RiderKind } from '../riders/riders';
 import { ATTRACTIONS, type AttractionId } from './attractions';
 
 // Rewards between days come in two kinds:
@@ -182,7 +182,7 @@ export const NODE_INFO: Record<NodeKind, { name: string; desc: string; isDay: bo
   storm: { name: 'Storm', desc: '8 fewer swipes. Afterwards, every reward choice is an attraction.', isDay: true },
   shop: { name: 'Shop', desc: 'Spend park funds on tools, upgrades and attractions.', isDay: false },
   repair: { name: 'Repair', desc: 'Win back a heart. At full hearts, +100 park funds instead.', isDay: false },
-  treasure: { name: 'Treasure', desc: 'Pick a free attraction.', isDay: false },
+  treasure: { name: 'Treasure', desc: 'A free capsule egg from the machine.', isDay: false },
   boss: { name: 'Boss day', desc: 'A tough customer is in line. Make them puke to clear the park.', isDay: true },
   finale: { name: 'Grand Opening', desc: 'Make the Mayor puke and hit the target to win the season.', isDay: true },
 };
@@ -260,7 +260,32 @@ export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day'): DayC
 
 // ---- Shop -------------------------------------------------------------------
 
+// ---- Capsule eggs (packs) ----------------------------------------------------
+// The park's capsule machine sells eggs. Crack one open and pick from what's inside.
+
+export type EggKind = 'golden' | 'bus' | 'snack';
+
+export const EGGS: Record<EggKind, { name: string; desc: string; picks: number; size: number }> = {
+  golden: { name: 'Golden Egg', desc: 'Pick 1 of 3 attractions.', picks: 1, size: 3 },
+  bus: { name: 'Bus Tour Egg', desc: 'Pick 1 of 3 rider types. One of them joins your line every morning, for good.', picks: 1, size: 3 },
+  snack: { name: 'Snack Egg', desc: 'Pick 2 of 4 tools.', picks: 2, size: 4 },
+};
+
+export type EggItem = { kind: 'attraction'; id: AttractionId } | { kind: 'rider'; id: BusRider } | { kind: 'tool'; id: ToolId };
+
+/** Rider types a bus tour can bring (not VIPs or bosses). */
+export type BusRider = Exclude<RiderKind, 'vip' | 'boss'>;
+
+export function eggContents(rng: Rng, egg: EggKind, day: number, owned: readonly AttractionId[]): EggItem[] {
+  const n = EGGS[egg].size;
+  if (egg === 'golden') return attractionPicks(rng, owned, n).map((id): EggItem => ({ kind: 'attraction', id }));
+  if (egg === 'snack') return rng.shuffle(Object.keys(TOOLS) as ToolId[]).slice(0, n).map((id): EggItem => ({ kind: 'tool', id }));
+  const riders = (Object.keys(KINDS) as RiderKind[]).filter((k): k is BusRider => k !== 'vip' && k !== 'boss' && !KINDS[k as BusRider].parks && KINDS[k as BusRider].minDay <= day + 2);
+  return rng.shuffle(riders).slice(0, n).map((id): EggItem => ({ kind: 'rider', id }));
+}
+
 export type ShopItem =
+  | { kind: 'egg'; id: EggKind; price: number; sold: boolean }
   | { kind: 'tool'; id: ToolId; price: number; sold: boolean }
   | { kind: 'upgrade'; id: UpgradeId; price: number; sold: boolean }
   | { kind: 'attraction'; id: AttractionId; price: number; sold: boolean }
@@ -269,10 +294,13 @@ export type ShopItem =
 /** Prices scale with the season, like the targets do. */
 export function shopStock(rng: Rng, day: number, owned: readonly AttractionId[]): ShopItem[] {
   const price = (base: number) => Math.round((base * priceScale(day)) / 10) * 10;
-  const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]).slice(0, 2);
+  const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]).slice(0, 1);
   const up = rng.pick(Object.keys(UPGRADES) as UpgradeId[]);
-  const attractions = attractionPicks(rng, owned, 2);
+  const attractions = attractionPicks(rng, owned, 1);
+  const eggs = rng.shuffle(Object.keys(EGGS) as EggKind[]).slice(0, 2);
+  const eggPrice: Record<EggKind, number> = { golden: 200, bus: 140, snack: 110 };
   return [
+    ...eggs.map((id): ShopItem => ({ kind: 'egg', id, price: price(eggPrice[id]), sold: false })),
     ...attractions.map((id): ShopItem => ({ kind: 'attraction', id, price: price(ATTRACTIONS[id].rarity === 'rare' ? 260 : 170), sold: false })),
     ...tools.map((id): ShopItem => ({ kind: 'tool', id, price: price(60 + rng.int(4) * 10), sold: false })),
     { kind: 'upgrade', id: up, price: price(180), sold: false },

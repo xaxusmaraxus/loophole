@@ -540,10 +540,6 @@ export class Renderer {
     const el = this.now - a.start;
     const m = a.move;
     const b = this.board;
-    if (el >= this.animLength(m)) {
-      this.tileAnim = null;
-      return;
-    }
     const ease = (t: number) => 1 - (1 - t) * (1 - t);
     if (el < SLIDE_MS) {
       const e = ease(el / SLIDE_MS);
@@ -585,6 +581,9 @@ export class Renderer {
     const m = a.move;
     const el = this.now - a.start;
     const stage = el < SLIDE_MS ? -1 : Math.min(m.chain.waves.length, Math.floor((el - SLIDE_MS) / WAVE_MS) + 1);
+    // Retire a finished animation here, before anything is drawn this frame, so
+    // the board draws its static tiles instead of skipping them for a frame.
+    const done = el >= this.animLength(m);
     while (a.fired < stage) {
       a.fired++;
       const b = this.board;
@@ -614,6 +613,7 @@ export class Renderer {
         if (a.fired === m.chain.waves.length) this.finishMove(m);
       }
     }
+    if (done) this.tileAnim = null;
   }
 
   private finishMove(m: MoveResult): void {

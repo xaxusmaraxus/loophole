@@ -127,6 +127,15 @@ After each day you pick 1 of 3 rewards. There's always at least one of each kind
 - **Route map per park:** Day or VIP → Day, Storm or VIP → Shop, Repair or Treasure → Boss. Then the next park.
 - **Targets** start at 1,000 and grow ×1.35 per day, with the finale at ×1.5. Shop prices and funds scale with them. A random-ish bot reaches day 8 at the median and almost never wins (it doesn't build for bosses), so human playtesting decides the final numbers.
 
+## Capsule machine (v0.8)
+Packs, our way: the park's capsule machine sells **eggs**. Pay, the egg wobbles, crack it, and pick from what's inside.
+- **Golden Egg:** pick 1 of 3 attractions.
+- **Bus Tour Egg:** pick 1 of 3 rider types. One of that type joins your line **every morning for the rest of the run**, so you build your crowd like a deck.
+- **Snack Egg:** pick 2 of 4 tools.
+Shops stock two eggs; Treasure stops give one free. Next egg idea: **Blueprint Egg**, with special pieces (Launch, Water Splash, Tunnel) added to your spawn pool.
+
+Bug fixed in v0.8: at the end of every swipe animation, the board drew no tiles for one frame (the animation layer retired itself after the board had already skipped drawing tiles).
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

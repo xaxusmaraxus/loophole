@@ -98,6 +98,11 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
     else if (action === 'begin') game.beginPark();
     else if (action === 'node') game.chooseNode(Number(btn.dataset.col), Number(btn.dataset.node));
     else if (action === 'skip') game.skipReward();
+    else if (action === 'crack') {
+      game.crackEgg();
+      sfx.chain(3);
+    } else if (action === 'egg-take') game.takeFromEgg(Number(btn.dataset.index));
+    else if (action === 'egg-leave') game.closeEgg();
     else if (action === 'buy') game.buy(Number(btn.dataset.index));
     else if (action === 'leave') game.leaveShop();
     else if (action === 'newrun') game.newRun();

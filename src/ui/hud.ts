@@ -1,9 +1,9 @@
 import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
-import { BOSSES, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
+import { BOSSES, KINDS, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
 import { drawPortrait } from '../render/sprites';
 import { ATTRACTIONS, ATTRACTION_SLOTS, type Effect } from '../run/attractions';
-import { FINALE_DAY, NODE_INFO, PARKS, PARK_BOSS, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
+import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, PARKS, PARK_BOSS, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -20,7 +20,12 @@ function effectText(e: Effect): string {
   return parts.join(', ');
 }
 
-function rewardLabel(r: Reward | ShopItem): { tag: string; name: string; desc: string } {
+function rewardLabel(r: Reward | ShopItem | EggItem, day = 1): { tag: string; name: string; desc: string } {
+  if (r.kind === 'egg') return { tag: 'Capsule egg', name: EGGS[r.id].name, desc: EGGS[r.id].desc };
+  if (r.kind === 'rider') {
+    const k = KINDS[r.id];
+    return { tag: 'Bus tour', name: `+1 ${k.label} every morning`, desc: `Stomach ${k.stomach(day)}. ${k.trait}` };
+  }
   if (r.kind === 'upgrade') return { tag: 'Upgrade', name: UPGRADES[r.id].name, desc: UPGRADES[r.id].desc };
   if (r.kind === 'tool') return { tag: `Tool ×${TOOLS[r.id].charges}`, name: TOOLS[r.id].name, desc: TOOLS[r.id].desc };
   if (r.kind === 'attraction') return { tag: ATTRACTIONS[r.id].rarity === 'rare' ? 'Rare attraction' : 'Attraction', name: ATTRACTIONS[r.id].name, desc: ATTRACTIONS[r.id].desc };
@@ -73,6 +78,9 @@ export class Hud {
     const counts = new Map<UpgradeId, number>();
     for (const u of g.upgrades) counts.set(u, (counts.get(u) ?? 0) + 1);
     $('perks').textContent = counts.size ? [...counts].map(([u, n]) => `${UPGRADES[u].name}${n > 1 ? ` ×${n}` : ''}`).join(', ') : 'None yet';
+    const crowd = new Map<string, number>();
+    for (const k of g.crowd) crowd.set(KINDS[k].label, (crowd.get(KINDS[k].label) ?? 0) + 1);
+    $('crowd').textContent = crowd.size ? [...crowd].map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ''}`).join(', ') : 'None yet';
     this.renderAttractions(new Set(sc.steps.slice(1).map((st) => st.label)));
     this.renderTools();
 
@@ -178,7 +186,7 @@ export class Hud {
   private renderOverlay(): void {
     const g = this.game;
     const el = $('overlay');
-    el.hidden = !['intro', 'map', 'results', 'reward', 'shop', 'over', 'won'].includes(g.phase);
+    el.hidden = !['intro', 'map', 'results', 'reward', 'shop', 'egg', 'over', 'won'].includes(g.phase);
     if (el.hidden) {
       this.lastOverlay = '';
       return;
@@ -208,6 +216,36 @@ export class Hud {
         </div>`;
     }
     if (g.phase === 'map') return this.mapHtml();
+    if (g.phase === 'egg' && g.egg) {
+      const e = g.egg;
+      const def = EGGS[e.kind];
+      if (!e.cracked)
+        return `
+        <div class="card egg-card">
+          <p class="eyebrow">Capsule machine</p>
+          <h2>${def.name}</h2>
+          <p>${def.desc}</p>
+          <button type="button" class="capsule ${e.kind}" data-action="crack" aria-label="Crack the egg open" autofocus><span class="top"></span><span class="bottom"></span></button>
+          <p class="muted center">Tap the egg to crack it open.</p>
+        </div>`;
+      return `
+        <div class="card egg-card">
+          <p class="eyebrow">Capsule machine</p>
+          <h2>${def.name}</h2>
+          <div class="capsule ${e.kind} open" aria-hidden="true"><span class="top"></span><span class="bottom"></span></div>
+          <p>Pick ${e.picksLeft} ${e.picksLeft === 1 ? 'thing' : 'more'}.</p>
+          <div class="perks">
+            ${e.items
+              .map((item, i) => {
+                const { tag, name, desc } = rewardLabel(item, g.dayNum);
+                return `<button class="perk kind-${item.kind}" data-action="egg-take" data-index="${i}" style="--i:${i}" ${g.canTakeFromEgg(i) ? '' : 'disabled'}><span class="tag">${tag}</span><strong>${name}</strong><span>${desc}</span></button>`;
+              })
+              .join('')}
+          </div>
+          ${!g.slotsFree && e.kind === 'golden' ? '<p class="muted">Your attraction slots are full. Sell one from the strip above the park to make room.</p>' : ''}
+          <button class="ghost-dark" data-action="egg-leave">Leave the rest</button>
+        </div>`;
+    }
     if (g.phase === 'shop') {
       return `
         <div class="card">

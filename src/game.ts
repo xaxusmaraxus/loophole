@@ -24,7 +24,12 @@ import { MAX_TIER, type RideStats, rideStats } from './puzzle/pieces';
 import { type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { ATTRACTION_SLOTS, type OwnedAttraction, type Score, scoreRide } from './run/attractions';
 import {
+  type BusRider,
   type DayConfig,
+  EGGS,
+  type EggItem,
+  type EggKind,
+  eggContents,
   type Mods,
   NODE_INFO,
   type NodeKind,
@@ -45,7 +50,7 @@ import {
   shopStock,
 } from './run/run';
 
-export type Phase = 'intro' | 'map' | 'build' | 'ride' | 'results' | 'reward' | 'shop' | 'over' | 'won';
+export type Phase = 'intro' | 'map' | 'build' | 'ride' | 'results' | 'reward' | 'shop' | 'egg' | 'over' | 'won';
 export type RideKind = 'circuit' | 'shuttle';
 
 /** Why a rider joined the queue. */
@@ -142,6 +147,10 @@ export class Game {
   mapPos: { col: number; node: number } | null = null;
   /** Nodes already visited in this park, in order. */
   visited: { col: number; node: number }[] = [];
+  /** Rider types from bus tours: one of each joins the line every morning. */
+  crowd: BusRider[] = [];
+  /** The capsule egg being opened, if any. */
+  egg: { kind: EggKind; items: EggItem[]; picksLeft: number; cracked: boolean; returnTo: 'shop' | 'map' } | null = null;
   /** A one-line message for the map screen (e.g. what a repair stop did). */
   notice: string | null = null;
   best = loadBest();
@@ -163,6 +172,8 @@ export class Game {
     this.runScore = 0;
     this.upgrades = [];
     this.attractions = [];
+    this.crowd = [];
+    this.egg = null;
     this.funds = 0;
     this.tools = { ...emptyTools(), paint: 1 };
     this.mods = modsFor([]);
@@ -224,9 +235,7 @@ export class Game {
       }
       this.advance();
     } else if (n.kind === 'treasure') {
-      this.offer = rewardOffer(this.rng, this.attractions.map((a) => a.id), this.slotsFree, true);
-      this.rewardFrom = 'treasure';
-      this.phase = 'reward';
+      this.openEgg(this.rng.pick(Object.keys(EGGS) as EggKind[]), 'map');
     }
   }
 
@@ -244,6 +253,7 @@ export class Game {
     this.board = generateBoard(this.cfg, this.rng);
     this.queue = [];
     for (let i = 0; i < this.cfg.startRiders; i++) this.queue.push(this.newRider());
+    for (const kind of this.crowd) this.queue.push(makeRider(this.rng, this.dayNum, this.nextId++, this.cfg.park.id, kind));
     if (node === 'vip') this.queue.unshift(makeVip(this.rng, this.dayNum, this.nextId++));
     if (this.cfg.boss) this.queue.unshift(makeBoss(this.rng, this.cfg.boss, this.nextId++));
     this.daylight = this.cfg.daylight;
@@ -615,12 +625,50 @@ export class Game {
     if (item.kind === 'attraction' && !this.slotsFree) return;
     this.funds -= item.price;
     item.sold = true;
-    if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
+    if (item.kind === 'egg') this.openEgg(item.id, 'shop');
+    else if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
     else if (item.kind === 'upgrade') {
       this.upgrades.push(item.id);
       this.mods = modsFor(this.upgrades);
     } else if (item.kind === 'attraction') this.attractions.push({ id: item.id, counter: 0 });
     else this.hearts++;
+  }
+
+  // ---- Capsule eggs --------------------------------------------------------
+
+  private openEgg(kind: EggKind, returnTo: 'shop' | 'map'): void {
+    const items = eggContents(this.rng, kind, this.dayNum, this.attractions.map((a) => a.id));
+    this.egg = { kind, items, picksLeft: EGGS[kind].picks, cracked: false, returnTo };
+    this.phase = 'egg';
+  }
+
+  crackEgg(): void {
+    if (this.phase === 'egg' && this.egg) this.egg.cracked = true;
+  }
+
+  canTakeFromEgg(i: number): boolean {
+    const item = this.egg?.items[i];
+    return !!item && !(item.kind === 'attraction' && !this.slotsFree);
+  }
+
+  takeFromEgg(i: number): void {
+    const egg = this.egg;
+    if (this.phase !== 'egg' || !egg?.cracked || !this.canTakeFromEgg(i)) return;
+    const [item] = egg.items.splice(i, 1);
+    if (item.kind === 'attraction') this.attractions.push({ id: item.id, counter: 0 });
+    else if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
+    else this.crowd.push(item.id);
+    egg.picksLeft--;
+    if (egg.picksLeft <= 0 || !egg.items.length) this.closeEgg();
+  }
+
+  /** Leave the egg (also when you'd rather not take anything). */
+  closeEgg(): void {
+    if (this.phase !== 'egg' || !this.egg) return;
+    const back = this.egg.returnTo;
+    this.egg = null;
+    if (back === 'shop') this.phase = 'shop';
+    else this.advance();
   }
 
   leaveShop(): void {

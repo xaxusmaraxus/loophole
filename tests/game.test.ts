@@ -144,7 +144,7 @@ describe('season and map', () => {
     const stop = g.parkMap[2].findIndex((n) => n.kind === 'repair');
     g.chooseNode(2, Math.max(0, stop));
     if (g.phase === 'shop') g.leaveShop();
-    if (g.phase === 'reward') g.skipReward();
+    if (g.phase === 'egg') g.closeEgg();
     expect(g.phase).toBe('map');
     g.chooseNode(3, 0);
     expect(g.cfg.boss).toBe('barry');
@@ -224,6 +224,49 @@ describe('puking', () => {
     expect(g.queue[0].boss).toBe('barry');
     g.open('shuttle'); // nothing built: can't open
     expect(g.phase).toBe('build');
+  });
+});
+
+describe('capsule eggs', () => {
+  function shopWithEgg(kind: 'golden' | 'bus' | 'snack'): Game {
+    const g = freshGame();
+    g.phase = 'shop';
+    g.funds = 10_000;
+    g.shop = [{ kind: 'egg', id: kind, price: 100, sold: false }];
+    g.buy(0);
+    return g;
+  }
+
+  it('has to be cracked before you can pick', () => {
+    const g = shopWithEgg('golden');
+    expect(g.phase).toBe('egg');
+    g.takeFromEgg(0);
+    expect(g.attractions).toHaveLength(0);
+    g.crackEgg();
+    g.takeFromEgg(0);
+    expect(g.attractions).toHaveLength(1);
+    expect(g.phase).toBe('shop');
+  });
+
+  it('snack eggs give two picks', () => {
+    const g = shopWithEgg('snack');
+    g.crackEgg();
+    g.takeFromEgg(0);
+    expect(g.phase).toBe('egg');
+    g.takeFromEgg(0);
+    expect(g.phase).toBe('shop');
+  });
+
+  it('a bus tour adds a rider to the line every morning', () => {
+    const g = shopWithEgg('bus');
+    g.crackEgg();
+    const kind = g.egg!.items[0].id;
+    g.takeFromEgg(0);
+    expect(g.crowd).toEqual([kind]);
+    const before = g.cfg.startRiders;
+    (g as unknown as { startDay(n: string): void }).startDay('day');
+    expect(g.queue.length).toBe(before + 1);
+    expect(g.queue.some((r) => r.kind === kind)).toBe(true);
   });
 });
 
