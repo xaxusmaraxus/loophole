@@ -125,6 +125,78 @@ func _use_plate(path: String) -> void:
 	env.glow_enabled = false
 	env.fog_enabled = false
 	plate_mode = true
+	for d in dynamic_nodes:
+		_paint(d)
+	tiles_root.child_entered_tree.connect(func(n: Node) -> void: _paint.call_deferred(n))
+
+
+# ---- Painted look for the live pieces ------------------------------------------
+
+var _painted := {}
+var _brush: NoiseTexture2D
+
+
+## Swap every material under `root` for its painted version (plus an outline pass).
+func _paint(root: Node) -> void:
+	if _brush == null:
+		_brush = NoiseTexture2D.new()
+		_brush.width = 256
+		_brush.height = 256
+		_brush.seamless = true
+		var fn := FastNoiseLite.new()
+		fn.frequency = 0.035
+		fn.fractal_octaves = 3
+		_brush.noise = fn
+	var stack: Array = [[root, _outline_width_of(root)]]
+	while not stack.is_empty():
+		var item: Array = stack.pop_back()
+		var n: Node = item[0]
+		var w: float = n.get_meta("outline_width", item[1])
+		for c in n.get_children():
+			stack.append([c, w])
+		if not n is MeshInstance3D or (n as MeshInstance3D).mesh == null:
+			continue
+		var mi := n as MeshInstance3D
+		if mi.material_override:
+			mi.material_override = _painted_material(mi.material_override, w, mi.get_meta("ink", 0.0))
+			continue
+		for i in mi.mesh.get_surface_count():
+			var src := mi.get_active_material(i)
+			mi.set_surface_override_material(i, _painted_material(src, w))
+
+
+## Outline width inherited from the nearest ancestor with an "outline_width" meta.
+func _outline_width_of(n: Node) -> float:
+	while n:
+		if n.has_meta("outline_width"):
+			return n.get_meta("outline_width")
+		n = n.get_parent()
+	return 0.014
+
+
+func _painted_material(src: Material, width: float, ink := 0.0) -> Material:
+	if src is ShaderMaterial and (src as ShaderMaterial).shader == load("res://painted.gdshader"):
+		return src
+	var key := "%d/%s/%s" % [src.get_instance_id() if src else 0, width, ink]
+	if _painted.has(key):
+		return _painted[key]
+	var m := ShaderMaterial.new()
+	m.shader = load("res://painted.gdshader")
+	m.set_shader_parameter("brush", _brush)
+	m.set_shader_parameter("ink", ink)
+	if src is BaseMaterial3D:
+		var b := src as BaseMaterial3D
+		m.set_shader_parameter("albedo", b.albedo_color)
+		if b.albedo_texture:
+			m.set_shader_parameter("albedo_texture", b.albedo_texture)
+		m.set_shader_parameter("use_vertex_color", b.vertex_color_use_as_albedo)
+	if width > 0.0:
+		var o := ShaderMaterial.new()
+		o.shader = load("res://painted_outline.gdshader")
+		o.set_shader_parameter("width", width)
+		m.next_pass = o
+	_painted[key] = m
+	return m
 
 
 ## Render `count` frames of the phone view at 15 fps (train running, wind on) into
@@ -812,7 +884,10 @@ func _build_track_mesh(curve: Curve3D) -> void:
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
 	m.roughness = 0.55
-	add_mesh(st.commit(), m, Vector3.ZERO)
+	var track_mi := add_mesh(st.commit(), m, Vector3.ZERO)
+	# Painted look: rails are too thin for an outline hull; ink their edges instead.
+	track_mi.set_meta("outline_width", 0.0)
+	track_mi.set_meta("ink", 0.75)
 
 
 func _build_train() -> void:
@@ -967,7 +1042,9 @@ func _peep(pos: Vector3, big := false) -> void:
 	var hairs := [Color("#3a2718"), Color("#6b4428"), Color("#b0602e"), Color("#e8bf5a"), Color("#e4e4ec"), Color("#232338")]
 	var s := 1.9 if big else rng.randf_range(0.9, 1.05)
 	var drop_in := "boss_barry" if big else variant("guest")
-	if drop_in != "" and model(drop_in, self, pos, Vector3.ONE, rng.randf() * TAU):
+	var guest := model(drop_in, self, pos, Vector3.ONE, rng.randf() * TAU) if drop_in != "" else null
+	if guest:
+		guest.set_meta("outline_width", 0.006)
 		return
 	var n := Node3D.new()
 	n.position = pos
@@ -1111,6 +1188,12 @@ func _render_shots() -> void:
 		PHONE_YAW = float(OS.get_cmdline_user_args()[OS.get_cmdline_user_args().find("--phone-yaw") + 1])
 	if plate_mode:
 		shots = [["10_phone_plate_day", 6, false, 9.0, Vector2i(720, 1280)]]
+		if "--swipe-test" in OS.get_cmdline_user_args():
+			# New tiles from a swipe must come out painted too.
+			_swipe(Vector2i(0, 1))
+			for i in 20:
+				await get_tree().process_frame
+			shots = [["12_phone_plate_after_swipe", 6, false, 9.0, Vector2i(720, 1280)]]
 		if "--frames" in OS.get_cmdline_user_args():
 			await _render_frames(int(OS.get_cmdline_user_args()[OS.get_cmdline_user_args().find("--frames") + 1]))
 	for s in shots:
