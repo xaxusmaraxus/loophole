@@ -24,6 +24,17 @@ const GAP: Record<ScoreEvent['kind'], number> = { chips: 75, mult: 150, puke: 13
 const MAX_MOMENTS = 3;
 const STEP = 0.02;
 
+/**
+ * Slow motion goes to the wildest pieces of the ride: Mega Loops first, then
+ * Corkscrews, then Loops (earliest first within a tier), up to MAX_MOMENTS. A
+ * Drop only gets one if nothing goes upside down.
+ */
+export function pickMoments(tiers: number[]): Set<number> {
+  const inv = tiers.map((t, i) => ({ t, i })).filter((c) => c.t >= 5);
+  const ranked = (inv.length ? inv : tiers.map((t, i) => ({ t, i })).filter((c) => c.t === 3).slice(0, 1)).sort((a, b) => b.t - a.t || a.i - b.i);
+  return new Set(ranked.slice(0, MAX_MOMENTS).map((c) => c.i));
+}
+
 /** Where the lead car waits in the station: at the top of the red end's leg of the U. */
 export function parkS(path: TrackPath, b: Board): number {
   const i = path.indexOf(b.station.x, b.station.y);
@@ -123,8 +134,9 @@ export class RideAnim {
   private slamAt = 0;
   private skipped = false;
   /** Slow-motion moments this ride, and the chain cells that already had one. */
-  private moments = 0;
   private lastMoment = -1e9;
+  /** The chain cells picked for slow motion (the wildest pieces), and those already shown. */
+  private momentPicks = new Set<number>();
   private momentCells = new Set<number>();
   private leadY = 0;
   private rising = false;
@@ -150,6 +162,7 @@ export class RideAnim {
     this.scream = new Array(n).fill(0);
     this.heads = new Array(n).fill(null).map(() => new Vector3());
     this.hRef = this.path.maxHeight() + 0.25;
+    this.momentPicks = pickMoments(this.path.cells.map((c) => (c.station ? 0 : c.tier)));
     show.begin(result);
   }
 
@@ -203,15 +216,16 @@ export class RideAnim {
     const crest = this.rising && y < this.leadY - 1e-4;
     this.rising = y > this.leadY + 1e-4 ? true : y < this.leadY - 1e-4 ? false : this.rising;
     this.leadY = y;
-    if (this.moments >= MAX_MOMENTS || now - this.lastMoment < 2500 || this.momentCells.has(cell) || this.r.inShot) return;
+    if (!this.momentPicks.has(cell) || this.momentCells.has(cell) || now - this.lastMoment < 1200 || this.r.inShot) return;
     const crown = (tier === 5 || tier === 7) && upY < -0.9;
     const lip = tier === 3 && crest && y > 0.5;
     const twist = tier === 6 && upY < -0.95;
     if (!crown && !lip && !twist) return;
-    this.moments++;
     this.lastMoment = now;
     this.momentCells.add(cell);
-    this.r.dramatic(() => this.heads[0], tier === 7 ? 1400 : 1050, tier === 7 ? 0.36 : 0.45, 0.13);
+    // The bigger the piece, the longer and closer the shot.
+    const big = tier === 7 ? 1 : tier === 6 ? 0.7 : tier === 5 ? 0.45 : 0.3;
+    this.r.dramatic(() => this.heads[0], 950 + big * 650, 0.48 - big * 0.14, 0.13);
     sfx.scream();
   }
 
