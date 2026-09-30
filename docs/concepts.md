@@ -162,6 +162,11 @@ The web park is now a real-time **cel-shaded, ink-lined toy diorama** in Three.j
 - **The puke finale:** after the attractions fire, the riders line up in front of the station for a curtain call. Chips × mult slam into the final rating ("496 a puke"), then every rider who puked steps up in turn, smallest payout first: they double over and puke for the crowd, and a popup shows "NANA ×3 × 496 = +1,488" while the total climbs. Each rider's payout is their pukes re-paid at the final rating minus what their pukes already paid during the ride, so the pieces add up to the old slam exactly (balance unchanged). Then the total lands with the slam, confetti and fireworks. Skipping lands it at once.
 - **Slow motion, product-video style:** time drops to about an eighth, the camera pushes in on the subject from a lower angle with a slow orbit, cinema bars slide in, the frame desaturates a touch, and a swoosh plays in and out. It goes to the wildest pieces of the ride, picked up front: Mega Loops first, then Corkscrews, then Loops (up to 3 per ride, at the crown or the upside-down middle; a Drop's lip only if nothing inverts), longer and closer for bigger pieces, on the first puke of every boss and special rider (VIPs, influencers, ghosts), and for bosses and special riders during the finale. Particles, the train and the scoring timeline all run on the slowed game clock; the odometer keeps rolling in real time. Reduced-motion users get no slow motion.
 
+## Bigger rides, wilder slow motion, the on-ride photo (v0.12)
+- **Scale:** the park stays a tiny diorama, but the finished coaster is bigger: higher decks, taller camelbacks and drops, loops about 1.6× taller (the mega loop almost a full cell high), thicker rails, cars 25% larger, and a closer ride camera. The ride is also a little slower.
+- **Slow motion is a show now:** a hit-stop freeze and a flash as it starts, a heartbeat thumping through it, manga speed lines streaming from the subject, a big stretched shout ("WHOOOAAA", "BLEEEEEGH" for a boss), every rider screaming with their arms flailing, a stretched, pitched-down scream, a wider orbit, and a speed ramp that snaps time back fast for a moment.
+- **The on-ride photo:** at the wildest piece of the ride (or partway round if there isn't one), a camera flash goes off and a track-mounted camera ahead of the train catches every face, upside down included. A polaroid slides in during the ride; the results card shows it as a photo card with the park, the day and the ride's stats, with a "Save the photo" button. Presentation only: no score effect yet (an idea for later: pukes caught on camera pay a bonus).
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
@@ -181,7 +186,7 @@ The web park is now a real-time **cel-shaded, ink-lined toy diorama** in Three.j
 - **Multiple stations:** two rides on one board, sharing space. Track crossings need a Tunnel or Bridge piece.
 
 ### Stuff that makes it more awesome
-- **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
+- *(Built in v0.12.)* **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
 - **Guest thought feed** (RCT nod): little quotes pop up ("This looks too intense for me", "I want to go on something more thrilling").
 - **Special pieces:** Launch (speed boost), Water Splash (soaks the front row), Tunnel (passes under your own track), Brake Run (cancels nausea).
 - **Daily seed challenge**, since runs are already seeded; later a leaderboard.

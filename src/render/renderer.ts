@@ -46,6 +46,7 @@ import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
 import { MATS, SHARED, toon } from '../render3d/toon';
 import { TrackPath } from '../render3d/track';
 import { buildCellTrack } from '../render3d/trackmesh';
+import { composeCard, photoStore } from '../ui/photo';
 import { ScoreShow } from '../ui/scoreshow';
 import { PAL, type ParkTheme, THEMES, TIER_RAMPS } from './palette';
 
@@ -58,7 +59,9 @@ const WAVE_MS = 170;
 const END_COLORS = ['#f0584e', '#45a8e0'];
 const PITCH = (48 * Math.PI) / 180;
 const FOV = 30;
-export const CAR_GAP = 0.3;
+export const CAR_GAP = 0.37;
+/** Cars (and their riders) are drawn this much larger than the model. */
+const CAR_SCALE = 1.25;
 /** Guests on foot are drawn a little larger than riders, so the crowd reads. */
 const STAND_SCALE = 1.3;
 /** The queue starts beside the station's sign, not in front of it. */
@@ -85,6 +88,8 @@ export interface Walker {
 /** A slow-motion camera shot on something (a rider, the lead car). */
 interface Shot {
   at: () => Vector3;
+  /** A big shout stretched across the shot. */
+  caption?: string;
   start: number;
   until: number;
   zoom: number;
@@ -191,6 +196,12 @@ export class Renderer {
   private shotYaw = 0;
   private shotZoom = 0.4;
   private cine = 0;
+  /** After a shot, time runs fast for a moment (the speed ramp snapping back). */
+  private snapUntil = 0;
+  private caption: HTMLDivElement;
+  private beat = 0;
+  private photoReq: { due: number; pose: () => { eye: Vector3; look: Vector3; up: Vector3 } } | null = null;
+  private polaroid: HTMLDivElement | null = null;
   private bars: HTMLDivElement[] = [];
   /** Riders lined up after the ride, by car index. */
   private lineup: Walker[] = [];
@@ -255,6 +266,9 @@ export class Renderer {
     this.goEl.className = 'go3d';
     this.goEl.textContent = 'GO!';
     this.wordLayer.append(this.goEl);
+    this.caption = document.createElement('div');
+    this.caption.className = 'slowcap';
+    this.wordLayer.append(this.caption);
     for (const cls of ['lb-top', 'lb-bot']) {
       const b = document.createElement('div');
       b.className = `letterbox ${cls}`;
@@ -383,6 +397,9 @@ export class Renderer {
     this.show.end();
     this.walkers = [];
     this.lineup = [];
+    this.polaroid?.remove();
+    this.polaroid = null;
+    this.photoReq = null;
     this.shot = null;
     this.cine = 0;
     this.particles.clear();
@@ -514,7 +531,7 @@ export class Renderer {
         pts.push(v3(x, -0.66, z));
       }
     // Room above the back row for tall loops and the trees.
-    pts.push(v3(this.n / 2, 1.1, 0.1));
+    pts.push(v3(this.n / 2, 1.45, 0.1));
     return pts;
   }
 
@@ -670,6 +687,10 @@ export class Renderer {
     });
     this.riderPos.clear();
     this.syncTrack();
+    photoStore.url = null;
+    photoStore.card = null;
+    this.polaroid?.remove();
+    this.polaroid = null;
     this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.show, this.gameNow + 900);
   }
 
@@ -809,11 +830,23 @@ export class Renderer {
     // Slow motion: ease into the shot's time scale, and back out.
     if (this.shot && now > this.shot.until) {
       this.shot = null;
+      this.snapUntil = now + 320;
       sfx.slowOut();
+      this.caption.classList.remove('on');
     }
     this.cine += ((this.shot ? 1 : 0) - this.cine) * Math.min(1, dt * (this.shot ? 7 : 4));
     if (this.cine < 0.002) this.cine = 0;
-    const scale = 1 - this.cine * (1 - (this.shot?.slow ?? 0.2));
+    let scale = 1 - this.cine * (1 - (this.shot?.slow ?? 0.2));
+    if (this.shot) {
+      // Hit-stop: the world freezes for a beat before the slow motion rolls.
+      const age = now - this.shot.start;
+      if (age < 130) scale = 0.015;
+      // A heartbeat thumps through it.
+      if (now > this.beat) {
+        this.beat = now + 620;
+        sfx.heartbeat();
+      }
+    } else if (now < this.snapUntil) scale = 1.6;
     const gdt = dt * scale;
     this.gameNow += gdt * 1000;
     this.handleEvents();
@@ -853,8 +886,15 @@ export class Renderer {
     this.flash = Math.max(0, this.flash - dt * 4);
     this.post.mat.uniforms.uFlash.value = this.flash * 0.5;
     this.post.mat.uniforms.uCine.value = this.cine;
+    if (this.cine > 0) {
+      const f = this.shotAt.clone().project(this.camera);
+      this.post.mat.uniforms.uFocus.value.set((f.x + 1) / 2, (f.y + 1) / 2);
+      const p = this.local(this.shotAt);
+      this.caption.style.transform = `translate(${this.canvas.offsetLeft + p.x}px, ${this.canvas.offsetTop + p.y - this.cssH * 0.18}px) translate(-50%, -50%)`;
+    }
     this.drawBars();
     this.post.render(this.gl, this.scene, this.camera, now / 1000);
+    if (this.photoReq && now >= this.photoReq.due) this.capturePhoto();
     this.drawWords();
     this.drawCombo();
   }
@@ -870,8 +910,8 @@ export class Renderer {
     const want = this.ride?.focus() ?? null;
     f.w += ((want ? 1 : 0) - f.w) * Math.min(1, dt * 2.2);
     if (want) f.at.lerp(want, f.w < 0.05 ? 1 : Math.min(1, dt * 3));
-    const target = this.base.target.clone().lerp(f.at, f.w * 0.38);
-    let dist = this.base.dist * (1 - f.w * 0.17);
+    const target = this.base.target.clone().lerp(f.at, f.w * 0.5);
+    let dist = this.base.dist * (1 - f.w * 0.3);
     let pitch = PITCH;
     let yaw = 0;
     const c = this.cine;
@@ -1396,7 +1436,7 @@ export class Renderer {
   /** Places one car on the track at arc length s, with its rider (if any). */
   car(kind: CarKind, s: number, rider?: { look: Rider['look']; face: Face; arms: number }): { head: Vector3; fwd: Vector3; up: Vector3 } {
     const f = this.path.sample(s);
-    const m = new Matrix4().makeBasis(f.right, f.up, f.t).setPosition(f.p.clone().addScaledVector(f.up, 0.02));
+    const m = new Matrix4().makeBasis(f.right, f.up, f.t).setPosition(f.p.clone().addScaledVector(f.up, 0.025)).multiply(new Matrix4().makeScale(CAR_SCALE, CAR_SCALE, CAR_SCALE));
     const c = this.cars.get();
     c.geometry = carGeo(kind);
     c.matrix.copy(m);
@@ -1437,13 +1477,105 @@ export class Renderer {
    * Slow motion with a push-in on something, like a product video. `ms` is real
    * time; `slow` is the time scale at full effect; `zoom` scales the camera distance.
    */
-  dramatic(at: () => Vector3, ms: number, zoom = 0.35, slow = 0.15): void {
+  dramatic(at: () => Vector3, ms: number, zoom = 0.35, slow = 0.15, caption?: string): void {
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
     if (!this.shot) {
       sfx.slowIn();
       this.shotAt.copy(at());
+      this.flash = Math.max(this.flash, 0.35);
+      this.beat = this.now + 140;
     }
-    this.shot = { at, start: this.now, until: this.now + ms, zoom, slow, yaw: (Math.random() < 0.5 ? -1 : 1) * (0.22 + Math.random() * 0.12) };
+    this.shot = { at, caption, start: this.now, until: this.now + ms, zoom, slow, yaw: (Math.random() < 0.5 ? -1 : 1) * (0.3 + Math.random() * 0.2) };
+    if (caption) {
+      this.caption.textContent = caption;
+      this.caption.style.setProperty('--ms', `${ms}ms`);
+      this.caption.classList.remove('on');
+      void this.caption.offsetWidth;
+      this.caption.classList.add('on');
+    }
+  }
+
+  /** Take the on-ride photo shortly, from a camera mounted on the track. */
+  requestPhoto(pose: () => { eye: Vector3; look: Vector3; up: Vector3 }, delay = 60): void {
+    if (photoStore.url || this.photoReq) return;
+    this.photoReq = { due: this.now + delay, pose };
+  }
+
+  /** Renders the photo view, keeps it, and puts the park view back before anyone sees. */
+  private capturePhoto(): void {
+    const req = this.photoReq!;
+    this.photoReq = null;
+    const cam = this.camera;
+    const saved = { pos: cam.position.clone(), q: cam.quaternion.clone(), fov: cam.fov };
+    const u = this.post.mat.uniforms;
+    const cine = u.uCine.value;
+    const fl = u.uFlash.value;
+    u.uCine.value = 0;
+    u.uFlash.value = 0;
+    const pose = req.pose();
+    cam.up.copy(pose.up);
+    cam.position.copy(pose.eye);
+    cam.fov = 50;
+    cam.updateProjectionMatrix();
+    cam.lookAt(pose.look);
+    cam.updateMatrixWorld();
+    this.post.render(this.gl, this.scene, cam, this.now / 1000);
+    const src = this.gl.domElement;
+    const out = document.createElement('canvas');
+    out.width = 640;
+    out.height = 480;
+    const sw = Math.min(src.width, (src.height * 4) / 3);
+    const sh = (sw * 3) / 4;
+    const o = out.getContext('2d')!;
+    o.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, 640, 480);
+    // A little flash falloff, like a real on-ride camera.
+    const g = o.createRadialGradient(320, 240, 120, 320, 240, 420);
+    g.addColorStop(0, 'rgba(255,250,235,0.18)');
+    g.addColorStop(1, 'rgba(20,10,40,0.35)');
+    o.fillStyle = g;
+    o.fillRect(0, 0, 640, 480);
+    const url = out.toDataURL('image/jpeg', 0.9);
+    cam.up.set(0, 1, 0);
+    cam.position.copy(saved.pos);
+    cam.quaternion.copy(saved.q);
+    cam.fov = saved.fov;
+    cam.updateProjectionMatrix();
+    cam.updateMatrixWorld();
+    u.uCine.value = cine;
+    u.uFlash.value = fl;
+    this.post.render(this.gl, this.scene, cam, this.now / 1000);
+    this.flash = 1.6;
+    sfx.shutter();
+    photoStore.url = url;
+    this.showPolaroid(url);
+    const r = this.game.result;
+    if (r) {
+      const pukes = r.tickets.reduce((a, t) => a + t.pukes, 0);
+      const green = r.tickets.filter((t) => t.pukes > 0).length;
+      composeCard(url, {
+        title: 'LOOPHOLE',
+        sub: `${this.game.cfg.park.name} · day ${this.game.dayNum}`,
+        lines: [
+          `${r.stats.length} pieces · ${r.stats.inversions} upside down`,
+          `${green} of ${r.tickets.length} riders went green · ${pukes} pukes`,
+          `${r.total.toLocaleString()} tickets${r.passed ? ' · target smashed' : ''}`,
+        ],
+        stamp: 'ON-RIDE PHOTO',
+      })
+        .then((card) => (photoStore.card = card))
+        .catch(() => {});
+    }
+  }
+
+  private showPolaroid(url: string): void {
+    this.polaroid?.remove();
+    const p = document.createElement('div');
+    p.className = 'polaroid';
+    p.innerHTML = `<img alt="On-ride photo" src="${url}"><span>ON-RIDE PHOTO</span>`;
+    p.style.left = `${this.canvas.offsetLeft + this.cssW - 12}px`;
+    p.style.top = `${this.canvas.offsetTop + this.cssH - 12}px`;
+    this.canvas.parentElement!.append(p);
+    this.polaroid = p;
   }
 
   get inShot(): boolean {

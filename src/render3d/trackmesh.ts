@@ -6,9 +6,9 @@ import type { TrackPath, TrackPt } from './track';
 
 // Rails, spine, ties, lift chain and supports for one chain cell of the track.
 
-const RAIL_GAP = 0.052;
-const RAIL_R = 0.017;
-const SPINE_DROP = 0.045;
+const RAIL_GAP = 0.066;
+const RAIL_R = 0.022;
+const SPINE_DROP = 0.056;
 const STATION_RAIL = '#aab2cc';
 
 export interface TrackStyle {
@@ -34,7 +34,7 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
   const ups = pts.map((p) => p.up);
   const rights = pts.map((p) => p.right);
   for (const side of [-1, 1]) gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.right, side * RAIL_GAP)), rights, ups, RAIL_R, rail, 7);
-  gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.up, -SPINE_DROP)), rights, ups, 0.022, spine, 7);
+  gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.up, -SPINE_DROP)), rights, ups, 0.028, spine, 7);
   // Ties: little C-brackets from each rail to the spine, evenly spaced along the arc.
   const tieCol = cell.station ? '#4a4a5c' : style.tie;
   forEvery(pts, 0.062, (q) => {

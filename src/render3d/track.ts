@@ -10,8 +10,8 @@ import type { Board } from '../puzzle/board';
 // The train rides the very same samples, so it always sits on the rails.
 
 /** Deck height of each tier's track, in cells. */
-export const DECK_H = [0.14, 0.17, 0.2, 0.3, 0.2, 0.2, 0.24, 0.22];
-export const STATION_H = 0.13;
+export const DECK_H = [0.18, 0.22, 0.26, 0.38, 0.26, 0.26, 0.32, 0.3];
+export const STATION_H = 0.15;
 /** How far the station U reaches below the station row's top edge. */
 const U_LEG = 0.3;
 const U_R = 0.5;
@@ -98,20 +98,20 @@ function teardrop(R: number, Ry: number, pinch: number): (th: number) => [number
 function elemFor(tier: number, turn: number): Elem {
   switch (tier) {
     case 1:
-      return (t) => ({ s: t, dh: 0.09 * Math.sin(Math.PI * t) ** 2 });
+      return (t) => ({ s: t, dh: 0.15 * Math.sin(Math.PI * t) ** 2 });
     case 2:
-      return (t) => ({ s: t, dh: 0.28 * Math.sin(Math.PI * t) ** 2 });
+      return (t) => ({ s: t, dh: 0.46 * Math.sin(Math.PI * t) ** 2 });
     case 3: {
-      const top = 0.58;
+      const top = 0.95;
       return (t) => {
         if (t < 0.46) return { s: t, dh: top * smooth(0.02, 0.44, t), lift: t > 0.04 && t < 0.4 };
         const u = (t - 0.46) / 0.54;
-        return { s: t, dh: top * (1 - smooth(0, 0.62, u)) - 0.1 * Math.sin(Math.PI * u) ** 2 };
+        return { s: t, dh: top * (1 - smooth(0, 0.62, u)) - 0.16 * Math.sin(Math.PI * u) ** 2 };
       };
     }
     case 4: {
-      const r = 0.27;
-      const climb = 0.3;
+      const r = 0.3;
+      const climb = 0.44;
       const side = turn || 1;
       return (t) => {
         if (t < 0.18) return { s: (0.5 * t) / 0.18 };
@@ -135,14 +135,14 @@ function elemFor(tier: number, turn: number): Elem {
       };
     }
     case 5:
-      return loopElem(teardrop(0.26, 0.31, 0.2), 0.2, 0.8, 0.15);
+      return loopElem(teardrop(0.32, 0.5, 0.22), 0.2, 0.8, 0.18);
     case 6: {
-      const hr = 0.09;
+      const hr = 0.12;
       return (t) => {
         if (t < 0.1 || t > 0.9) return { s: t };
         const u = (t - 0.1) / 0.8;
         const ph = Math.PI * 2 * (u * u * u * (u * (u * 6 - 15) + 10));
-        const hump = 0.22 * Math.sin(Math.PI * u) ** 2;
+        const hump = 0.4 * Math.sin(Math.PI * u) ** 2;
         return {
           s: t,
           dh: hump + hr - hr * Math.cos(ph),
@@ -153,7 +153,7 @@ function elemFor(tier: number, turn: number): Elem {
       };
     }
     case 7:
-      return loopElem(teardrop(0.44, 0.58, 0.3), 0.12, 0.88, 0.24);
+      return loopElem(teardrop(0.48, 0.92, 0.32), 0.12, 0.88, 0.26);
     default:
       return (t) => ({ s: t });
   }

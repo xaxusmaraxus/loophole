@@ -64,6 +64,7 @@ uniform float uFlash;
 uniform float uDebug;
 uniform float uPaint;
 uniform float uCine;
+uniform vec2 uFocus;
 varying vec2 vUv;
 
 float lin(float d) {
@@ -147,6 +148,15 @@ void main() {
   vec2 q = vUv - 0.5;
   s *= 1.0 - (uVignette + uCine * 0.35) * smoothstep(0.35, 0.95, length(q * vec2(1.1, 1.0)) * 1.25);
   s = mix(s, vec3(dot(s, vec3(0.3, 0.55, 0.15))) * vec3(1.02, 0.98, 0.94), uCine * 0.15);
+  // Slow motion: manga speed lines streaming out from the subject.
+  if (uCine > 0.01) {
+    vec2 d = (vUv - uFocus) * vec2(uPx.y / uPx.x, 1.0);
+    float ang = atan(d.y, d.x);
+    float r = length(d);
+    float lines = step(0.7, vnoise(vec2(ang * 34.0, floor(uTime * 14.0) * 3.1)));
+    float mask = smoothstep(0.22, 0.7, r);
+    s = mix(s, vec3(1.0, 0.99, 0.95), lines * mask * uCine * 0.55);
+  }
   s += (hash(vUv * 931.7 + fract(uTime * 0.37)) - 0.5) * 0.02;
   s = mix(s, vec3(1.0, 0.98, 0.9), uFlash);
   gl_FragColor = vec4(s, 1.0);
@@ -203,6 +213,7 @@ export class Post {
         uDebug: { value: 0 },
         uPaint: { value: 2 },
         uCine: { value: 0 },
+        uFocus: { value: new Vector2(0.5, 0.5) },
       },
     });
     this.quadScene.add(new Mesh(new PlaneGeometry(2, 2), this.mat));

@@ -2,6 +2,7 @@ import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
 import { BOSSES, KINDS, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
 import { drawPortrait3D } from '../render3d/portrait';
+import { photoStore } from './photo';
 import { ATTRACTIONS, ATTRACTION_SLOTS, type Effect } from '../run/attractions';
 import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, PARKS, PARK_BOSS, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
@@ -332,6 +333,7 @@ export class Hud {
       })
       .join('');
     const pukes = r.tickets.reduce((a, t) => a + t.pukes * riderWorth(t.rider), 0);
+    const photo = photoStore.card ?? photoStore.url;
     const times = r.passed ? Math.floor(r.total / Math.max(1, r.target)) : 0;
     const headline = r.passed
       ? g.cfg.boss
@@ -356,6 +358,7 @@ export class Hud {
               : 'The crowd loved it.'
             : `The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
         }</p>
+        ${photo ? `<figure class="photo-card"><img src="${photo}" alt="On-ride photo of the riders"></figure><a class="ghost-dark save-photo" href="${photo}" download="loophole-ride-photo.png">Save the photo</a>` : ''}
         <details class="breakdown"><summary>Breakdown</summary>
           <ul class="tally">${steps}<li class="tally-row rating"><span>Every puke pays</span><strong>${r.score.rating.toLocaleString()}</strong></li></ul>
           ${riders ? `<ul class="report">${riders}</ul>` : ''}

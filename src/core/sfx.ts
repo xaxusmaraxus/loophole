@@ -156,6 +156,19 @@ export const sfx = {
     noise(0.3, 0.08, 0, 300, 3000, 2);
     tone(90, 0.3, 'sine', 0.06, 0, 380);
   },
+  /** A deep double thump, for slow motion. */
+  heartbeat: () => {
+    tone(58, 0.16, 'sine', 0.35, 0, 40);
+    tone(52, 0.16, 'sine', 0.26, 0.17, 38);
+  },
+  /** A scream stretched out and pitched way down. */
+  slowScream: () => tone(260 + Math.random() * 60, 1.1, 'sawtooth', 0.025, 0, 150),
+  /** The camera flash of the on-ride photo. */
+  shutter: () => {
+    noise(0.05, 0.25, 0, 6000, 3000, 1);
+    noise(0.08, 0.18, 0.07, 5000, 2000, 1);
+    tone(2400, 0.4, 'sine', 0.03, 0.02, 2600);
+  },
   /** A firework rocket goes up: a thin rising whistle. */
   whistle: () => tone(900 + Math.random() * 200, 0.6, 'sine', 0.018, 0, 2200),
   /** ...and bursts: a soft crackling pop. */
