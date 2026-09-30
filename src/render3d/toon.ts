@@ -93,7 +93,7 @@ export function toon(o: ToonOpts = {}): MeshToonMaterial {
             sway
               ? `vec4 wp = modelMatrix * vec4(position, 1.0);
           float hgt = max(0.0, position.y - uSwayBase);
-          float ph = floor(uTime * 12.0) / 12.0 * 1.6 + wp.x * 1.7 + wp.z * 1.1;
+          float ph = uTime * 1.6 + wp.x * 1.7 + wp.z * 1.1;
           transformed.x += sin(ph) * uSway * hgt;
           transformed.z += cos(ph * 0.8) * uSway * hgt * 0.6;`
               : ''

@@ -193,8 +193,8 @@ export class Renderer {
   private flash = 0;
   private dusk = 0;
   private stationSign: Mesh | null = null;
-  /** Stop motion off (?smooth): render every frame. */
-  private smooth = new URLSearchParams(location.search).has('smooth');
+  /** Stop-motion stepping is opt-in (?stopmotion); by default every frame renders. */
+  private smooth = !new URLSearchParams(location.search).has('stopmotion');
   private lastShot = -1e9;
   /** How far away the camera is focused. */
   private focusD = 12;
@@ -868,7 +868,7 @@ export class Renderer {
     this.gameNow += gdt * 1000;
     this.handleEvents();
     SHARED.uTime.value = now / 1000;
-    SHARED.uBoil.value = Math.floor(now / STOP_MS) * 1.37;
+    SHARED.uBoil.value = this.smooth ? 0 : Math.floor(now / STOP_MS) * 1.37;
     this.fireTileEffects();
     this.updateFog();
     this.syncTrack();

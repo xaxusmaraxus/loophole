@@ -167,7 +167,7 @@ void main() {
     s = mix(s, vec3(1.0, 0.99, 0.95), lines * mask * uCine * 0.55);
   }
   // Film grain, new every stop-motion frame.
-  s += (hash(floor(px / 1.5) + fract(floor(uTime * 12.0) * 0.173) * 97.0) - 0.5) * 0.028;
+  s += (hash(floor(px / 1.5) + fract(uTime * 0.173) * 97.0) - 0.5) * 0.018;
   s = mix(s, vec3(1.0, 0.98, 0.9), uFlash);
   gl_FragColor = vec4(s, 1.0);
 }`;
@@ -226,7 +226,7 @@ export class Post {
         uAO: { value: 0.85 },
         uFocusD: { value: 12 },
         uAperture: { value: 16 },
-        uDof: { value: 1 },
+        uDof: { value: 0 },
         uCine: { value: 0 },
         uFocus: { value: new Vector2(0.5, 0.5) },
       },

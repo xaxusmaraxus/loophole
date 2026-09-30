@@ -120,7 +120,7 @@ void main() {
   c += uFoam * gl * uDusk * 0.8;
   // Sculpted clay water: lumpy swells that shift once per stop-motion frame,
   // lit by the key light, with a waxy sheen and thumb-smoothed mottling.
-  float tq = floor(uTime * 12.0) / 12.0;
+  float tq = uTime;
   vec2 q = p * (uMode < 0.5 ? 1.6 : 7.0);
   float e = 0.05;
   float h0 = noise(q + tq * 0.35) + noise(q * 2.3 - tq * 0.5) * 0.5;
