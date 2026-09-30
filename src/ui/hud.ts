@@ -2,6 +2,7 @@ import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
 import { BOSSES, KINDS, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
 import { drawPortrait } from '../render/sprites';
+import { drawPortrait3D } from '../render3d/portrait';
 import { ATTRACTIONS, ATTRACTION_SLOTS, type Effect } from '../run/attractions';
 import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, PARKS, PARK_BOSS, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
@@ -175,7 +176,8 @@ export class Hud {
       portrait.width = 11;
       portrait.height = 14;
       portrait.className = 'portrait';
-      drawPortrait(portrait, r.look);
+      if (drawPortrait3D(portrait, r.look)) portrait.classList.add('p3d');
+      else drawPortrait(portrait, r.look);
       this.portraits.set(r.id, portrait);
     }
     const worth = riderWorth(r);

@@ -1,43 +1,120 @@
+import { Vector3 } from 'three';
+import { sfx } from '../core/sfx';
 import type { DayResult } from '../game';
-import type { RideStop } from '../puzzle/board';
+import type { Board, RideStop } from '../puzzle/board';
 import { PIECES } from '../puzzle/pieces';
 import { PAL, SHIRTS } from '../render/palette';
-import { sfx } from '../core/sfx';
-import { DECK } from '../render/metrics';
-import type { Renderer } from '../render/renderer';
-import { type Ctx, drawCar, drawSeated, px } from '../render/sprites';
+import { CAR_GAP, type Renderer } from '../render/renderer';
+import type { Face } from '../render3d/models';
+import type { TrackPath } from '../render3d/track';
 import type { ScoreEvent } from '../run/timeline';
 import type { ScoreShow } from '../ui/scoreshow';
 
-interface RidePoint {
-  x: number;
-  y: number;
-  /** Ground position, for the shadow. */
-  gy: number;
-  cell: number;
-  inverted: boolean;
-}
+// The ride: the train runs the real 3D track (loops, rolls and all) while the
+// day's scoring timeline plays out event by event as the train reaches each
+// piece. Speed follows the height of the train, so it crawls over the tops of
+// loops and screams through the dips; a boss puke slows the world for a beat.
 
-const SPEED = 46;
-/** Speed multiplier per tier: slow up the Hill, fast down the Drop. */
-const TIER_SPEED = [1, 1, 0.75, 1.9, 1.3, 1.5, 1.6, 1.8];
-const CAR_GAP = 8;
-const THRILL_WORDS = ['AAH', 'WHEE', 'EEK', 'WOW', 'YEE'];
+const THRILL_WORDS = ['AAH', 'WHEE', 'EEK', 'WOW', 'YEE', 'OMG'];
 /** How long the final score stays up after the slam before the results. */
 const OUTRO_MS = 2000;
 /** Minimum gap between scoring events, by kind (ms). */
 const GAP: Record<ScoreEvent['kind'], number> = { chips: 75, mult: 150, puke: 130, attraction: 520, slam: 450 };
 const SLOWMO_MS = 900;
+const STEP = 0.02;
+
+/** Where the lead car waits in the station: at the top of the red end's leg of the U. */
+export function parkS(path: TrackPath, b: Board): number {
+  const i = path.indexOf(b.station.x, b.station.y);
+  return path.range(i)[1] - 0.14;
+}
+
+/** The train's route over the track's arc length: once round a circuit, out and back on a shuttle. */
+class Route {
+  legs: { a: number; b: number; len: number }[] = [];
+  total = 0;
+  /** Stop index for each STEP of route distance. */
+  private table: number[] = [];
+
+  constructor(
+    private path: TrackPath,
+    stops: RideStop[],
+    park: number,
+    cars: number,
+  ) {
+    if (path.closed) this.leg(park, park + path.length);
+    else {
+      const sMin = 0;
+      const sMax = path.pts[path.pts.length - 1].s;
+      const out = Math.max(park, sMax - 0.12);
+      const back = Math.min(out, sMin + (cars - 1) * CAR_GAP + 0.12);
+      this.leg(park, out);
+      this.leg(out, back);
+      this.leg(back, park);
+    }
+    // Match the cells the route passes to the ride's stops, in order.
+    let ptr = 0;
+    for (let d = 0; d <= this.total + 1e-6; d += STEP) {
+      const c = path.cells[path.sample(this.sAt(d)).cell];
+      const is = (k: number) => k < stops.length && stops[k].x === c.x && stops[k].y === c.y;
+      if (!is(ptr) && is(ptr + 1)) ptr++;
+      this.table.push(ptr);
+    }
+  }
+
+  private leg(a: number, b: number): void {
+    const len = Math.abs(b - a);
+    this.legs.push({ a, b, len });
+    this.total += len;
+  }
+
+  /** Arc length on the track at route distance d. */
+  sAt(d: number): number {
+    let rest = Math.max(0, Math.min(this.total, d));
+    for (const l of this.legs) {
+      if (rest <= l.len || l === this.legs[this.legs.length - 1]) return l.a + Math.sign(l.b - l.a) * Math.min(rest, l.len);
+      rest -= l.len;
+    }
+    return this.legs[0].a;
+  }
+
+  /** Distance to the next change of direction (or the end). */
+  toTurn(d: number): number {
+    let acc = 0;
+    for (const l of this.legs) {
+      acc += l.len;
+      if (d < acc) return acc - d;
+    }
+    return 0;
+  }
+
+  stopAt(d: number): number {
+    if (d < 0) return -1;
+    return this.table[Math.min(this.table.length - 1, Math.floor(d / STEP))];
+  }
+
+  /** Direction of travel along the track at route distance d (+1 or -1). */
+  dirAt(d: number): number {
+    let acc = 0;
+    for (const l of this.legs) {
+      acc += l.len;
+      if (d < acc) return Math.sign(l.b - l.a) || 1;
+    }
+    return 1;
+  }
+}
 
 export class RideAnim {
-  private pts: RidePoint[] = [];
-  private dist: number[] = [];
-  private total = 0;
-  private s = 0;
+  private route: Route;
+  private path: TrackPath;
+  private d = 0;
+  private v = 0;
   /** The stop each car is on (-1 before it leaves). */
   private carCell: number[];
   private sick: boolean[];
   private scream: number[];
+  private heads: Vector3[];
+  private fwd = new Vector3(0, 0, 1);
   private doneAt = 0;
   /** Next timeline event to play, and when the last one played. */
   private next = 0;
@@ -45,6 +122,9 @@ export class RideAnim {
   private slamAt = 0;
   private slowUntil = 0;
   private skipped = false;
+  private hRef: number;
+  private park: number;
+  private lastT = 0;
 
   constructor(
     private r: Renderer,
@@ -53,11 +133,15 @@ export class RideAnim {
     private show: ScoreShow,
     private startAt: number,
   ) {
-    this.buildPath();
+    this.path = r.path;
     const n = Math.max(1, result.tickets.length);
+    this.park = parkS(this.path, r.game.board);
+    this.route = new Route(this.path, stops, this.park, n);
     this.carCell = new Array(n).fill(-1);
     this.sick = new Array(n).fill(false);
     this.scream = new Array(n).fill(0);
+    this.heads = new Array(n).fill(null).map(() => new Vector3());
+    this.hRef = this.path.maxHeight() + 0.25;
     show.begin(result);
   }
 
@@ -69,75 +153,36 @@ export class RideAnim {
     return this.result.timeline;
   }
 
-  private buildPath(): void {
-    const stops = this.stops;
-    const deck = (i: number) => (stops[i].station ? 2 : DECK[stops[i].tier]);
-    const push = (x: number, y: number, gy: number, cell: number, inverted = false) =>
-      this.pts.push({ x, y, gy, cell, inverted });
-
-    const sc = this.r.center(stops[0]);
-    push(sc.x, sc.y - 2, sc.y, 0);
-    for (let i = 1; i < stops.length; i++) {
-      const a = this.r.center(stops[i - 1]);
-      const p = this.r.center(stops[i]);
-      const edgeH = (deck(i - 1) + deck(i)) / 2;
-      push((a.x + p.x) / 2, (a.y + p.y) / 2 - edgeH, (a.y + p.y) / 2, i);
-      const h = deck(i);
-      push(p.x, p.y - h, p.y, i);
-      if (stops[i].station) continue;
-      const tier = stops[i].tier;
-      const dir = Math.sign(p.x - a.x) || 1;
-      const ring = (cx: number, cy: number, rx: number, ry: number, flips: boolean) => {
-        for (let t = 1; t <= 24; t++) {
-          const ang = (t / 24) * Math.PI * 2;
-          const y = cy + Math.cos(ang) * ry;
-          push(cx + dir * Math.sin(ang) * rx, y, p.y, i, flips && Math.cos(ang) < -0.3);
-        }
-      };
-      if (tier === 4) ring(p.x, p.y - h - 3, 6, 3, false);
-      else if (tier === 5) ring(p.x, p.y - h - 6, 5, 6, true);
-      else if (tier === 6) {
-        ring(p.x - 3, p.y - h - 4, 3, 4, true);
-        ring(p.x + 3, p.y - h - 5, 3, 5, true);
-      } else if (tier === 7) ring(p.x, p.y - h - 8, 7, 8, true);
-    }
-    this.dist = [0];
-    for (let i = 1; i < this.pts.length; i++) {
-      const a = this.pts[i - 1];
-      const b2 = this.pts[i];
-      this.dist.push(this.dist[i - 1] + Math.hypot(b2.x - a.x, b2.y - a.y));
-    }
-    this.total = this.dist[this.dist.length - 1];
-  }
-
-  private pointAt(d: number): RidePoint {
-    d = Math.max(0, Math.min(this.total, d));
-    let i = 1;
-    while (i < this.dist.length - 1 && this.dist[i] < d) i++;
-    const a = this.pts[i - 1];
-    const b = this.pts[i];
-    const seg = this.dist[i] - this.dist[i - 1] || 1;
-    const t = (d - this.dist[i - 1]) / seg;
-    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, gy: a.gy + (b.gy - a.gy) * t, cell: b.cell, inverted: b.inverted };
+  /** Track arc length of car i (the train is rigid, even when it backs up). */
+  private carS(i: number): number {
+    const lead = this.route.sAt(this.d);
+    return lead - i * CAR_GAP;
   }
 
   update(now: number, dt: number): void {
     if (now < this.startAt) return;
     if (!this.doneAt) {
-      // A boss puke slows the world down for a beat.
-      const k = now < this.slowUntil ? 0.25 : 1;
-      const lead = this.pointAt(this.s);
-      const tier = this.stops[lead.cell].tier;
-      this.s += SPEED * TIER_SPEED[tier] * dt * k;
+      // Speed from the train's height: slow over the tops, fast in the dips.
+      let h = 0;
+      for (let i = 0; i < this.cars; i++) h += this.path.sample(this.carS(i)).p.y;
+      h /= this.cars;
+      const lead = this.path.sample(this.carS(0));
+      let v = 1.2 + 2.6 * Math.sqrt(Math.max(0, this.hRef - h));
+      if (lead.lift) v = Math.min(v, 0.95);
+      v *= Math.min(1, 0.2 + ((now - this.startAt) / 1000) * 1.4);
+      v = Math.min(v, 0.3 + this.route.toTurn(this.d) * 2.4);
+      this.v += (v - this.v) * Math.min(1, dt * 6);
+      const k = now < this.slowUntil ? 0.22 : 1;
+      this.d += this.v * dt * k;
       for (let i = 0; i < this.cars; i++) {
-        const p = this.pointAt(this.s - i * CAR_GAP);
-        if (this.s - i * CAR_GAP < 0 || p.cell === this.carCell[i]) continue;
-        this.carCell[i] = p.cell;
-        if (!this.stops[p.cell].station) this.enterCell(i, p);
+        const stop = this.route.stopAt(this.d - i * CAR_GAP);
+        if (stop < 0 || stop === this.carCell[i]) continue;
+        this.carCell[i] = stop;
+        if (!this.stops[stop].station) this.enterCell(i, stop);
       }
-      if (this.s - (this.cars - 1) * CAR_GAP >= this.total) {
+      if (this.d >= this.route.total - 1e-3) {
         this.doneAt = now;
-        this.disembark();
+        this.r.disembark(this.result.tickets);
       }
     }
     this.dispatch(now);
@@ -166,20 +211,25 @@ export class RideAnim {
     this.fire(e, now);
   }
 
-  /** Where an event happens, in page coordinates. */
-  private screenAt(e: ScoreEvent): { x: number; y: number } {
-    let x: number;
-    let y: number;
-    if (e.kind === 'puke' && !this.doneAt) {
-      const p = this.pointAt(Math.max(0, this.s - e.car * CAR_GAP));
-      x = p.x;
-      y = p.y - (this.result.tickets[e.car]?.rider.look.big ? 16 : 10);
-    } else {
-      const c = this.r.center(this.stops[e.stop]);
-      x = c.x;
-      y = c.y - (this.stops[e.stop].station ? 2 : DECK[this.stops[e.stop].tier]) - 6;
+  /** The piece a stop sits on, in the world. */
+  private stopPoint(i: number): Vector3 {
+    const st = this.stops[i];
+    if (st.station) return this.r.stationCenter().setY(0.45);
+    const ci = this.path.indexOf(st.x, st.y);
+    const [a, b] = this.path.range(ci);
+    let top = this.path.sample(a).p.clone();
+    // The highest point of the piece, so popups rise off the loop's crown.
+    for (let s = a; s <= b; s += 0.05) {
+      const p = this.path.sample(s).p;
+      if (p.y > top.y) top = p.clone();
     }
-    return this.r.toPage(x, y);
+    return top.setY(top.y + 0.18);
+  }
+
+  /** Where an event happens, in world space. */
+  private worldAt(e: ScoreEvent): Vector3 {
+    if (e.kind === 'puke' && !this.doneAt) return this.heads[e.car].clone();
+    return this.stopPoint(e.stop);
   }
 
   private fire(e: ScoreEvent, now: number): void {
@@ -189,16 +239,19 @@ export class RideAnim {
       setTimeout(() => this.r.cheer(1.5), this.skipped ? 0 : 420);
       return;
     }
-    const at = this.screenAt(e);
-    this.show.apply(e, at);
-    const w = this.r.fromPage(at.x, at.y);
-    if (e.kind === 'chips') this.r.sparkle(w.x, w.y + 4, 3 + Math.min(10, e.amount / 2), '#45a8e0');
-    else if (e.kind === 'mult') this.r.sparkle(w.x, w.y + 4, 10, '#f0584e');
+    const w = this.worldAt(e);
+    this.show.apply(e, this.r.project(w));
+    if (e.kind === 'chips') this.r.sparkle(w, 4 + Math.min(14, e.amount / 2), '#45a8e0');
+    else if (e.kind === 'mult') this.r.sparkle(w, 14, '#f0584e');
     else if (e.kind === 'puke') {
       this.sick[e.car] = true;
       const hit = Math.min(1, e.pay / Math.max(1, this.result.target * 0.15));
-      this.r.puke(w.x, w.y + 6, e.boss ? 60 : 10 + Math.round(hit * 20));
-      if (e.boss) this.slowUntil = now + SLOWMO_MS;
+      const carry = this.fwd.clone().multiplyScalar(this.v * this.route.dirAt(this.d));
+      this.r.puke(w, e.boss ? 90 : 14 + Math.round(hit * 30), this.doneAt ? undefined : carry, this.fwd.clone().multiplyScalar(0.5).add(new Vector3(0, 0.3, 0)));
+      if (e.boss) {
+        this.slowUntil = now + SLOWMO_MS;
+        this.r.flashScreen(0.9);
+      }
     }
   }
 
@@ -208,7 +261,8 @@ export class RideAnim {
     this.skipped = true;
     if (!this.doneAt) {
       this.doneAt = now;
-      this.disembark();
+      this.d = this.route.total;
+      this.r.disembark(this.result.tickets);
     }
     const tl = this.timeline;
     while (this.next < tl.length - 1) {
@@ -222,55 +276,46 @@ export class RideAnim {
     this.r.cheer(1.5);
   }
 
-  private enterCell(i: number, p: RidePoint): void {
+  private enterCell(i: number, stop: number): void {
     const v = this.result.tickets[i];
-    const tier = this.stops[p.cell].tier;
-    const piece = PIECES[tier];
+    const tier = this.stops[stop].tier;
     if (!v) return;
     if (tier >= 3) {
-      this.scream[i] = 0.6;
+      this.scream[i] = 0.9;
       if (Math.random() < 0.3) {
         sfx.scream();
-        if (Math.random() < 0.5) this.r.word(THRILL_WORDS[Math.floor(Math.random() * THRILL_WORDS.length)], p.x, p.y - 16, PAL.white);
+        if (Math.random() < 0.5) this.r.word(THRILL_WORDS[Math.floor(Math.random() * THRILL_WORDS.length)], this.heads[i].clone().setY(this.heads[i].y + 0.35), PAL.white);
       }
     }
-    if (piece.inversion && Math.random() < 0.3) this.r.hat(p.x, p.y - 8, SHIRTS[(v.rider.look.shirt + 3) % SHIRTS.length]);
+    if (PIECES[tier].inversion && Math.random() < 0.3) this.r.hat(this.heads[i], SHIRTS[(v.rider.look.shirt + 3) % SHIRTS.length]);
   }
 
-  private disembark(): void {
-    const sc = this.r.center(this.stops[0]);
-    const o = { x: sc.x < this.r.W / 2 ? -1 : 1, y: sc.y < this.r.H / 2 ? -1 : 1 };
-    this.result.tickets.forEach(({ rider, pukes }, i) => {
-      const angle = (i / Math.max(1, this.result.tickets.length)) * 1.2 - 0.6;
-      const tx = sc.x + o.x * 30 + Math.sin(angle) * 40;
-      const ty = sc.y + o.y * 28 + Math.cos(angle) * 10;
-      this.r.addWalker({ look: rider.look, x: sc.x, y: sc.y, tx, ty, speed: 30, sick: pukes > 0, mood: pukes > 0 ? 'sick' : 'meh', delay: i * 120 });
-    });
+  /** The middle of the train, for the camera to lean toward. */
+  focus(): Vector3 | null {
+    if (this.doneAt || this.r.now < this.startAt) return null;
+    return this.path.sample(this.carS(Math.floor(this.cars / 2))).p;
   }
 
   finished(now: number): boolean {
     return this.slamAt > 0 && now - this.slamAt > (this.skipped ? OUTRO_MS * 0.7 : OUTRO_MS);
   }
 
-  draw(ctx: Ctx, now: number): void {
-    if (this.doneAt) return;
-    const dt = 1 / 60;
-    for (let i = this.cars - 1; i >= 0; i--) {
-      const d = this.s - i * CAR_GAP;
-      const p = this.pointAt(Math.max(0, d));
-      if (d < 0 && i > 0 && now >= this.startAt) continue;
+  draw(now: number): void {
+    const dt = Math.min(0.05, (now - (this.lastT || now)) / 1000);
+    this.lastT = now;
+    const aboard = !this.doneAt && now > this.startAt - 150;
+    for (let i = 0; i < this.cars; i++) {
       this.scream[i] = Math.max(0, this.scream[i] - dt);
       const v = this.result.tickets[i];
-      px(ctx, p.x - 3, p.gy + 1, 7, 2, PAL.shadow);
-      const x = Math.round(p.x - 3);
-      const y = Math.round(p.y - 3);
-      if (p.inverted) {
-        drawCar(ctx, x, y - 3);
-        if (v) drawSeated(ctx, v.rider.look, x, y + 1, { sick: this.sick[i], scream: true });
-      } else {
-        if (v) drawSeated(ctx, v.rider.look, x, y - 6, { sick: this.sick[i], scream: this.scream[i] > 0 });
-        drawCar(ctx, x, y);
-      }
+      const s = this.carS(i);
+      const f = this.path.sample(s);
+      const inverted = f.up.y < -0.2;
+      const face: Face = this.sick[i] ? 'sick' : inverted || this.scream[i] > 0 ? 'scream' : 'smile';
+      const arms = this.sick[i] ? 0.15 : inverted || this.scream[i] > 0 ? 1 : 0.1;
+      const kind = i === 0 ? 'lead' : i === this.cars - 1 ? 'tail' : 'mid';
+      const c = this.r.car(kind, s, aboard && v ? { look: v.rider.look, face, arms } : undefined);
+      this.heads[i].copy(c.head);
+      if (i === 0) this.fwd.copy(c.fwd);
     }
   }
 }
