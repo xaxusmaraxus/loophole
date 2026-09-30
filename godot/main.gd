@@ -908,7 +908,7 @@ func _build_guests() -> void:
 
 # ---- Camera, input, screenshots ----------------------------------------------
 
-const CAMERAS := 5
+const CAMERAS := 6
 
 
 func _set_camera(mode: int) -> void:
@@ -953,6 +953,15 @@ func _set_camera(mode: int) -> void:
 			cam.fov = 38.0
 			cam.position = Vector3(3.8, 2.4, 4.6)
 			cam.look_at(Vector3(0.6, 0.9, -0.4))
+		5:
+			# Mood framing (docs/mood/coaster_town_mood.png): square-on and steep, the
+			# plot upper-center, the park around it and the island edge at the bottom.
+			cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+			cam.size = 12.5
+			var pitch := deg_to_rad(50.0)
+			var t := Vector3(0, 0.2, 1.4)
+			cam.position = t + Vector3(0, sin(pitch), cos(pitch)) * 30.0
+			cam.look_at(t)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -982,6 +991,7 @@ func _render_shots() -> void:
 		["04_play_square_day", 4, false, 9.0],
 		["05_play_square_sunset", 4, true, 9.0],
 		["06_ride_closeup", 2, true, 5.6],
+		["07_mood_square_day", 5, false, 9.0],
 	]
 	for s in shots:
 		_set_time(s[2])

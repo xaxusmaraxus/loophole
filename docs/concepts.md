@@ -139,6 +139,8 @@ Bug fixed in v0.8: at the end of every swipe animation, the board drew no tiles 
 ## Art round 1, batch 1 (2026-09-30)
 First modeled characters in the Godot style test: three guests (tourist, balloon kid, grandma) and Big Barry, as chunky big-headed figurines on a shared body. They are built from scripts (`art/blender/*.py`) so proportions and colors can be retuned and re-exported in seconds. The user's new mood image (`docs/mood/coaster_town_mood.png`) pushes toward a denser painted island park; details in `docs/asset-brief.md` → Status.
 
+Paint-over test: the mood image's painted look is out of reach for flat low-poly rendering alone, so we tried a painted background plate. A 3D render from a new mood camera, repainted by Krea image-to-image at denoise 0.45, keeps the layout and matches the mood closely (`docs/style-test/round-1/paintover_test.png`). If it holds up, the art plan shifts: the static park gets painted, and 3D modeling is only for the moving parts.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

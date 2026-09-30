@@ -1,0 +1,12 @@
+{
+ "size": [
+  1536,
+  960
+ ],
+ "prompt": "Cozy hand-painted isometric theme park game art, seen from the front and above. Richly detailed painterly illustration like a premium mobile park builder: warm cobblestone plaza paving, lush grass with tiny flowers, dense round autumn trees and pine trees, wooden benches, lamp posts, flower beds, a red and white striped carousel, a small snack stand with a striped awning, a queue of tiny cheerful guests, in the middle a square 4 by 4 grid of green tiles with a few colored crates and a red wooden rollercoaster track rising in loops, a striped station canopy below the grid. Warm sunny afternoon light, soft shadows, saturated friendly colors, crisp dark outlines, no text, no UI.",
+ "krea": {
+  "init": "art/paintover/mood_render_1536.png",
+  "denoise": 0.45
+ },
+ "out": "art/comfy/out/paint_i2i_45"
+}
