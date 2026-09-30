@@ -500,6 +500,8 @@ export interface PersonGeo {
   shoulderY: number;
   shoulderX: number;
   headY: number;
+  /** Where the mouth is (after the head tilts back), for puke to come out of. */
+  mouth: Vector3;
   hipX: number;
   hipY: number;
   scale: number;
@@ -509,7 +511,7 @@ export interface PersonGeo {
  * Clay expressions. In line: smile, grin (excited), cocky, nervous, meh.
  * On the ride: joy (laughing, hands up), scream, terror, sick.
  */
-export type Face = 'smile' | 'grin' | 'cocky' | 'nervous' | 'meh' | 'joy' | 'scream' | 'terror' | 'sick';
+export type Face = 'smile' | 'grin' | 'cocky' | 'nervous' | 'meh' | 'joy' | 'scream' | 'terror' | 'sick' | 'puke';
 
 function lookKey(l: Look): string {
   return [l.skin, l.hair, l.hairStyle, l.shirt, l.pants, l.accessory, l.small ? 1 : 0, l.big ? 1 : 0].join('.');
@@ -537,7 +539,7 @@ const SHOES = ['#2b2140', '#f0584e', '#fbf8f0', '#45a8e0', '#72c457', '#ffd23f']
 function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
   const g = new Geo();
   const ghost = look.pants === 4;
-  const skin = face === 'sick' ? '#a6e05a' : SKINS[look.skin];
+  const skin = face === 'sick' || face === 'puke' ? '#a6e05a' : SKINS[look.skin];
   const shirt = SHIRTS[look.shirt];
   const pants = PANTS[look.pants];
   const hair = HAIRS[look.hair];
@@ -577,6 +579,11 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
   const eye = (sx: number) => {
     const ex = sx * eyeX;
     const ez = fz - 0.004;
+    if (face === 'puke') {
+      // Squeezed shut: > <
+      sausage(g, [v3(ex - 0.02 * sx, eyeY + 0.016, ez + 0.02), v3(ex + 0.016 * sx, eyeY + 0.004, ez + 0.026), v3(ex - 0.02 * sx, eyeY - 0.01, ez + 0.02)], 0.0065, ink);
+      return;
+    }
     if (face === 'joy') {
       sausage(g, curve(v3(ex - 0.022, eyeY - 0.004, ez + 0.02), v3(ex, eyeY + 0.02, ez + 0.026), v3(ex + 0.022, eyeY - 0.004, ez + 0.02)), 0.0065, ink);
       return;
@@ -619,6 +626,7 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
     scream: [[0.034, 0.022], [0.034, 0.022]],
     terror: [[0.038, 0.012], [0.038, 0.012]],
     sick: [[0.016, -0.004], [0.016, -0.004]],
+    puke: [[0.03, 0.0], [0.03, 0.0]],
   };
   if (look.accessory !== 'shades' || face === 'scream' || face === 'terror')
     B[face].forEach(([inner, outer], k) => {
@@ -687,6 +695,12 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
       g.box(M(0, my - 0.058, mz + 0.012), 0.04, 0.009, 0.008, teeth, 0.003);
       g.sphere(v3(-headR * 0.8, hy + 0.035, fz * 0.55), 0.015, '#9fd8ff', 0.8, 1.35, 0.8, 8, 6, true);
       break;
+    case 'puke':
+      // Mouth wide open, green inside: it's coming out.
+      g.sphere(v3(0, my - 0.01, mz), 0.04, dark, 1.3, 1.45, 0.55, 14, 8, true);
+      g.sphere(v3(0, my - 0.016, mz + 0.012), 0.03, '#8cc23e', 1.2, 1.2, 0.5, 10, 6, true);
+      for (const sx of [-1, 1]) g.sphere(v3(sx * headR * 0.56, hy - 0.03, fz * 0.86), 0.032, '#9ad24e', 1, 0.95, 0.6, 8, 5, true);
+      break;
     case 'sick':
       // Puffed cheeks and a clamped wobbly mouth: here it comes.
       for (let k = 0; k < 5; k++) g.sphere(v3(-0.024 + k * 0.012, my + 0.004 + (k % 2 ? 0.004 : -0.002), mz), 0.006, '#3c5a1a', 1, 1, 0.6, 6, 4, true);
@@ -742,7 +756,9 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
       sausage(g, curve(v3(sx * 0.006, hy - 0.03, fz + 0.012), v3(sx * 0.03, hy - 0.04, fz + 0.004), v3(sx * 0.05, hy - 0.022, fz - 0.01)), 0.009, HAIRS[look.hair]);
   }
   const tiltBack = seated ? 0.15 : 0.42;
-  g.transform(new Matrix4().makeTranslation(0, hy, 0).multiply(new Matrix4().makeRotationX(-tiltBack)).multiply(new Matrix4().makeTranslation(0, -hy, 0)), headFrom);
+  const tilt = new Matrix4().makeTranslation(0, hy, 0).multiply(new Matrix4().makeRotationX(-tiltBack)).multiply(new Matrix4().makeTranslation(0, -hy, 0));
+  g.transform(tilt, headFrom);
+  const mouth = v3(0, hy - 0.06, headR * 0.98).applyMatrix4(tilt);
   // Accessories.
   if (look.accessory === 'camera') {
     g.box(M(0.02, y0 + torsoH * 0.55, 0.07), 0.07, 0.05, 0.03, PAL.ink, 0.01);
@@ -782,6 +798,7 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
     shoulderY: y0 + torsoH * 0.84,
     shoulderX: torsoW * 0.47 + 0.012,
     headY: hy + headR,
+    mouth,
     hipX: 0.042,
     hipY: y0,
     scale: look.big ? 1.9 : kid ? 0.82 : 1,

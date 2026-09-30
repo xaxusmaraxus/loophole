@@ -14,6 +14,10 @@
 // - The mode sets the base level (map 0, build 1, ride 2), combos lift it for
 //   a few bars, big combos add a fill and a +2 key lift. Park changes and the
 //   results vamp also wait for the next bar line.
+// - The ride gets its own faster "coaster chase" theme per park (same hook,
+//   each park's key, scale and instruments). setMode('ride') cuts in on the
+//   next beat with a two-bar lift-hill climb, then a crash as the theme drops.
+//   Leaving the ride for results lands a final cadence hit, then the vamp.
 // - Slow motion sweeps a lowpass down and sags the pitch of every live note
 //   a little, like a tape slowing; the tempo itself never changes.
 // - The whole bus sits behind a gentle compressor and a quiet master so the
@@ -357,6 +361,8 @@ interface Bar {
   sectionEnd: boolean;
   /** The results vamp: everyone hits the melody rhythm together. */
   tutti: boolean;
+  /** A lift-hill build bar (ride intro). */
+  lift: boolean;
 }
 
 interface BassTok {
@@ -368,6 +374,9 @@ interface Song {
   def: SongDef;
   bars: Bar[];
   vamp: Bar[];
+  /** Two lift-hill bars and a final cadence hit, for the ride theme. */
+  lift: Bar[];
+  ending: Bar;
   bass: { calm: (BassTok | undefined)[]; groove: (BassTok | undefined)[]; busy: (BassTok | undefined)[] };
 }
 
@@ -435,11 +444,11 @@ function parseBass(src: string): (BassTok | undefined)[] {
   return at;
 }
 
-function makeBar(chords: string, mel: string, first: boolean, last: boolean, tutti = false): Bar {
+function makeBar(chords: string, mel: string, first: boolean, last: boolean, tutti = false, lift = false): Bar {
   const notes = parseMel(mel);
   const at = new Array<MelNote | undefined>(16).fill(undefined);
   for (const n of notes) at[n.step] = n;
-  return { chords: parseChords(chords), notes, at, sectionStart: first, sectionEnd: last, tutti };
+  return { chords: parseChords(chords), notes, at, sectionStart: first, sectionEnd: last, tutti, lift };
 }
 
 function buildSong(def: SongDef): Song {
@@ -460,6 +469,8 @@ function buildSong(def: SongDef): Song {
     def,
     bars,
     vamp,
+    lift: [makeBar(def.tonic, 'r/16', true, false, false, true), makeBar(def.tonic, 'r/16', false, true, false, true)],
+    ending: makeBar(`V ${def.tonic}`, '5/2 5/2 5/2 r/2 8/8', true, true, true),
     bass: { calm: parseBass(def.bass.calm), groove: parseBass(def.bass.groove), busy: parseBass(def.bass.busy) },
   };
 }
@@ -471,6 +482,73 @@ const SONGS: Record<ParkId, Song> = {
   finale: buildSong(SONG_DEFS.finale),
 };
 
+// ---- The ride theme: one coaster-chase hook, played in each park's own
+// key, scale and instruments at a gallop. Degrees are chosen to sit on the
+// chords in major, mixolydian and harmonic minor alike (no 7ths over bVII).
+const RIDE_A_MEL = [
+  '1/2 1/1 3/1 5/2 1/2 8/4 5/4',
+  '6/2 5/2 3/2 5/2 3/2 2/2 1/4',
+  '4/2 4/1 2/1 4/2 9/2 11/4 9/4',
+  '8/3 6/1 8/2 6/2 8/4 r/4',
+  '1/2 1/1 3/1 5/2 1/2 8/2 10/2 12/4',
+  '10/2 8/2 5/2 8/2 10/2 12/2 10/4',
+  '11/3 11/1 10/2 8/2 6/4 8/4',
+  '9/4 12/4 9/2 5/2 9/2 r/2',
+];
+const RIDE_B_MEL = [
+  '8/1 8/1 r/1 8/1 r/1 8/1 6/2 4/2 6/2 8/4',
+  '11/2 10/2 8/2 6/2 8/8',
+  '5/1 5/1 r/1 5/1 r/1 5/1 3/2 1/2 3/2 5/4',
+  '8/2 5/2 3/2 5/2 8/8',
+  '8/1 8/1 r/1 8/1 r/1 8/1 6/2 8/2 13/2 13/4',
+  '13/4 8/4 6/4 8/4',
+  '12/2 12/1 12/1 9/2 12/2 r/2 9/2 5/4',
+  '5/1 5/1 5/1 5/1 9/2 9/2 12/2 12/2 r/4',
+];
+const GALLOP = 'R/2 R/1 R/1 R/2 R/1 R/1 5/2 5/1 5/1 8/2 5/1 R/1';
+
+function rideDef(id: ParkId, bpm: number, key: number, swing: number): SongDef {
+  const base = SONG_DEFS[id];
+  const minor = base.tonic === 'i';
+  return {
+    ...base,
+    bpm,
+    key,
+    swing,
+    echo: base.echo * 0.6,
+    arp: { ...base.arp, mask: 'x.x.x.x.x.x.x.x.', busy: 'xxxxxxxxxxxxxxxx' },
+    bass: { calm: GALLOP, groove: GALLOP, busy: 'R/2 R/1 R/1 8/2 R/1 R/1 5/2 5/1 5/1 8/2 a/1 a/1' },
+    drums: {
+      soft: '..x...x...x...x.',
+      kick: 'x...x...x...x...',
+      snare: '....x.......x...',
+      hat: 'xXxXxXxXxXxXxXxX',
+      kickBusy: 'x..xx...x..xx..x',
+      snareBusy: '....x..g....x.gx',
+      hatBusy: 'xXxoxXxXxXxoxXxX',
+      block: base.drums.block,
+    },
+    sections: {
+      A: {
+        chords: minor ? ['i', 'i', 'bVII', 'bVI', 'i', 'i', 'iv', 'V'] : ['I', 'I', 'bVII', 'IV', 'I', 'I', 'IV', 'V'],
+        mel: RIDE_A_MEL,
+      },
+      B: {
+        chords: minor ? ['iv', 'iv', 'i', 'i', 'bVI', 'bVI', 'V', 'V'] : ['IV', 'IV', 'I', 'I', 'IV', 'IV', 'V', 'V'],
+        mel: RIDE_B_MEL,
+      },
+    },
+    form: ['A', 'B', 'A', 'B'],
+  };
+}
+
+const RIDE_SONGS: Record<ParkId, Song> = {
+  meadow: buildSong(rideDef('meadow', 152, 65, 0.06)),
+  boardwalk: buildSong(rideDef('boardwalk', 160, 64, 0)),
+  hollow: buildSong(rideDef('hollow', 150, 62, 0.58)),
+  finale: buildSong(rideDef('finale', 164, 63, 0)),
+};
+
 // Which buses are open at each intensity level.
 const MIXES: Mix[] = [
   { bass: 0.8, pad: 1, hats: 0.5, drums: 0, arps: 0, lead: 0, counter: 0 },
@@ -478,6 +556,7 @@ const MIXES: Mix[] = [
   { bass: 1, pad: 0.5, hats: 1, drums: 1, arps: 0.85, lead: 1, counter: 0 },
   { bass: 1, pad: 0.4, hats: 1, drums: 1, arps: 1, lead: 1, counter: 0.8 },
 ];
+const LIFT_MIX: Mix = { bass: 1, pad: 0, hats: 0, drums: 1, arps: 1, lead: 0, counter: 0 };
 const SILENT: Mix = { bass: 0, pad: 0, hats: 0, drums: 0, arps: 0, lead: 0, counter: 0 };
 const BASE_LEVEL: Record<MusicMode, number> = { menu: 0, map: 0, build: 1, ride: 2, results: 0 };
 
@@ -508,8 +587,12 @@ let volume = 0.55;
 let song: Song = SONGS.meadow;
 let pending: Song | null = null;
 let mode: MusicMode = 'menu';
-let vampPending = false;
-let vampLeft = 0;
+let park: ParkId = 'meadow';
+/** Scripted bars (lift hill, ending hit, results vamp) played before the song's form resumes. */
+let queue: { song: Song; bar: Bar }[] = [];
+let scripted = false;
+/** Cut the current bar short at the next beat (entering or leaving the ride). */
+let cutPending = false;
 
 let barNo = 0; // bars played since start (never resets)
 let barIdx = 0; // position in the song's form
@@ -891,26 +974,26 @@ function mixFor(level: number): Mix {
 function onBarStart(t: number): void {
   const gr = graph;
   if (!gr) return;
-  if (pending) {
-    song = pending;
-    pending = null;
+  const wasLift = cur?.lift ?? false;
+  const q = queue.shift();
+  const next = q ? q.song : pending;
+  if (!q) pending = null;
+  if (next && next !== song) {
+    song = next;
     barIdx = 0;
     loops = 0;
     lastLead = { midi: -1, end: 0 };
     setEcho(t);
-    if (BASE_LEVEL[mode] >= 1) crashBar = barNo;
+    if (!q && BASE_LEVEL[mode] >= 1) crashBar = barNo;
   }
-  if (vampPending) {
-    vampPending = false;
-    vampLeft = song.vamp.length;
-  }
-  const inVamp = vampLeft > 0;
-  cur = inVamp ? song.vamp[song.vamp.length - vampLeft] : song.bars[barIdx % song.bars.length];
+  scripted = !!q;
+  cur = q ? q.bar : song.bars[barIdx % song.bars.length];
+  if (wasLift && !cur.lift) crashBar = barNo; // over the top of the lift hill
   const lifted = barNo < boostUntil ? boost : 0;
-  curLevel = inVamp ? 3 : Math.min(3, BASE_LEVEL[mode] + lifted);
+  curLevel = cur.tutti ? 3 : Math.min(3, BASE_LEVEL[mode] + lifted);
   shift = barNo >= liftFrom && barNo < liftUntil ? 2 : 0;
   prevMix = curMix;
-  curMix = mixFor(curLevel);
+  curMix = cur.lift ? LIFT_MIX : mixFor(curLevel);
   for (const l of LAYERS) {
     const v = curMix[l];
     gr.bus[l].gain.setTargetAtTime(v, t, v >= prevMix[l] ? 0.04 : 0.25);
@@ -918,9 +1001,8 @@ function onBarStart(t: number): void {
 }
 
 function advanceBar(): void {
-  if (cur && cur.tutti) {
-    if (vampLeft > 0) vampLeft--;
-    if (vampLeft === 0) barIdx = 0;
+  if (scripted) {
+    if (queue.length === 0) barIdx = 0;
   } else {
     barIdx++;
     if (barIdx >= song.bars.length) {
@@ -942,6 +1024,14 @@ function tick(): void {
     const ahead = hidden ? 1.1 : LOOKAHEAD;
     let guard = 0;
     while (nextT < now + ahead && guard++ < 64) {
+      if (cutPending && step % 4 === 0) {
+        // Entering or leaving the ride: end this bar early, right on the beat.
+        cutPending = false;
+        if (step !== 0) {
+          step = 0;
+          barNo++;
+        }
+      }
       if (step === 0) onBarStart(nextT);
       scheduleStep(step, nextT - step * stepDur());
       nextT += stepDur();
@@ -961,6 +1051,10 @@ function scheduleStep(s: number, base: number): void {
   const b = cur;
   if (!gr || !b) return;
   const t = base + offs(s);
+  if (b.lift) {
+    liftStep(b, s, t);
+    return;
+  }
   const on = (l: Layer) => curMix[l] > 0.001 || (prevMix[l] > 0.001 && s < 4);
   const ch = chordAt(b, s);
 
@@ -975,6 +1069,63 @@ function scheduleStep(s: number, base: number): void {
     const end = base + offs(n.step + n.len);
     if (on('lead')) leadNote(n, t, end);
     if (on('counter')) counterNote(n, t, end, ch);
+  }
+}
+
+/** A noise sweep: bandpass from f0 to f1 over len, swelling to vol at peak (fraction of len). */
+function riser(t: number, len: number, f0: number, f1: number, vol: number, peak: number, dest: AudioNode, q = 2): void {
+  const c = ctx;
+  const gr = graph;
+  if (!c || !gr || len <= 0.02) return;
+  const src = c.createBufferSource();
+  src.buffer = gr.noise;
+  src.loop = true;
+  const f = c.createBiquadFilter();
+  f.type = 'bandpass';
+  f.Q.value = q;
+  f.frequency.setValueAtTime(f0, t);
+  f.frequency.exponentialRampToValueAtTime(f1, t + len);
+  const g = c.createGain();
+  const tp = t + Math.max(0.005, len * peak);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(Math.max(0.0002, vol), tp);
+  g.gain.exponentialRampToValueAtTime(0.0001, Math.max(tp + 0.01, t + len));
+  src.connect(f).connect(g).connect(dest);
+  src.onended = () => {
+    src.disconnect();
+    f.disconnect();
+    g.disconnect();
+  };
+  src.start(t, Math.random() * 0.5);
+  src.stop(Math.max(tp + 0.01, t + len) + 0.02);
+}
+
+/** The lift hill: chain clacks, a chromatic climb from tonic to dominant, a snare roll into the drop. */
+function liftStep(b: Bar, s: number, t: number): void {
+  const gr = graph;
+  if (!gr) return;
+  const d = song.def;
+  const sd = stepDur();
+  const pos = (b.sectionStart ? 0 : 16) + s; // 0..31 across the two bars
+  if (pos === 0) riser(t, sd * 32, 300, 6500, 0.05, 0.97, gr.bus.drums, 1.5);
+  noiseHit(t, 0.018, s % 4 === 0 ? 0.07 : 0.04, 'bandpass', 3200, gr.bus.drums, 5);
+  const semi = Math.floor(pos / 4);
+  if (s % 2 === 0) {
+    const m = placeIn(d.key, 60) + semi + shift;
+    tone({ t, dur: sd * 1.6, midi: m, wave: 'p25', vol: 0.035 + (0.02 * pos) / 32, dest: gr.bus.arps, s: 0.5, r: 0.03 });
+    tone({ t, dur: sd, midi: m + 12, wave: 'p12', vol: 0.02, dest: gr.bus.arps, s: 0.3 });
+    tone({ t, dur: sd * 1.7, midi: placeIn(d.key, 40) + semi + shift, wave: 'triangle', vol: 0.3, dest: gr.bus.bass, s: 0.7 });
+  }
+  const dr = gr.bus.drums;
+  if (pos < 16) {
+    if (s % 4 === 0) kick(t, 0.3, dr);
+    if (s === 4 || s === 12) snare(t, 0.12, dr);
+  } else if (s < 12) {
+    if (s % 2 === 0) kick(t, 0.32, dr);
+    snare(t, 0.05 + (0.1 * s) / 12, dr);
+  } else {
+    snare(t, 0.12 + 0.03 * (s - 12), dr);
+    snare(t + sd / 2, 0.13 + 0.03 * (s - 12), dr);
   }
 }
 
@@ -1483,26 +1634,83 @@ export const music = {
   /** Switch song; the change lands on the next bar line. */
   setPark(id: ParkId): void {
     safe(() => {
-      const s = SONGS[id];
-      if (!s) return;
+      if (!SONGS[id]) return;
+      park = id;
+      const target = mode === 'ride' ? RIDE_SONGS[id] : SONGS[id];
       if (!running()) {
-        song = s;
+        song = target;
         pending = null;
+        queue = [];
         barIdx = 0;
         loops = 0;
         return;
       }
-      pending = s === song ? null : s;
+      pending = target === song ? null : target;
     });
   },
 
-  /** Base intensity: menu/map gentle, build groove, ride full; results plays a little outro. */
+  /**
+   * menu/map gentle, build groove. ride cuts to the ride theme on the next beat
+   * (lift hill, then the drop); results ends a ride with a cadence hit, then an outro vamp.
+   */
   setMode(m: MusicMode): void {
     safe(() => {
       if (m === mode) return;
+      const prev = mode;
       mode = m;
-      vampPending = m === 'results';
-      if (m !== 'results') vampLeft = 0;
+      const ride = RIDE_SONGS[park];
+      const home = SONGS[park];
+      if (!running()) {
+        queue = [];
+        pending = null;
+        song = m === 'ride' ? ride : home;
+        barIdx = 0;
+        loops = 0;
+        return;
+      }
+      if (m === 'ride') {
+        queue = ride.lift.map((bar) => ({ song: ride, bar }));
+        pending = null;
+        cutPending = true;
+      } else if (prev === 'ride') {
+        if (m === 'results') {
+          queue = [{ song: ride, bar: ride.ending }, ...home.vamp.map((bar) => ({ song: home, bar }))];
+          pending = null;
+          cutPending = true;
+        } else {
+          queue = [];
+          pending = home;
+          cutPending = false;
+        }
+      } else if (m === 'results') {
+        queue = home.vamp.map((bar) => ({ song: home, bar }));
+      } else {
+        queue = [];
+        if (song !== home) pending = home;
+      }
+    });
+  },
+
+  /** A quick whoosh on the next beat for big drops and inversions (ride only, subtle). */
+  rideEvent(kind: 'drop' | 'loop'): void {
+    safe(() => {
+      if (!running() || !ctx || !graph) return;
+      const now = ctx.currentTime;
+      const beat = stepDur() * 4;
+      let t = nextBeat().t;
+      if (t - now < 0.15) t += beat;
+      const pre = Math.min(t - now - 0.01, beat);
+      const dest = graph.sting;
+      if (kind === 'drop') {
+        riser(t - pre, pre + 0.05, 700, 5000, 0.03, 0.95, dest);
+        riser(t, beat * 1.5, 5000, 250, 0.028, 0.03, dest);
+        tone({ t, dur: 0.25, midi: 40, bend: 28, wave: 'sine', vol: 0.18, dest, s: 0.3, sagged: false });
+      } else {
+        riser(t - pre, pre + 0.05, 400, 2500, 0.022, 0.95, dest);
+        riser(t, beat * 2, 2500, 400, 0.022, 0.4, dest);
+        const k = placeIn(song.def.key + shift, 72);
+        tone({ t, dur: beat * 2, midi: k, bend: k + 12, wave: 'sine', vol: 0.03, dest, a: 0.1, s: 0.5, r: 0.2, vib: 25, vibRate: 6 });
+      }
     });
   },
 

@@ -98,6 +98,12 @@ export interface Walker {
   /** Who it is and how the ride went (the curtain call). */
   rider?: Rider;
   pukes?: number;
+  /** How they leave: queue for the porta-potty, run back for another go, or float off (ghosts). */
+  exit?: 'potty' | 'again' | 'float';
+  /** Height floated so far (ghosts). */
+  fly?: number;
+  /** Gone into the porta-potty. */
+  gone?: boolean;
 }
 
 /** A slow-motion camera shot on something (a rider, the lead car). */
@@ -236,7 +242,7 @@ export class Renderer {
   private snapUntil = 0;
   private caption: HTMLDivElement;
   private beat = 0;
-  private photoReq: { due: number; pose: () => { eye: Vector3; look: Vector3; up: Vector3 } } | null = null;
+  private photoReq: { due: number; pose: () => { eye: Vector3; look: Vector3; up: Vector3; splat?: boolean } } | null = null;
   private polaroid: HTMLDivElement | null = null;
   private bars: HTMLDivElement[] = [];
   /** Riders lined up after the ride, by car index. */
@@ -468,6 +474,8 @@ export class Renderer {
     this.show.end();
     this.walkers = [];
     this.lineup = [];
+    this.potties = [];
+    this.streams = [];
     this.polaroid?.remove();
     this.polaroid = null;
     this.photoReq = null;
@@ -879,6 +887,51 @@ export class Renderer {
   }
 
   /** A green spray from `at` along `dir`, carried along by `carry` (the car's velocity). */
+  /** Puke streams: emitted from a (moving) mouth over time, so it gushes instead of popping. */
+  private streams: { src: () => { p: Vector3; dir: Vector3; carry?: Vector3 } | null; until: number; start: number; rate: number; big: boolean }[] = [];
+
+  /**
+   * A proper puke: a gush from the mouth for `ms`, following the head as it moves.
+   * `dir` is where the face points; gravity arcs it down, chunks and all.
+   */
+  pukeStream(src: () => { p: Vector3; dir: Vector3; carry?: Vector3 } | null, ms: number, big = false): void {
+    this.streams.push({ src, start: this.gameNow, until: this.gameNow + ms, rate: big ? 220 : 130, big });
+  }
+
+  private updateStreams(dt: number): void {
+    const ramp = ['#a6e05a', '#8cc23e', '#c8e86a', '#6fae2e', '#b6d84a'];
+    this.streams = this.streams.filter((st) => {
+      if (this.gameNow > st.until) return false;
+      const s = st.src();
+      if (!s) return false;
+      // Hardest at the start, sputtering out at the end.
+      const life = (this.gameNow - st.start) / Math.max(1, st.until - st.start);
+      const surge = 1 - life * 0.75;
+      const n = Math.max(0, Math.round(st.rate * dt * surge + Math.random() * 0.6));
+      const dir = s.dir.clone().normalize();
+      for (let k = 0; k < n; k++) {
+        const chunk = Math.random() < 0.08;
+        const v = dir.clone().multiplyScalar((st.big ? 1.9 : 1.45) * (0.75 + Math.random() * 0.45) * surge + 0.25);
+        v.x += (Math.random() - 0.5) * 0.35;
+        v.y += (Math.random() - 0.5) * 0.25;
+        v.z += (Math.random() - 0.5) * 0.35;
+        if (s.carry) v.addScaledVector(s.carry, 0.85);
+        const p = s.p.clone().addScaledVector(dir, 0.015);
+        this.particles.add({
+          p,
+          v,
+          g: 5.5,
+          max: 1.8,
+          color: chunk ? (Math.random() < 0.5 ? '#e8a33a' : '#f3e7a0') : ramp[Math.floor(Math.random() * ramp.length)],
+          size: chunk ? 0.022 : (st.big ? 0.02 : 0.014) + Math.random() * 0.016,
+          puke: Math.random() < 0.3,
+          drag: 0.2,
+        });
+      }
+      return true;
+    });
+  }
+
   puke(at: Vector3, n = 8, carry?: Vector3, dir?: Vector3): void {
     const ramp = ['#a6e05a', '#6fae2e', '#c8e86a', '#4f8a1f'];
     const d = dir ?? v3(0, 0.4, 1);
@@ -1042,6 +1095,8 @@ export class Renderer {
     this.drawQueue(dt);
     this.updateThoughts();
     this.updateWalkers(gdt);
+    this.updateStreams(gdt);
+    this.updatePotties();
     if (this.ride) {
       this.ride.update(this.gameNow, gdt);
       this.ride.draw(this.gameNow);
@@ -1819,18 +1874,26 @@ export class Renderer {
         arms: puking ? 0.35 : 0,
       });
       if (puking) rig.rotation.x = 0.45;
+      if (w.exit === 'float') {
+        // Ghosts drift up and fade into the sky.
+        w.fly = (w.fly ?? 0) + dt * 0.5;
+        rig.position.y += w.fly;
+        rig.scale.multiplyScalar(Math.max(0.05, 1 - w.fly * 0.45));
+        rig.rotation.y = w.fly * 3;
+        if (w.fly > 2) w.hold = false;
+      }
       if (w.mood) {
         const g = personGeo(w.look, 'smile');
         this.bubble(w.mood, v3(w.x, this.floorY(w.x, w.z) + g.headY * g.scale * STAND_SCALE + 0.05, w.z));
       }
     }
-    this.walkers = this.walkers.filter((w) => w.hold || !(w.x === w.tx && w.z === w.tz));
+    this.walkers = this.walkers.filter((w) => !w.gone && (w.hold || !(w.x === w.tx && w.z === w.tz)));
   }
 
   // ---- Train -------------------------------------------------------------------------
 
   /** Places one car on the track at arc length s, with its rider (if any). */
-  car(kind: CarKind, s: number, rider?: { look: Rider['look']; face: Face; arms: number }): { head: Vector3; fwd: Vector3; up: Vector3 } {
+  car(kind: CarKind, s: number, rider?: { look: Rider['look']; face: Face; arms: number }): { head: Vector3; mouth: Vector3; fwd: Vector3; up: Vector3 } {
     const f = this.path.sample(s);
     const m = new Matrix4().makeBasis(f.right, f.up, f.t).setPosition(f.p.clone().addScaledVector(f.up, 0.025)).multiply(new Matrix4().makeScale(CAR_SCALE, CAR_SCALE, CAR_SCALE));
     const c = this.cars.get();
@@ -1838,13 +1901,15 @@ export class Renderer {
     c.matrix.copy(m);
     c.matrixWorldNeedsUpdate = true;
     let head = f.p.clone().addScaledVector(f.up, 0.3);
+    let mouth = head.clone();
     if (rider) {
       const seat = new Matrix4().copy(m).multiply(M(0, 0.075, -0.025)).multiply(new Matrix4().makeScale(0.76, 0.76, 0.76));
       this.person(rider.look, null, { seated: true, matrix: seat, face: rider.face, arms: rider.arms });
       const g = personGeo(rider.look, rider.face, true);
       head = v3(0, (g.headY - 0.03) * g.scale, 0.09 * g.scale).applyMatrix4(seat);
+      mouth = g.mouth.clone().multiplyScalar(g.scale).applyMatrix4(seat);
     }
-    return { head, fwd: f.t, up: f.up };
+    return { head, mouth, fwd: f.t, up: f.up };
   }
 
   private drawParkedTrain(): void {
@@ -1893,7 +1958,7 @@ export class Renderer {
   }
 
   /** Take the on-ride photo shortly, from a camera mounted on the track. */
-  requestPhoto(pose: () => { eye: Vector3; look: Vector3; up: Vector3 }, delay = 60): void {
+  requestPhoto(pose: () => { eye: Vector3; look: Vector3; up: Vector3; splat?: boolean }, delay = 60): void {
     if (photoStore.url || this.photoReq) return;
     this.photoReq = { due: this.now + delay, pose };
   }
@@ -1940,6 +2005,23 @@ export class Renderer {
     g.addColorStop(1, 'rgba(20,12,30,0.4)');
     o.fillStyle = g;
     o.fillRect(0, 0, 640, 480);
+    // Sometimes the puke cam gets hit.
+    if (pose.splat) {
+      const sx = Math.random() < 0.5 ? 80 : 560;
+      const sy = 90 + Math.random() * 260;
+      o.fillStyle = 'rgba(150, 200, 70, 0.78)';
+      for (let k = 0; k < 9; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const d = k === 0 ? 0 : 20 + Math.random() * 45;
+        o.beginPath();
+        o.arc(sx + Math.cos(a) * d, sy + Math.sin(a) * d, k === 0 ? 34 : 6 + Math.random() * 12, 0, Math.PI * 2);
+        o.fill();
+      }
+      o.fillStyle = 'rgba(230, 250, 180, 0.5)';
+      o.beginPath();
+      o.arc(sx - 10, sy - 12, 9, 0, Math.PI * 2);
+      o.fill();
+    }
     // The disposable camera's date stamp.
     const d = new Date();
     const stamp = `'${String(d.getFullYear()).slice(2)} ${d.getMonth() + 1} ${d.getDate()}`;
@@ -2053,23 +2135,134 @@ export class Renderer {
   lineupPuke(i: number, n: number): void {
     const w = this.lineup[i];
     if (!w) return;
-    w.pukeUntil = this.gameNow + 700;
+    w.pukeUntil = this.gameNow + 900;
     w.sick = true;
-    this.puke(this.lineupHead(i), n, undefined, v3(0, 0.1, 1));
+    // Doubled over: out of the mouth, forward and down.
+    this.pukeStream(() => (this.lineup.includes(w) ? { p: this.lineupHead(i).add(v3(0, -0.06, 0.06)), dir: v3(0, -0.35, 1) } : null), 500 + Math.min(700, n * 25), n > 40);
   }
 
   /** The curtain call is over: everyone heads for the exits. */
+  /**
+   * The curtain call is over. Everyone leaves in character: pukers wobble off to
+   * queue for the porta-potties, happy riders run back to the line for another go,
+   * and ghosts float away.
+   */
   dismiss(): void {
+    const n = this.n;
+    const z = this.board.station.y + 2.02;
+    this.potties = [
+      { x: -0.28, z, dir: 1 },
+      { x: n + 0.28, z, dir: -1 },
+    ].map((p) => ({ ...p, ...this.buildPotty(p.x, p.z), line: [] as Walker[], entering: null as Walker | null, busyUntil: 0, shakeUntil: 0, doorUntil: 0 }));
     this.lineup.forEach((w, i) => {
-      w.hold = false;
-      const side = w.x < this.stationCenter().x ? -1 : 1;
-      w.tx = w.x + side * (1.4 + Math.random() * 0.8);
-      w.tz = w.z + 0.4 + Math.random() * 0.4;
-      w.speed = 0.8 + Math.random() * 0.3;
-      w.delay = i * 60;
-      w.mood = w.sick ? (Math.random() < 0.5 ? 'sick' : 'happy') : 'meh';
+      w.delay = i * 70;
+      w.mood = undefined;
+      if (w.rider?.kind === 'ghost') {
+        w.exit = 'float';
+        w.fly = 0;
+        w.hold = true;
+      } else if ((w.pukes ?? 0) > 0) {
+        const pot = this.potties[w.x < n / 2 ? 0 : 1];
+        w.exit = 'potty';
+        w.hold = true;
+        w.speed = 0.5 + Math.random() * 0.15;
+        w.sick = true;
+        pot.line.push(w);
+        this.linePotty(pot);
+      } else {
+        w.exit = 'again';
+        w.hold = false;
+        const q = this.slot(Math.max(0, this.game.queue.length - 1));
+        w.tx = q.x + (Math.random() - 0.5) * 0.3;
+        w.tz = q.z;
+        w.speed = 1.5 + Math.random() * 0.4;
+        if (Math.random() < 0.5) this.after(i * 70 + 200, () => this.word('AGAIN!', v3(w.x, 0.7, w.z), PAL.gold, 0.8));
+      }
     });
     this.lineup = [];
+  }
+
+  /** Porta-potties at the front corners of the plaza while the park empties. */
+  private potties: {
+    x: number;
+    z: number;
+    dir: number;
+    group: Group;
+    door: Group;
+    line: Walker[];
+    entering: Walker | null;
+    busyUntil: number;
+    shakeUntil: number;
+    doorUntil: number;
+  }[] = [];
+
+  /** Queue spots: a line running in toward the middle of the plaza. */
+  private linePotty(p: (typeof this.potties)[number]): void {
+    p.line.forEach((w, k) => {
+      w.tx = p.x + p.dir * (0.3 + k * 0.24);
+      w.tz = p.z + 0.08;
+    });
+  }
+
+  private buildPotty(x: number, z: number): { group: Group; door: Group } {
+    const g = new Geo();
+    const body = '#45a8e0';
+    g.box(M(0, 0.26, 0), 0.26, 0.5, 0.26, body, 0.03, shade(body, 0.12));
+    g.box(M(0, 0.53, 0), 0.3, 0.05, 0.3, shade(body, -0.2), 0.02);
+    g.cube(0, 0.012, 0, 0.3, 0.024, 0.3, '#d9dbe6', 0.006);
+    const group = new Group();
+    const mesh = new Mesh(g.build(), MATS.matte);
+    mesh.castShadow = true;
+    group.add(mesh);
+    // The door, hinged on its left edge, with a crescent moon.
+    const d = new Geo();
+    d.box(M(0.11, 0.24, 0), 0.22, 0.42, 0.02, '#2f86c8', 0.008);
+    d.sphere(v3(0.11, 0.4, 0.012), 0.03, '#ffd23f', 1, 1, 0.3, 10, 6, true);
+    d.sphere(v3(0.122, 0.405, 0.016), 0.026, '#2f86c8', 1, 1, 0.3, 10, 6, true);
+    const door = new Group();
+    door.add(new Mesh(d.build(), MATS.matte));
+    door.position.set(-0.11, 0.02, 0.135);
+    group.add(door);
+    group.position.set(x, 0, z);
+    group.scale.setScalar(1.15);
+    this.world.add(group);
+    return { group, door };
+  }
+
+  /** The front of each potty line goes in; the potty rocks and puffs; the line shuffles up. */
+  private updatePotties(): void {
+    const now = this.gameNow;
+    for (const p of this.potties) {
+      p.line = p.line.filter((w) => !w.gone);
+      const front = p.line[0];
+      if (!p.entering && front && now > p.busyUntil && front.delay <= 0 && front.x === front.tx && front.z === front.tz) {
+        p.entering = front;
+        p.doorUntil = now + 900;
+        front.tx = p.x;
+        front.tz = p.z;
+        front.speed = 0.6;
+      }
+      const e = p.entering;
+      if (e && e.x === e.tx && e.z === e.tz) {
+        e.gone = true;
+        e.hold = false;
+        this.walkers = this.walkers.filter((w) => w !== e);
+        p.entering = null;
+        p.busyUntil = now + 1300;
+        p.shakeUntil = now + 1100;
+        this.after(250, () => {
+          this.puke(v3(p.x, 0.62, p.z), 10, undefined, v3(0, 1, 0));
+          sfx.sick();
+        });
+        p.line = p.line.filter((w) => w !== e);
+        this.linePotty(p);
+      }
+      // Door swings open for whoever's going in; the whole potty rocks after.
+      const open = now < p.doorUntil ? Math.min(1, (p.doorUntil - now) / 250, (now - (p.doorUntil - 900)) / 200) : 0;
+      p.door.rotation.y = -1.7 * Math.max(0, open);
+      const shake = now < p.shakeUntil ? Math.sin(now / 35) * 0.06 * ((p.shakeUntil - now) / 1100) : 0;
+      p.group.rotation.z = shake;
+    }
   }
 }
 

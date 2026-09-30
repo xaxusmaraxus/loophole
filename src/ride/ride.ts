@@ -1,4 +1,5 @@
 import { Vector3 } from 'three';
+import { music } from '../core/music';
 import { sfx } from '../core/sfx';
 import type { DayResult } from '../game';
 import type { Board, RideStop } from '../puzzle/board';
@@ -149,6 +150,13 @@ export class RideAnim {
   private park: number;
   private lastT = 0;
   private seated: boolean[] = [];
+  /** Per car: where the rider's mouth is, which way the car faces, and its up. */
+  private mouths: Vector3[] = [];
+  private fwds: Vector3[] = [];
+  private ups: Vector3[] = [];
+  private pukeUntil: number[] = [];
+  /** The timeline event the on-ride photo waits for. */
+  private photoPuke = -1;
   private boostUntil = 0;
   private brakeUntil = 0;
   private rolling = false;
@@ -171,6 +179,13 @@ export class RideAnim {
     this.sick = new Array(n).fill(false);
     this.scream = new Array(n).fill(0);
     this.heads = new Array(n).fill(null).map(() => new Vector3());
+    this.mouths = new Array(n).fill(null).map(() => new Vector3());
+    this.fwds = new Array(n).fill(null).map(() => new Vector3(0, 0, 1));
+    this.ups = new Array(n).fill(null).map(() => new Vector3(0, 1, 0));
+    this.pukeUntil = new Array(n).fill(0);
+    // The photo: the boss's first puke if the boss goes, else the first puke of the ride.
+    const pukes = result.timeline.map((e, i) => ({ e, i })).filter(({ e }) => e.kind === 'puke');
+    this.photoPuke = (pukes.find(({ e }) => e.kind === 'puke' && e.boss) ?? pukes[0])?.i ?? -1;
     this.hRef = this.path.maxHeight() + 0.25;
     this.momentPicks = pickMoments(this.path.cells.map((c) => (c.station ? 0 : c.tier)));
     show.begin(result);
@@ -195,6 +210,7 @@ export class RideAnim {
     if (!this.rolling) {
       this.rolling = true;
       sfx.bell();
+      music.setMode('ride');
     }
     if (!this.doneAt) {
       // Speed from the train's height: slow over the tops, fast in the dips.
@@ -222,11 +238,12 @@ export class RideAnim {
       // The on-ride camera fires as the train rolls into the wildest piece.
       // Snap on the level run just before it, while everyone's still facing the camera.
       const level = lead.up.y > 0.95 && Math.abs(lead.t.y) < 0.2;
-      if (!this.photoTaken && level && this.nearTopPick(this.carS(0))) this.snap();
+      // (Only when nobody pukes: otherwise the camera waits for the first puke.)
+      if (!this.photoTaken && this.photoPuke < 0 && level && this.nearTopPick(this.carS(0))) this.snap();
       this.checkMoment(now, lead.p.y, lead.up.y, lead.cell);
       // No wild piece (or it was missed)? The camera fires partway round instead.
       // (On a level stretch if there is one; right before the station at the latest.)
-      if (!this.photoTaken && this.d > this.route.total * (this.momentPicks.size ? 0.6 : 0.45) && (level || this.d > this.route.total * 0.95)) this.snap();
+      if (!this.photoTaken && this.photoPuke < 0 && this.d > this.route.total * (this.momentPicks.size ? 0.6 : 0.45) && (level || this.d > this.route.total * 0.95)) this.snap();
       for (let i = 0; i < this.cars; i++) {
         const stop = this.route.stopAt(this.d - i * CAR_GAP);
         if (stop < 0 || stop === this.carCell[i]) continue;
@@ -271,6 +288,24 @@ export class RideAnim {
       const look = h0.clone().lerp(back, 0.5).addScaledVector(lead.up, -0.05);
       return { eye, look, up: lead.up.clone().lerp(new Vector3(0, 1, 0), 0.6).normalize() };
     });
+  }
+
+  /** The puke cam: three-quarters from the front of the puking rider, stream and all. */
+  private snapPuke(car: number): void {
+    this.photoTaken = true;
+    this.r.requestPhoto(
+      () => {
+        const up = this.ups[car].clone().lerp(new Vector3(0, 1, 0), 0.6).normalize();
+        const fwd = this.fwds[car].clone();
+        const right = up.clone().cross(fwd).normalize();
+        const side = Math.random() < 0.5 ? 1 : -1;
+        const m = this.mouths[car];
+        const eye = m.clone().addScaledVector(fwd, 0.85).addScaledVector(right, side * 0.62).addScaledVector(up, 0.16);
+        const look = m.clone().addScaledVector(fwd, 0.3).addScaledVector(up, -0.08);
+        return { eye, look, up, splat: Math.random() < 0.5 };
+      },
+      260,
+    );
   }
 
   /** Slow motion at the crown of a loop or the lip of a drop, a few times a ride. */
@@ -348,8 +383,24 @@ export class RideAnim {
     else if (e.kind === 'puke') {
       this.sick[e.car] = true;
       const hit = Math.min(1, e.pay / Math.max(1, this.result.target * 0.15));
-      const carry = this.fwd.clone().multiplyScalar(this.v * this.route.dirAt(this.d));
-      this.r.puke(w, e.boss ? 90 : 14 + Math.round(hit * 30), this.doneAt ? undefined : carry, this.fwd.clone().multiplyScalar(0.5).add(new Vector3(0, 0.3, 0)));
+      const car = e.car;
+      // A gush straight out of the rider's mouth, carried along with the train.
+      const ms = e.boss ? 1500 : 550 + hit * 500;
+      this.pukeUntil[car] = now + ms;
+      this.r.pukeStream(
+        () =>
+          this.doneAt
+            ? null
+            : {
+                p: this.mouths[car].clone(),
+                dir: this.fwds[car].clone().multiplyScalar(0.9).addScaledVector(this.ups[car], 0.25),
+                carry: this.fwds[car].clone().multiplyScalar(this.v * this.route.dirAt(this.d)),
+              },
+        ms,
+        e.boss,
+      );
+      // The on-ride camera catches the first puke (the boss's, if the boss goes).
+      if (!this.photoTaken && this.timeline.indexOf(e) === this.photoPuke) this.snapPuke(car);
       if (e.boss) this.r.flashScreen(0.9);
       // Bosses and special riders get the slow-motion close-up.
       if ((e.boss || e.worth > 1) && e.nth === 1) {
@@ -469,6 +520,9 @@ export class RideAnim {
     const st = this.stops[stop];
     const tier = st.tier;
     // Special pieces: a whoosh, a splash, a screech of sparks.
+    // The music whooshes into the big stuff with the lead car.
+    if (i === 0 && tier === 3) music.rideEvent('drop');
+    else if (i === 0 && PIECES[tier].inversion) music.rideEvent('loop');
     if (st.special === 'launch' && i === 0) {
       this.boostUntil = this.r.gameNow + 1100;
       sfx.launch();
@@ -529,11 +583,15 @@ export class RideAnim {
       const shot = this.r.inShot;
       // Wild through drops, inversions and slow-motion shots; each guest in their own way.
       const wild = shot || inverted || this.scream[i] > 0;
-      const face: Face = this.sick[i] ? 'sick' : v ? rideFace(v.rider, wild) : 'smile';
+      const puking = now < this.pukeUntil[i];
+      const face: Face = puking ? 'puke' : this.sick[i] ? 'sick' : v ? rideFace(v.rider, wild) : 'smile';
       const arms = this.sick[i] ? (shot ? 0.6 : 0.15) : v ? rideArms(v.rider, wild) : 0.1;
       const kind = i === 0 ? 'lead' : i === this.cars - 1 ? 'tail' : 'mid';
       const c = this.r.car(kind, s, aboard && v ? { look: v.rider.look, face, arms } : undefined);
       this.heads[i].copy(c.head);
+      this.mouths[i].copy(c.mouth);
+      this.fwds[i].copy(c.fwd);
+      this.ups[i].copy(c.up);
       if (i === 0) this.fwd.copy(c.fwd);
     }
   }

@@ -306,7 +306,8 @@ let lastPhase = '';
 function syncMusic(): void {
   const p = game.phase;
   music.setPark(game.cfg.park.id);
-  music.setMode(p === 'intro' ? 'menu' : p === 'build' ? 'build' : p === 'ride' ? 'ride' : p === 'results' || p === 'over' || p === 'won' ? 'results' : 'map');
+  // (The ride theme starts at the dispatch bell, from the ride itself, not when Open is pressed.)
+  if (p !== 'ride') music.setMode(p === 'intro' ? 'menu' : p === 'build' ? 'build' : p === 'results' || p === 'over' || p === 'won' ? 'results' : 'map');
   if (p === 'results' && lastPhase !== 'results' && game.result && !game.result.passed) music.stinger('lose');
   lastPhase = p;
 }

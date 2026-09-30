@@ -212,6 +212,12 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **New piece tiles.** Soft clay plinths instead of slatted crates, with a chunky 3D clay model of the actual coaster element on the lid and tier pips on the front. The hierarchy reads at a glance: plain pillows for Bump and Hill, stepped feet and belts from Drop and Helix, gold trim from Loop, aqua gems on the Corkscrew, and pearl, rubies and a gold crown on the Mega Loop. Fog tiles are lavender with a big clay question mark.
 - **The route map, take two.** Calmer and more premium: a lit, painted gradient, a few big soft shapes, one themed feature (a river, the sea, the moon, bunting), a gilt frame, and only your route and the trails you can take now drawn strongly. The car token drives along the trail to the stop you pick.
 
+## Puke from the mouth, the puke cam, leaving in character (v0.19)
+- **Puking, properly.** Every puke is now a gush out of the rider's actual mouth (each guest model knows where its mouth is), emitted over half a second or more and carried along with the moving train, so it arcs out of the car and splats into puddles below, the odd chunk included. The rider pulls a proper puke face: eyes squeezed shut, green puffed cheeks, mouth wide open. Bosses gush longer and harder. The curtain-call pukes work the same way.
+- **The on-ride photo is a puke cam.** It fires a quarter second into the first puke of the ride (the boss's, if the boss goes), from three-quarters in front of the puking rider, so the photo catches the face and the stream. Half the time the lens gets hit too. Rides where nobody pukes still get the old face-on shot.
+- **Leaving in character.** After the curtain call, pukers wobble off to two porta-potties at the plaza corners and queue up; one by one they go in, the door slams, the potty rocks and burps a green puff. Riders who kept their lunch run back to the line shouting "AGAIN!". Ghosts spin, shrink and float away.
+- **Ride music.** The music switches to a dedicated, faster coaster theme the moment the train leaves, starting with a lift-hill build.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
@@ -231,6 +237,7 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Multiple stations:** two rides on one board, sharing space. Track crossings need a Tunnel or Bridge piece.
 
 ### Stuff that makes it more awesome
+- **Achievements:** a proper achievement system (first puke, a boss in one ride, five pukes from one guest, a ride with three crossings, 1,000,000 tickets...) with badges, and some unlocks tied to them.
 - *(Built in v0.17, v0.18.)* **An illustrated route map** (Slay the Spire style), with the car token driving along the trail.
 - *(Built in v0.12.)* **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
 - *(Built in v0.18.)* **Guest thoughts.**
