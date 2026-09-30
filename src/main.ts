@@ -23,7 +23,7 @@ function act(fn: () => void): void {
 }
 
 // Handy for playtesting from the browser console.
-Object.assign(window, { loophole: game, loopholeRenderer: renderer });
+Object.assign(window, { loophole: game, loopholeRenderer: renderer, loopholeHud: hud });
 
 renderer.onRideDone = () => act(() => game.rideDone());
 
@@ -81,12 +81,55 @@ wrap.addEventListener('pointerup', (e) => {
   if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) {
     const cell = renderer.cellAt(e.clientX, e.clientY);
     if (cell) act(() => game.tap(cell.x, cell.y));
+    else if (e.pointerType !== 'mouse') showGuest(e.clientX, e.clientY, true);
     return;
   }
   const dir: Dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
   act(() => game.swipe(dir));
 });
 wrap.addEventListener('pointercancel', () => (start = null));
+
+// Guests: hover one in the park (or tap on a touch screen) to meet them.
+const guestCard = document.getElementById('guestCard')!;
+let guestShown = -1;
+let guestTimer = 0;
+function showGuest(x: number, y: number, sticky = false): boolean {
+  const hit = (game.phase === 'build' || game.phase === 'intro') && !game.aiming ? renderer.guestAt(x, y) : null;
+  renderer.hoverId = hit?.rider.id ?? null;
+  wrap.style.cursor = hit ? 'help' : '';
+  clearTimeout(guestTimer);
+  if (!hit) {
+    guestCard.hidden = true;
+    guestShown = -1;
+    return false;
+  }
+  if (hit.rider.id !== guestShown) {
+    guestShown = hit.rider.id;
+    guestCard.className = `guest-card${hit.rider.kind === 'vip' ? ' vip' : ''}${hit.rider.boss ? ' boss' : ''}`;
+    guestCard.replaceChildren(hud.guestCard(hit.rider));
+  }
+  const r = wrap.getBoundingClientRect();
+  const w = 250;
+  guestCard.style.left = `${Math.min(r.width - w / 2 - 8, Math.max(w / 2 + 8, hit.x - r.left))}px`;
+  guestCard.style.top = `${hit.y - r.top}px`;
+  guestCard.hidden = false;
+  if (sticky)
+    guestTimer = window.setTimeout(() => {
+      guestCard.hidden = true;
+      guestShown = -1;
+      renderer.hoverId = null;
+    }, 2600);
+  return true;
+}
+wrap.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'mouse' || start || (e.target as HTMLElement).closest('.overlay')) return;
+  showGuest(e.clientX, e.clientY);
+});
+wrap.addEventListener('pointerleave', () => {
+  guestCard.hidden = true;
+  guestShown = -1;
+  renderer.hoverId = null;
+});
 
 document.querySelectorAll<HTMLButtonElement>('[data-dir]').forEach((b) =>
   b.addEventListener('click', () => act(() => game.swipe(b.dataset.dir as Dir))),
@@ -105,6 +148,10 @@ document.getElementById('attractions')!.addEventListener('click', (e) => {
 document.getElementById('switchEnd')!.addEventListener('click', () => act(() => game.selectEnd()));
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
 document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));
+document.getElementById('newRunHelp')!.addEventListener('click', () => {
+  (document.getElementById('helpDialog') as HTMLDialogElement).close();
+  act(() => game.newRun());
+});
 
 document.getElementById('overlay')!.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
@@ -171,10 +218,22 @@ document.getElementById('overlay')!.addEventListener('submit', (e) => {
 document.getElementById('scores')!.addEventListener('click', () => openScores());
 
 window.addEventListener('resize', () => renderer.fit());
+// The park is framed between the HUD bars: re-frame when they change size.
+let reframeQueued = false;
+const hudResize = new ResizeObserver(() => {
+  if (reframeQueued) return;
+  reframeQueued = true;
+  requestAnimationFrame(() => {
+    reframeQueued = false;
+    renderer.reframe();
+  });
+});
+for (const el of [document.getElementById('hudTop'), document.getElementById('hudUnder'), document.querySelector('.hud-bar')]) if (el) hudResize.observe(el);
 
 const soundBtn = document.getElementById('sound') as HTMLButtonElement;
 const syncSound = () => {
-  soundBtn.textContent = sfx.isMuted() ? 'Sound off' : 'Sound on';
+  soundBtn.innerHTML = `<span aria-hidden="true">${sfx.isMuted() ? '🔇' : '🔊'}</span>`;
+  soundBtn.title = sfx.isMuted() ? 'Sound off' : 'Sound on';
   soundBtn.setAttribute('aria-pressed', String(!sfx.isMuted()));
 };
 soundBtn.addEventListener('click', () => {
@@ -191,8 +250,29 @@ fsBtn.addEventListener('click', () => {
   req?.catch(() => (fsBtn.hidden = true));
 });
 document.addEventListener('fullscreenchange', () => {
-  fsBtn.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen';
+  fsBtn.title = document.fullscreenElement ? 'Exit full screen' : 'Full screen';
+  fsBtn.setAttribute('aria-label', fsBtn.title);
   requestAnimationFrame(() => renderer.fit());
+});
+
+// How to play.
+const help = document.getElementById('helpDialog') as HTMLDialogElement;
+document.getElementById('help')!.addEventListener('click', () => help.showModal());
+help.addEventListener('click', (e) => {
+  const t = e.target as HTMLElement;
+  if (t === help || t.closest('[data-close]')) help.close();
+});
+
+// Popovers open on hover; on touch screens a tap toggles them.
+document.querySelectorAll<HTMLElement>('.pop-wrap').forEach((w) =>
+  w.querySelector('button')!.addEventListener('click', () => {
+    const open = !w.classList.contains('open');
+    document.querySelectorAll('.pop-wrap.open').forEach((o) => o.classList.remove('open'));
+    w.classList.toggle('open', open);
+  }),
+);
+document.addEventListener('pointerdown', (e) => {
+  if (!(e.target as HTMLElement).closest('.pop-wrap')) document.querySelectorAll('.pop-wrap.open').forEach((o) => o.classList.remove('open'));
 });
 
 function frame(t: number): void {

@@ -10,41 +10,79 @@
   </head>
   <body>
     <div class="app">
-      <header class="top">
-        <h1 class="logo">Loop<span>hole</span></h1>
-        <div class="run">
-          <span id="day" class="chip">Day 1</span>
-          <span id="hearts" class="hearts"></span>
-          <span id="quota" class="chip quota"></span>
-          <span id="funds" class="chip funds" title="Tickets sold beyond each day's target. Spend them in the shop at the end of each park."></span>
-        </div>
-        <div class="tools">
-          <button id="scores" class="ghost" type="button">Highscores</button>
-          <button id="sound" class="ghost" type="button" aria-pressed="true">Sound on</button>
-          <button id="fullscreen" class="ghost" type="button">Full screen</button>
-          <button id="newRun" class="ghost" type="button">New season</button>
-        </div>
-      </header>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="park" aria-label="The park. Swipe to slide and merge tiles. Tap a highlighted cell to build track. Hover a guest to meet them."></canvas>
+        <div class="combo" id="combo" aria-hidden="true"></div>
+        <div class="guest-card" id="guestCard" hidden></div>
+        <div class="overlay" id="overlay" hidden></div>
+      </div>
 
-      <main class="stage">
-        <section class="park" aria-label="Park">
-          <ul id="attractions" class="attractions" aria-label="Attractions (they score left to right)"></ul>
-          <p id="dayBanner" class="day-banner" hidden></p>
+      <header class="hud-top" id="hudTop">
+        <div class="hud-left">
+          <h1 class="logo">Loop<span>hole</span></h1>
+          <span id="day" class="pill day">Day 1</span>
+          <span id="hearts" class="hearts"></span>
+        </div>
+        <div class="hud-mid">
+          <span id="quota" class="pill quota"></span>
           <div class="daylight" aria-live="off">
             <div class="daylight-track"><span id="daylightBar"></span></div>
             <span id="daylightLeft" class="daylight-left"></span>
           </div>
-          <div class="canvas-wrap" id="canvasWrap">
-            <canvas id="park" aria-label="The park. Swipe to slide and merge tiles. Tap a highlighted cell to build track."></canvas>
-            <div class="combo" id="combo" aria-hidden="true"></div>
-            <div class="overlay" id="overlay" hidden></div>
+        </div>
+        <div class="hud-right">
+          <span id="funds" class="pill funds" title="Tickets sold beyond each day's target. Spend them in the shop at the end of each park."></span>
+          <button id="scores" class="icon-btn" type="button" title="Highscores" aria-label="Highscores"><span aria-hidden="true">🏆</span></button>
+          <button id="help" class="icon-btn" type="button" title="How to play" aria-label="How to play"><span aria-hidden="true">?</span></button>
+          <button id="sound" class="icon-btn" type="button" aria-pressed="true" title="Sound" aria-label="Sound"><span aria-hidden="true">🔊</span></button>
+          <button id="fullscreen" class="icon-btn" type="button" title="Full screen" aria-label="Full screen"><span aria-hidden="true">⛶</span></button>
+          <button id="newRun" class="icon-btn text" type="button" title="Start a new season">New season</button>
+        </div>
+      </header>
+
+      <div class="hud-under" id="hudUnder">
+        <p id="dayBanner" class="day-banner" hidden></p>
+        <ul id="attractions" class="attractions" aria-label="Attractions (they score left to right)"></ul>
+      </div>
+
+      <footer class="hud-bottom" id="hudBottom">
+        <p id="station" class="station" aria-live="polite"></p>
+        <div class="hud-bar">
+          <div class="ridebar" aria-label="Today's ride">
+            <div class="rb-score" title="Excitement × multiplier = tickets for every puke">
+              <span class="chipmult"><span class="chips" id="statChips">0</span><span class="times">×</span><span class="mult" id="statMult">0</span></span>
+              <span class="rb-eq">=</span>
+              <span class="rb-rating"><strong id="statRating">0</strong><small>a puke</small></span>
+            </div>
+            <dl class="stats">
+              <div><dt>Length</dt><dd id="statLength">0</dd></div>
+              <div><dt>Thrill</dt><dd id="statThrill">0</dd></div>
+              <div><dt>Variety</dt><dd id="statVariety">0</dd></div>
+              <div><dt>Inverted</dt><dd id="statInversions">0</dd></div>
+              <div><dt>Nausea</dt><dd id="statNausea">0</dd></div>
+              <div><dt>Combo</dt><dd id="bestCombo">–</dd></div>
+            </dl>
+            <div class="pop-wrap">
+              <button type="button" class="rb-chip" id="lineChip" aria-describedby="linePop"><span class="rb-icon" aria-hidden="true">🙂</span><span id="queueCount">0</span> in line</button>
+              <div class="popover line-pop" id="linePop" role="tooltip">
+                <p class="pop-title">In line</p>
+                <p class="hint">Each rider pukes every time the ride's nausea passes their stomach (up to 5 times). Hover a guest in the park to meet them.</p>
+                <ul id="queue" class="queue"></ul>
+              </div>
+            </div>
+            <div class="pop-wrap">
+              <button type="button" class="rb-chip" id="seasonChip" aria-describedby="seasonPop"><span class="rb-icon" aria-hidden="true">⭐</span><span class="chip-label">Perks</span></button>
+              <div class="popover season-pop" id="seasonPop" role="tooltip">
+                <p class="perk-line"><span class="label">Upgrades</span> <span id="perks">None yet</span></p>
+                <p class="perk-line"><span class="label">Bus tours</span> <span id="crowd">None yet</span></p>
+              </div>
+            </div>
           </div>
-          <p id="station" class="station" aria-live="polite"></p>
           <div class="controls">
-            <button id="open" type="button" class="open">Open the ride</button>
-            <button id="switchEnd" type="button" class="switch" title="Switch which pennant keyboard building extends (Tab)">Switch end</button>
-            <button id="undo" type="button" class="undo">Undo <span id="undoCount" class="count">1</span></button>
             <div id="tools" class="toolbar" role="group" aria-label="Tools"></div>
+            <button id="undo" type="button" class="undo">Undo <span id="undoCount" class="count">1</span></button>
+            <button id="switchEnd" type="button" class="switch" title="Switch which pennant keyboard building extends (Tab)" aria-label="Switch end"><span class="sw-label">Switch end</span></button>
+            <button id="open" type="button" class="open">Open the ride</button>
             <div class="pad" role="group" aria-label="Swipe">
               <button type="button" data-dir="up" class="up" aria-label="Swipe up">↑</button>
               <button type="button" data-dir="left" class="left" aria-label="Swipe left">←</button>
@@ -52,52 +90,33 @@
               <button type="button" data-dir="right" class="right" aria-label="Swipe right">→</button>
             </div>
           </div>
-        </section>
+        </div>
+      </footer>
 
-        <aside class="side">
-          <section class="panel">
-            <h2>Today's ride</h2>
-            <div class="excitement">
-              <div class="chipmult big"><span class="chips" id="statChips">0</span><span class="times">×</span><span class="mult" id="statMult">0</span></div>
-              <p class="hint-inline">Excitement × multiplier = <strong id="statRating">0</strong> tickets for every puke.</p>
-            </div>
-            <dl class="stats">
-              <div><dt>Length</dt><dd id="statLength">0</dd></div>
-              <div><dt>Thrill</dt><dd id="statThrill">0</dd></div>
-              <div><dt>Variety</dt><dd id="statVariety">0</dd></div>
-              <div><dt>Upside down</dt><dd id="statInversions">0</dd></div>
-              <div><dt>Nausea</dt><dd id="statNausea">0</dd></div>
-            </dl>
-            <p class="perk-line"><span class="label">Best combo today</span> <span id="bestCombo">none yet</span></p>
-            <p class="perk-line"><span class="label">Upgrades</span> <span id="perks">None yet</span></p>
-            <p class="perk-line"><span class="label">Bus tours</span> <span id="crowd">None yet</span></p>
-          </section>
-
-          <section class="panel">
-            <h2>In line <span id="queueCount" class="count">0</span></h2>
-            <p class="hint">Each rider pukes every time the ride's nausea passes their stomach (up to 5 times). The ride you have standing draws a crowd with every swipe, and chain reactions draw one rider per link.</p>
-            <ul id="queue" class="queue"></ul>
-          </section>
-
-          <details class="panel howto" open>
-            <summary>How to play</summary>
-            <ol>
-              <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
-              <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
-              <li><strong>Tap a highlighted cell</strong> to build: the tile there becomes that piece of track. Track grows from both sides of the station (the red and blue pennants).</li>
-              <li>When the pennants meet, <strong>open the full circuit</strong>. Or cash out any time as a shuttle for half.</li>
-              <li>Every swipe uses daylight; building is free. After sunset you can't swipe, but you can keep building and open the ride whenever you're ready.</li>
-              <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
-              <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line. A shuttle hits every piece twice but pays half.</li>
-              <li><strong>Attractions</strong> (up to 5) add excitement or multiplier, or multiply it, left to right. Targets climb fast, so build combos.</li>
-              <li>The <strong>capsule machine</strong> (in shops and treasure stops) sells eggs. Crack one and pick: attractions, tools, or a <strong>bus tour</strong> that adds a rider type to your line every morning.</li>
-              <li>Each park ends with a <strong>boss</strong>: a huge or seasoned rider with a massive stomach. Make them puke to clear the park.</li>
-              <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
-            </ol>
-            <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
-          </details>
-        </aside>
-      </main>
+      <dialog class="help-dialog" id="helpDialog">
+        <div class="card howto">
+          <p class="eyebrow">Loophole</p>
+          <h2>How to play</h2>
+          <ol>
+            <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
+            <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
+            <li><strong>Tap a highlighted cell</strong> to build: the tile there becomes that piece of track. Track grows from both sides of the station (the red and blue pennants).</li>
+            <li>When the pennants meet, <strong>open the full circuit</strong>. Or cash out any time as a shuttle for half.</li>
+            <li>Every swipe uses daylight; building is free. After sunset you can't swipe, but you can keep building and open the ride whenever you're ready.</li>
+            <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
+            <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line (hover a guest to meet them). A shuttle hits every piece twice but pays half.</li>
+            <li><strong>Attractions</strong> (up to 5) add excitement or multiplier, or multiply it, left to right. Targets climb fast, so build combos.</li>
+            <li>The <strong>capsule machine</strong> (in shops and treasure stops) sells eggs. Crack one and pick: attractions, tools, or a <strong>bus tour</strong> that adds a rider type to your line every morning.</li>
+            <li>Each park ends with a <strong>boss</strong>: a huge or seasoned rider with a massive stomach. Make them puke to clear the park.</li>
+            <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
+          </ol>
+          <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
+          <div class="help-actions">
+            <button type="button" class="ghost-dark" id="newRunHelp">Start a new season</button>
+            <button type="button" class="primary" data-close>Got it</button>
+          </div>
+        </div>
+      </dialog>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

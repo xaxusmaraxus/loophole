@@ -38,17 +38,19 @@ import {
 } from '../puzzle/board';
 import { RideAnim, parkS } from '../ride/ride';
 import type { Rider } from '../riders/riders';
-import { Geo, rng, v3 } from '../render3d/geo';
+import { Geo, rng, shade, v3 } from '../render3d/geo';
 import { GLOW_MAT, GRASS_Y, type Island, WATER_Y, buildIsland } from '../render3d/island';
 import { type CarKind, CRATE_H, type Face, M, type Parts, carGeo, crateGeo, mysteryGeo, personGeo, rope } from '../render3d/models';
 import { Particles, Pool, bubbleMaterial, makeBubble, makeMarker, puddleGeo } from '../render3d/fx';
 import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
 import { MATS, SHARED, toon } from '../render3d/toon';
+import { FLAT, type Terrain, hillGeo, makeTerrain } from '../render3d/terrain';
 import { TrackPath, stationLayout } from '../render3d/track';
 import { buildCellTrack } from '../render3d/trackmesh';
 import { composeCard, photoStore } from '../ui/photo';
 import { ScoreShow } from '../ui/scoreshow';
 import { PAL, type ParkTheme, THEMES, TIER_RAMPS } from './palette';
+import { lineAntics, lineFace } from './moods';
 
 // The park as a little 3D diorama: cel-shaded, ink-lined, procedurally built
 // each day. It only presents: all rules live in the game.
@@ -57,7 +59,7 @@ const SLIDE_MS = 100;
 const WAVE_MS = 170;
 /** Pennant colors for the two track ends. */
 const END_COLORS = ['#f0584e', '#45a8e0'];
-const PITCH = (48 * Math.PI) / 180;
+const PITCH = (43 * Math.PI) / 180;
 const FOV = 30;
 export const CAR_GAP = 0.32;
 /** One stop-motion frame (12 a second). */
@@ -68,6 +70,8 @@ const CAR_SCALE = 1.05;
 const STAND_SCALE = 1.3;
 /** The queue starts beside the station's sign, not in front of it. */
 const QUEUE_START = 0.7;
+/** Depth of the stairs up to a raised station. */
+const STAIRS = 0.42;
 
 export interface Walker {
   look: Rider['look'];
@@ -157,6 +161,8 @@ export class Renderer {
   private lampLights: PointLight[] = [];
   /** The on-ride camera's flash: always in the scene (so no shader recompiles), lit only for the photo. */
   private rush = 0;
+  /** Hills on the board and the station's height (later parks). */
+  terrain: Terrain = FLAT;
   private flashLight = new PointLight('#fff6ea', 0, 4, 2);
   private trackKey = '';
   private cellGroups = new Map<string, Group>();
@@ -189,7 +195,8 @@ export class Renderer {
   private goEl: HTMLDivElement;
   private hover: Pt | null = null;
   private base = { target: new Vector3(), dist: 12 };
-  private aspect = 1;
+  /** The screen area the HUD leaves free (CSS pixels in the canvas). */
+  private safe = { x0: 0, x1: 1, y0: 0, y1: 1 };
   private cssW = 1;
   private cssH = 1;
   private follow = { w: 0, at: new Vector3() };
@@ -312,13 +319,25 @@ export class Renderer {
   }
 
   groundAt(x: number, z: number): number {
-    return x >= 0 && x <= this.n && z >= 0 && z <= this.n ? GRASS_Y : 0;
+    return x >= 0 && x <= this.n && z >= 0 && z <= this.n ? GRASS_Y + this.terrain.height(x, z) : this.floorY(x, z);
+  }
+
+  /** Floor height off the board: the plaza, or the raised station deck and its stairs. */
+  floorY(x: number, z: number): number {
+    const lift = this.terrain.lift;
+    if (!lift) return 0;
+    const L = stationLayout(this.board.station.x, this.n);
+    if (x < L.xL - L.R - 0.2 || x > L.xR + L.R + 0.2) return 0;
+    const deck = L.zD + 0.2;
+    const foot = deck + STAIRS;
+    if (z < this.board.station.y || z > foot) return 0;
+    return z <= deck ? lift : lift * ((foot - z) / STAIRS);
   }
 
   /** Where riders stand to board: the platform inside the station U. */
   stationCenter(): Vector3 {
     const L = stationLayout(this.board.station.x, this.n);
-    return v3((L.xL + L.xR) / 2, 0.1, (L.zU + L.zD) / 2);
+    return v3((L.xL + L.xR) / 2, 0.1 + this.terrain.lift, (L.zU + L.zD) / 2);
   }
 
   /** Feet position of the i-th rider in the snaking queue below the station. */
@@ -354,18 +373,27 @@ export class Renderer {
     const ndc = new Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     const ray = new Raycaster();
     ray.setFromCamera(ndc, this.camera);
-    // A crate's lid first, then the ground.
+    // A crate's lid or the ground, at each height the board has (hills lift some cells);
+    // the nearest hit along the ray wins.
     const hit = new Vector3();
     const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < this.n && y < this.n;
-    if (ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -(GRASS_Y + CRATE_H)), hit)) {
-      const x = Math.floor(hit.x);
-      const y = Math.floor(hit.z);
-      if (inside(x, y) && this.board.tiles[idx(this.board, x, y)]) return { x, y };
-    }
-    if (!ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -GRASS_Y), hit)) return null;
-    const x = Math.floor(hit.x);
-    const y = Math.floor(hit.z);
-    return inside(x, y) ? { x, y } : null;
+    const levels = [0, ...this.terrain.hills.map((h) => h.h)];
+    let best: Pt | null = null;
+    let bestD = Infinity;
+    for (const lv of levels)
+      for (const lid of [true, false]) {
+        if (!ray.ray.intersectPlane(new Plane(new Vector3(0, 1, 0), -(GRASS_Y + lv + (lid ? CRATE_H : 0))), hit)) continue;
+        const x = Math.floor(hit.x);
+        const y = Math.floor(hit.z);
+        if (!inside(x, y) || Math.abs(this.terrain.cell(x, y) - lv) > 0.02) continue;
+        if (lid && !this.board.tiles[idx(this.board, x, y)]) continue;
+        const d = hit.distanceTo(ray.ray.origin);
+        if (d < bestD) {
+          bestD = d;
+          best = { x, y };
+        }
+      }
+    return best;
   }
 
   /** Shake the park (keeps the stronger of overlapping shakes). */
@@ -394,8 +422,19 @@ export class Renderer {
     this.later = [];
     const park = this.game.cfg.park.id;
     const seed = this.game.dayNum * 977 + this.game.seed.charCodeAt(0) * 13 + (this.game.seed.charCodeAt(1) || 0);
+    this.terrain = makeTerrain(b, park, seed);
+    // Test hook: ?hill=x,y,w,d,h forces a hill (to see track built over one).
+    const forced = new URLSearchParams(location.search).get('hill')?.split(',').map(Number);
+    if (forced?.length === 5) this.terrain.hills.push({ x0: forced[0], y0: forced[1], x1: forced[0] + forced[2] - 1, y1: forced[1] + forced[3] - 1, h: forced[4] });
     this.island = buildIsland(b, park, seed);
     this.world.add(this.island.group);
+    if (this.terrain.hills.length) {
+      const th = this.theme;
+      const hills = new Mesh(hillGeo(this.terrain, GRASS_Y, [th.grass[1], th.grass[2]], PAL.dirt[1], seed).build(0.9), MATS.ground);
+      hills.castShadow = true;
+      hills.receiveShadow = true;
+      this.world.add(hills);
+    }
     this.world.add(this.buildStation());
     this.island.lamps.forEach((p, i) => this.lampLights[i].position.copy(p));
     this.scene.background = new Color(this.island.look.horizon);
@@ -477,8 +516,43 @@ export class Renderer {
     }
     for (let x = L.xL + 0.25; x < L.xR - 0.1; x += Math.max(0.6, (L.xR - L.xL - 0.5) / Math.max(1, Math.round((L.xR - L.xL) / 0.9)))) m.post(x, 0.1, (pz0 + pz1) / 2 - 0.04, 0.018, 0.34, '#2b2140', 6);
     m.cube(xc, 0.5, (pz0 + pz1) / 2 - 0.12, cw + 0.04, 0.035, 0.04, '#b83344', 0.012);
-    // The marquee in front of the lower lane.
-    const signZ = L.zD + 0.34;
+    // A raised station: the whole deck stands on a base (pier stilts, a rocky crag, gold
+    // scaffolding), with a wide flight of stairs down to the plaza.
+    const lift = this.terrain.lift;
+    const low: Parts = { matte: new Geo(), ground: new Geo(), gloss: new Geo() };
+    if (lift > 0) {
+      const park = this.game.cfg.park.id;
+      const lm = low.matte!;
+      const body = park === 'boardwalk' ? '#b98552' : park === 'hollow' ? '#6e6886' : '#e0962a';
+      const edge = park === 'boardwalk' ? '#8a5a2e' : park === 'hollow' ? '#4e4866' : '#b86f14';
+      if (park === 'boardwalk') {
+        // Pier stilts under planks.
+        for (let x = dx0 + 0.12; x < dx1; x += 0.45)
+          for (const zz of [dz0 + 0.08, (dz0 + dz1) / 2, dz1 - 0.08]) lm.post(x, 0, zz, 0.045, lift, edge, 7, 0.04, body);
+        lm.cube((dx0 + dx1) / 2, lift - 0.04, (dz0 + dz1) / 2, dx1 - dx0 + 0.04, 0.06, dz1 - dz0 + 0.04, body, 0.015);
+      } else {
+        // A solid clay block with a lumpy front.
+        low.ground!.cube((dx0 + dx1) / 2, lift / 2, (dz0 + dz1) / 2, dx1 - dx0 + 0.06, lift, dz1 - dz0 + 0.02, body, 0.03, shade(body, 0.1));
+        const rr = rng(this.game.dayNum * 31 + 7);
+        for (let x = dx0 + 0.1; x < dx1; x += 0.22 + rr() * 0.12)
+          low.ground!.blob(v3(x, lift * (0.3 + rr() * 0.45), dz1 + 0.02), 0.08 + rr() * 0.06, shade(body, (rr() - 0.5) * 0.12), Math.round(rr() * 999), 0.25, 1.2, 0.8, 0.5);
+        lm.cube((dx0 + dx1) / 2, lift - 0.02, dz1 + 0.01, dx1 - dx0 + 0.08, 0.04, 0.05, edge, 0.012);
+      }
+      // Stairs down to the plaza: wide steps with a gold nosing.
+      const steps = Math.max(3, Math.round(lift / 0.07));
+      for (let k = 0; k < steps; k++) {
+        const top = lift * (1 - k / steps);
+        const z0s = dz1 + (k * STAIRS) / steps;
+        const z1s = dz1 + ((k + 1) * STAIRS) / steps;
+        const tread = park === 'boardwalk' ? ['#b98552', '#d3a36c'] : park === 'hollow' ? ['#7c7694', '#948eab'] : ['#e2dccb', '#f3eee0'];
+        lm.cube((dx0 + dx1) / 2, top / 2, (z0s + z1s) / 2, dx1 - dx0 - 0.1, top, z1s - z0s + 0.004, tread[0], 0.008, tread[1]);
+        lm.cube((dx0 + dx1) / 2, top - 0.004, z0s + 0.012, dx1 - dx0 - 0.1, 0.012, 0.022, PAL.gold, 0.004);
+      }
+      // Handrails at both ends.
+      for (const x of [dx0 + 0.02, dx1 - 0.02]) low.gloss!.pipe([v3(x, lift + 0.12, dz1 - 0.05), v3(x, 0.12, dz1 + STAIRS + 0.02)], 0.012, '#e7e9f2', 6);
+    }
+    // The marquee in front of the lower lane (at the foot of the stairs when the station is up high).
+    const signZ = lift > 0 ? L.zD + 0.2 + STAIRS + 0.1 : L.zD + 0.34;
     const sign = new Mesh(new PlaneGeometry(0.98, 0.3), new BasicMat({ map: signTexture(), transparent: true }));
     const tilt = new Matrix4().makeRotationX(-0.55);
     sign.position.set(xc, 0.165, signZ + 0.03);
@@ -486,14 +560,16 @@ export class Renderer {
     sign.layers.set(GLOW_LAYER);
     this.stationSign = sign;
     g.add(sign);
-    m.box(new Matrix4().copy(tilt).setPosition(xc, 0.155, signZ - 0.01), 1.02, 0.33, 0.03, '#9a5a1c', 0.01);
-    for (const sx of [-0.4, 0.4]) m.post(xc + sx, 0, signZ + 0.02, 0.018, 0.12, '#2b2140', 6);
+    low.matte!.box(new Matrix4().copy(tilt).setPosition(xc, 0.155, signZ - 0.01), 1.02, 0.33, 0.03, '#9a5a1c', 0.01);
+    for (const sx of [-0.4, 0.4]) low.matte!.post(xc + sx, 0, signZ + 0.02, 0.018, 0.12, '#2b2140', 6);
     for (let k = 0; k < 16; k++) {
       const a = (k / 16) * Math.PI * 2;
       const lp = v3(Math.cos(a) * 0.52, Math.sin(a) * 0.17, 0.02).applyMatrix4(tilt);
       parts.glow!.sphere(v3(xc + lp.x, 0.16 + lp.y, signZ + lp.z), 0.018, '#fff1b0', 1, 1, 1, 6, 4);
     }
-    // Queue barriers.
+    // Queue barriers (on the plaza, not the raised deck).
+    const up = { matte: parts.matte, cloth: parts.cloth, glow: parts.glow, ground: parts.ground, gloss: parts.gloss };
+    parts.matte = low.matte!;
     const sc = this.stationCenter();
     const dir = this.queueDir();
     const far = dir > 0 ? this.n + 0.5 : -0.5;
@@ -506,15 +582,21 @@ export class Renderer {
       const steps = Math.max(1, Math.round(Math.abs(b.x - a.x) / 0.7));
       for (let k = 0; k < steps; k++) rope(parts, a.clone().lerp(b, k / steps), a.clone().lerp(b, (k + 1) / steps), ropeCol);
     }
-    for (const [key, mat] of Object.entries(MATS) as [keyof typeof MATS, (typeof MATS)[keyof typeof MATS]][]) {
-      const geo = parts[key];
-      if (!geo || geo.empty) continue;
-      const mesh = new Mesh(geo.build(), mat);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      g.add(mesh);
-    }
-    const glow = new Mesh(parts.glow!.build(), GLOW_MAT);
+    // Everything on the deck rides up with it; the base, stairs, ropes and sign stay on the plaza.
+    for (const [set, y] of [
+      [{ ...up, glow: undefined }, lift],
+      [low, 0],
+    ] as [Parts, number][])
+      for (const [key, mat] of Object.entries(MATS) as [keyof typeof MATS, (typeof MATS)[keyof typeof MATS]][]) {
+        const geo = set[key];
+        if (!geo || geo.empty) continue;
+        const mesh = new Mesh(geo.build(), mat);
+        mesh.position.y = y;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        g.add(mesh);
+      }
+    const glow = new Mesh(up.glow!.build(), GLOW_MAT);
     glow.layers.set(GLOW_LAYER);
     glow.layers.enable(BLOOM_LAYER);
     g.add(glow);
@@ -524,24 +606,18 @@ export class Renderer {
   // ---- Camera framing ------------------------------------------------------------
 
   private framePoints(): Vector3[] {
-    const is = this.island!;
+    // The board, the station and the queue fill the free screen; the island's verge,
+    // the water and the scenery around it run off the edges.
+    const n = this.n;
+    const pad = this.compact ? 0.05 : 0.25;
     const pts: Vector3[] = [];
-    if (this.compact) {
-      // Phones: the board, station and queue fill the frame; the verge can crop.
-      for (const x of [-0.35, this.n + 0.35])
-        for (const z of [-0.2, this.n + 2.1]) {
-          pts.push(v3(x, 0, z));
-          pts.push(v3(x, 0.8, z));
-        }
-      return pts;
-    }
-    for (const x of [is.x0 + 0.2, is.x1 - 0.2])
-      for (const z of [is.z0 + 0.15, is.z1 - 0.05]) {
+    for (const x of [-pad, n + pad])
+      for (const z of [-0.15, n + 2.75]) {
         pts.push(v3(x, 0, z));
-        pts.push(v3(x, -0.66, z));
+        pts.push(v3(x, 0.45, z));
       }
-    // Room above the back row for tall loops and the trees.
-    pts.push(v3(this.n / 2, 1.85, 0.2));
+    // Room above the back row for tall loops.
+    pts.push(v3(n / 2, 1.85, 0.2));
     return pts;
   }
 
@@ -556,7 +632,16 @@ export class Renderer {
     const dir = v3(0, Math.sin(PITCH), Math.cos(PITCH));
     const pts = this.framePoints();
     const ext = new Vector2();
-    for (let it = 0; it < 14; it++) {
+    // The part of the screen the HUD leaves free, in NDC.
+    const W = this.cssW;
+    const H = this.cssH;
+    const sx0 = (this.safe.x0 / W) * 2 - 1;
+    const sx1 = (this.safe.x1 / W) * 2 - 1;
+    const sy0 = 1 - (this.safe.y1 / H) * 2;
+    const sy1 = 1 - (this.safe.y0 / H) * 2;
+    const scx = (sx0 + sx1) / 2;
+    const scy = (sy0 + sy1) / 2;
+    for (let it = 0; it < 18; it++) {
       cam.position.copy(target).addScaledVector(dir, dist);
       cam.lookAt(target);
       cam.updateMatrixWorld();
@@ -575,45 +660,58 @@ export class Renderer {
       const halfH = Math.tan(((FOV / 2) * Math.PI) / 180) * dist;
       const halfW = halfH * aspect;
       const up = v3(0, Math.cos(PITCH), -Math.sin(PITCH));
-      target.x += ((x0 + x1) / 2) * halfW * 0.9;
-      target.addScaledVector(up, ((y0 + y1) / 2) * halfH * 0.9);
-      const need = Math.max(ext.x / 2, ext.y / 2) / 0.99;
+      target.x += ((x0 + x1) / 2 - scx) * halfW * 0.9;
+      target.addScaledVector(up, ((y0 + y1) / 2 - scy) * halfH * 0.9);
+      const need = Math.max(ext.x / (sx1 - sx0), ext.y / (sy1 - sy0)) / 0.99;
       dist *= 0.4 + 0.6 * need;
     }
     return { target, dist, ext };
   }
 
-  private naturalAspect(): number {
-    const { ext } = this.solveFrame(1);
-    return Math.max(0.72, Math.min(1.3, ext.x / ext.y));
+  /** The canvas fills its box (the whole window); the park is framed between the HUD bars. */
+  fit(): void {
+    const area = this.canvas.parentElement!;
+    const W = Math.max(200, area.clientWidth);
+    const H = Math.max(200, area.clientHeight);
+    this.compact = W < 620;
+    this.cssW = W;
+    this.cssH = H;
+    // The ink and bloom passes cost per pixel; cap the resolution a little on phones and big screens.
+    const dpr = Math.min(this.compact ? 1.6 : W * H > 2.2e6 ? 1.25 : 1.75, window.devicePixelRatio || 1);
+    this.gl.setPixelRatio(dpr);
+    this.gl.setSize(W, H, false);
+    this.post.setSize(Math.round(W * dpr), Math.round(H * dpr), dpr);
+    this.reframe();
+    if (this.show?.active) this.show.layout();
   }
 
-  fit(): void {
-    const area = this.canvas.closest('.park') ?? this.canvas.parentElement!;
-    const availW = (area as HTMLElement).clientWidth;
-    const above = ['attractions', 'dayBanner'].reduce((h, id) => h + (document.getElementById(id)?.offsetHeight ?? 0), 0);
-    const reserved = (document.fullscreenElement ? 200 : 250) + above;
-    const availH = Math.max(300, window.innerHeight - reserved);
-    this.compact = availW < 620;
-    this.aspect = this.naturalAspect();
-    let w = availW;
-    let h = w / this.aspect;
-    if (h > availH) {
-      h = availH;
-      w = h * this.aspect;
+  /** Re-solves the framing when the HUD around the park changes size (no GL resize). */
+  reframe(): void {
+    const W = this.cssW;
+    const H = this.cssH;
+    const box = this.canvas.getBoundingClientRect();
+    const rectOf = (id: string) => {
+      const el = document.getElementById(id);
+      if (!el || el.hidden) return null;
+      const r = el.getBoundingClientRect();
+      return r.height > 0 ? r : null;
+    };
+    let top = 0;
+    for (const id of ['hudTop', 'dayBanner', 'attractions']) {
+      const r = rectOf(id);
+      if (r) top = Math.max(top, r.bottom - box.top);
     }
-    this.cssW = Math.max(200, Math.floor(w));
-    this.cssH = Math.max(200, Math.floor(h));
-    this.canvas.style.width = `${this.cssW}px`;
-    this.canvas.style.height = `${this.cssH}px`;
-    // The ink and bloom passes cost per pixel; cap the resolution a little on phones.
-    const dpr = Math.min(this.compact ? 1.6 : 2, window.devicePixelRatio || 1);
-    this.gl.setPixelRatio(dpr);
-    this.gl.setSize(this.cssW, this.cssH, false);
-    this.post.setSize(Math.round(this.cssW * dpr), Math.round(this.cssH * dpr), dpr);
-    const f = this.solveFrame(this.cssW / this.cssH);
+    const bar = document.querySelector('.hud-bar')?.getBoundingClientRect();
+    const bottom = bar && bar.height > 0 ? bar.top - box.top : H;
+    const pad = this.compact ? 4 : 10;
+    this.safe = {
+      x0: pad,
+      x1: W - pad,
+      y0: Math.min(H * 0.4, top + pad),
+      y1: Math.max(H * 0.6, bottom - pad),
+    };
+    const f = this.solveFrame(W / H);
     this.base = { target: f.target, dist: f.dist };
-    if (this.show?.active) this.show.layout();
   }
 
   // ---- Events --------------------------------------------------------------------
@@ -1088,7 +1186,7 @@ export class Renderer {
     const had = new Set(this.cellGroups.keys());
     const fresh = this.trackKey !== '' && !force;
     this.trackKey = key;
-    this.path = TrackPath.fromBoard(b);
+    this.path = TrackPath.fromBoard(b, this.terrain.cell, this.terrain.lift);
     for (const g of this.cellGroups.values()) {
       this.trackGroup.remove(g);
       g.traverse((o) => (o as Mesh).geometry?.dispose());
@@ -1147,7 +1245,7 @@ export class Renderer {
     const fog = this.fogged.has(cellI);
     m.geometry = fog ? mysteryGeo() : crateGeo(tier);
     const pop = 1 + flash * 0.22;
-    m.position.set(x + 0.5, GRASS_Y + lift, z + 0.5);
+    m.position.set(x + 0.5, GRASS_Y + this.terrain.height(x + 0.5, z + 0.5) + lift, z + 0.5);
     m.scale.set(pop * (1 + squash), pop * (1 - squash * 1.5), pop * (1 + squash));
     const mat = m.material as ReturnType<typeof toon>;
     mat.emissive.setScalar(flash * 0.9);
@@ -1275,7 +1373,7 @@ export class Renderer {
     el.style.left = `${this.canvas.offsetLeft + p.x}px`;
     el.style.top = `${this.canvas.offsetTop + p.y}px`;
     const k = c.value >= 6 ? 0.17 : c.value >= 4 ? 0.15 : 0.13;
-    el.style.fontSize = `${Math.round(this.cssW * 0.62 * k)}px`;
+    el.style.fontSize = `${Math.round(Math.min(this.safe.x1 - this.safe.x0, (this.safe.y1 - this.safe.y0) * 1.3) * 0.62 * k)}px`;
   }
 
   /** World point to CSS pixels inside the canvas box. */
@@ -1325,7 +1423,7 @@ export class Renderer {
       const i = idx(b, x, y);
       const top = b.tiles[i] ? CRATE_H + 0.012 : 0.012;
       const hov = !!this.hover && this.hover.x === x && this.hover.y === y;
-      m.position.set(x + 0.5, GRASS_Y + top, y + 0.5);
+      m.position.set(x + 0.5, GRASS_Y + this.terrain.cell(x, y) + top, y + 0.5);
       const s = (strong ? 1 : 0.94) * (hov ? 1.06 : 1) * (b.tiles[i] ? 0.98 : 1);
       m.scale.set(s, 1, s);
       const mat = m.material as MeshBasicMaterial;
@@ -1409,6 +1507,43 @@ export class Renderer {
     s.position.copy(at);
   }
 
+  /** The guest under a page point (hovered or tapped), with where their head is on screen. */
+  guestAt(clientX: number, clientY: number): { rider: Rider; x: number; y: number } | null {
+    if (this.game.phase !== 'build' && this.game.phase !== 'intro') return null;
+    let best: { rider: Rider; x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (const r of this.game.queue) {
+      const p = this.riderPos.get(r.id);
+      if (!p) continue;
+      const g = personGeo(r.look, 'smile');
+      const h = g.headY * g.scale * STAND_SCALE;
+      const mid = this.project(v3(p.x, h * 0.55, p.z));
+      const top = this.project(v3(p.x, h + 0.06, p.z));
+      const foot = this.project(v3(p.x, 0, p.z));
+      const r0 = Math.max(10, (foot.y - top.y) * 0.45);
+      const d = Math.hypot(clientX - mid.x, (clientY - mid.y) * 0.7);
+      if (d < r0 && d < bestD) {
+        bestD = d;
+        best = { rider: r, x: top.x, y: top.y };
+      }
+    }
+    return best;
+  }
+
+  /** Screen points of the guests in line (for tests and tooling). */
+  guestScreenPoints(): { id: number; x: number; y: number }[] {
+    return this.game.queue.flatMap((r) => {
+      const p = this.riderPos.get(r.id);
+      if (!p) return [];
+      const g = personGeo(r.look, 'smile');
+      const q = this.project(v3(p.x, g.headY * g.scale * STAND_SCALE * 0.55, p.z));
+      return [{ id: r.id, x: q.x, y: q.y }];
+    });
+  }
+
+  /** The guest the pointer is on: they wave back. */
+  hoverId: number | null = null;
+
   private drawQueue(dt: number): void {
     if (this.game.phase !== 'build' && this.game.phase !== 'intro') return;
     const queue = this.game.queue;
@@ -1437,12 +1572,22 @@ export class Renderer {
         if (p.moving) p.ph += dt * 14;
       }
       const sick = this.game.phase === 'build' && this.game.pukes(r) > 0;
-      const rig = this.person(r.look, v3(p.x, 0, p.z), { walk: p.moving ? p.ph : undefined, yaw, face: sick ? 'meh' : 'smile' });
-      // An idle hop now and then, so the line feels alive.
-      if (!p.moving) rig.position.y = Math.max(0, Math.sin(this.now / 260 + r.id * 1.7) - 0.93) * 0.35;
-      if (this.game.phase === 'build' && !p.moving) {
+      const hovered = this.hoverId === r.id;
+      // Everyone has a personality: fidgets, fist pumps, selfies, nervous glances.
+      const a = p.moving ? { arms: 0, hop: 0, wobble: 0, yaw: 0 } : lineAntics(r, this.now / 1000);
+      const rig = this.person(r.look, v3(p.x, 0, p.z), {
+        walk: p.moving ? p.ph : undefined,
+        yaw: p.moving ? yaw : a.yaw,
+        face: hovered ? 'grin' : lineFace(r, sick),
+        arms: hovered ? 0.8 : a.arms,
+        wobble: hovered ? 0 : a.wobble,
+      });
+      // The hovered guest bounces and waves.
+      if (!p.moving) rig.position.y = hovered ? Math.abs(Math.sin(this.now / 150)) * 0.06 : a.hop;
+      // Only the ones this ride will make puke get a (green) thought bubble; hover for the rest.
+      if (this.game.phase === 'build' && !p.moving && sick) {
         const g = personGeo(r.look, 'smile');
-        this.bubble(sick ? 'sick' : 'meh', v3(p.x, g.headY * g.scale * STAND_SCALE + 0.05, p.z));
+        this.bubble('sick', v3(p.x, g.headY * g.scale * STAND_SCALE + 0.1, p.z));
       }
     });
   }
@@ -1451,7 +1596,7 @@ export class Renderer {
     for (const w of this.walkers) {
       if (w.delay > 0) {
         w.delay -= dt * 1000;
-        this.person(w.look, v3(w.x, 0, w.z), { face: w.sick ? 'sick' : 'smile' });
+        this.person(w.look, v3(w.x, this.floorY(w.x, w.z), w.z), { face: walkerFace(w) });
         continue;
       }
       const dx = w.tx - w.x;
@@ -1468,17 +1613,17 @@ export class Renderer {
       const arrived = w.x === w.tx && w.z === w.tz;
       w.ph = (w.ph ?? 0) + dt * 14;
       const puking = (w.pukeUntil ?? 0) > this.gameNow;
-      const rig = this.person(w.look, v3(w.x, 0, w.z), {
+      const rig = this.person(w.look, v3(w.x, this.floorY(w.x, w.z), w.z), {
         walk: arrived ? undefined : w.ph,
         yaw: arrived ? 0 : Math.atan2(dx, dz),
-        face: w.sick ? 'sick' : 'smile',
+        face: walkerFace(w),
         wobble: w.sick && !puking ? 0.12 : 0,
         arms: puking ? 0.35 : 0,
       });
       if (puking) rig.rotation.x = 0.45;
       if (w.mood) {
         const g = personGeo(w.look, 'smile');
-        this.bubble(w.mood, v3(w.x, g.headY * g.scale * STAND_SCALE + 0.05, w.z));
+        this.bubble(w.mood, v3(w.x, this.floorY(w.x, w.z) + g.headY * g.scale * STAND_SCALE + 0.05, w.z));
       }
     }
     this.walkers = this.walkers.filter((w) => w.hold || !(w.x === w.tx && w.z === w.tz));
@@ -1645,8 +1790,8 @@ export class Renderer {
     const p = document.createElement('div');
     p.className = 'polaroid';
     p.innerHTML = `<img alt="On-ride photo" src="${url}"><span>ON-RIDE PHOTO</span>`;
-    p.style.left = `${this.canvas.offsetLeft + this.cssW - 12}px`;
-    p.style.top = `${this.canvas.offsetTop + this.cssH - 12}px`;
+    p.style.left = `${this.canvas.offsetLeft + this.safe.x1 - 12}px`;
+    p.style.top = `${this.canvas.offsetTop + this.safe.y1 - 12}px`;
     this.canvas.parentElement!.append(p);
     this.polaroid = p;
   }
@@ -1806,4 +1951,12 @@ function makeMist(): Sprite {
   s.layers.set(GLOW_LAYER);
   s.renderOrder = 6;
   return s;
+}
+
+/** Walkers: excited on the way to the train, and after it, how the ride went. */
+function walkerFace(w: Walker): Face {
+  if (w.sick) return 'sick';
+  if (w.mood === 'happy') return 'joy';
+  if (w.mood === 'meh' || w.mood === 'angry') return 'meh';
+  return 'grin';
 }

@@ -1,5 +1,5 @@
-/* Layout: the park diorama is the hero on a dusk-blue ground; a column of
-   ticket-like panels (stats, queue, rules) sits beside it, stacking below on phones.
+/* Layout: the park fills the whole window; a slim clay HUD floats over its edges
+   (the day up top, today's ride and the controls along the bottom).
    One deliberate look for all viewers, so no light/dark switch. */
 :root {
   --dusk: #27335e;
@@ -40,21 +40,8 @@ body {
   line-height: 1.4;
 }
 
-.app {
-  max-width: 1480px;
-  margin: 0 auto;
-  padding-inline: 16px;
-  padding-block: 12px 32px;
-}
 
 /* ---- Header ---- */
-.top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 20px;
-  margin-bottom: 14px;
-}
 
 .logo {
   margin: 0;
@@ -71,44 +58,10 @@ body {
   color: var(--paper);
 }
 
-.tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 
-.app:fullscreen {
-  max-width: none;
-  overflow: auto;
-  background: var(--dusk);
-}
 
-.run {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-}
 
-.chip {
-  font-family: var(--font-sign);
-  font-size: 13px;
-  letter-spacing: 0.04em;
-  padding: 4px 10px;
-  border-radius: 4px;
-  background: var(--paper);
-  color: var(--ink);
-}
 
-.chip.quota {
-  background: transparent;
-  color: var(--paper);
-  border: 2px solid var(--paper-edge);
-  font-family: var(--font-body);
-  font-size: 15px;
-  letter-spacing: 0;
-}
 
 .hearts {
   display: inline-flex;
@@ -136,54 +89,12 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
-.ghost {
-  background: transparent;
-  color: var(--paper);
-  border: 2px solid var(--paper-edge);
-  border-radius: 6px;
-  padding: 6px 12px;
-}
 
-.ghost:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
 
 /* ---- Stage ---- */
-.stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(270px, 330px);
-  gap: 20px;
-  align-items: start;
-}
 
-.park {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
 
-.canvas-wrap {
-  position: relative;
-  width: fit-content;
-  max-width: 100%;
-  display: flex;
-  justify-content: center;
-  touch-action: none;
-  user-select: none;
-}
 
-#park {
-  display: block;
-  border-radius: 22px;
-  box-shadow:
-    0 0 0 4px var(--ink),
-    0 0 0 8px rgba(255, 210, 63, 0.9),
-    0 0 0 12px var(--ink),
-    0 22px 40px rgba(6, 8, 24, 0.55);
-  background: #2a5a9a;
-}
 
 /* ---- In-world shouts (page text pinned to 3D points) ---- */
 .words3d {
@@ -226,31 +137,9 @@ button:focus-visible {
   text-shadow: 0 4px 0 var(--ink);
 }
 
-.below {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 12px 24px;
-}
 
-.station {
-  margin: 0;
-  min-height: 1.4em;
-  text-align: center;
-  color: var(--paper-edge);
-  max-width: 44ch;
-}
 
-.station.ready {
-  color: var(--bulb);
-}
 
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 20px;
-}
 
 .pad {
   display: grid;
@@ -321,61 +210,13 @@ button:focus-visible {
 }
 
 /* ---- Side panels ---- */
-.side {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
 
-.panel {
-  background: var(--paper);
-  color: var(--ink);
-  border-radius: 8px;
-  padding: 14px 16px;
-  box-shadow: 0 4px 0 var(--paper-edge);
-}
 
-.panel h2,
-.howto summary {
-  margin: 0 0 10px;
-  font-family: var(--font-sign);
-  font-weight: 400;
-  font-size: 15px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-}
 
-.stats div {
-  min-width: 0;
-}
 
-.stats dt {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
 
-.stats dd {
-  margin: 0;
-  font-family: var(--font-sign);
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
-}
 
-.perk-line {
-  margin: 10px 0 0;
-  font-size: 14px;
-}
 
 .label {
   color: var(--ink-soft);
@@ -491,29 +332,9 @@ button:focus-visible {
   color: #4a7414;
 }
 
-.howto summary {
-  cursor: pointer;
-  margin-bottom: 0;
-}
 
-.howto[open] summary {
-  margin-bottom: 8px;
-}
 
-.howto ol {
-  margin: 0;
-  padding-left: 1.2em;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 15px;
-}
 
-.keys {
-  margin: 10px 0 0;
-  font-size: 13px;
-  color: var(--ink-soft);
-}
 
 /* ---- Overlay cards ---- */
 .overlay {
@@ -622,29 +443,8 @@ button:focus-visible {
   color: var(--ink-soft);
 }
 
-@media (max-width: 820px) {
-  .stage {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
-@media (max-width: 520px) {
-  .top {
-    display: grid;
-    grid-template-columns: 1fr auto;
-  }
 
-  .run,
-  .tools {
-    grid-column: 1 / -1;
-  }
-}
-
-@media (max-width: 420px) {
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .pad button:active {
@@ -719,13 +519,6 @@ button:focus-visible {
 }
 
 /* ---- Daylight ---- */
-.daylight {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  max-width: 640px;
-}
 
 .daylight-track {
   flex: 1;
@@ -755,11 +548,6 @@ button:focus-visible {
 }
 
 /* ---- Ride controls ---- */
-.controls {
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 12px 16px;
-}
 
 .open,
 .switch {
@@ -820,40 +608,11 @@ button:focus-visible {
 }
 
 /* ---- Excitement ---- */
-.excitement {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: baseline;
-  column-gap: 12px;
-  margin-bottom: 10px;
-}
 
-.excitement .label {
-  grid-column: 1 / -1;
-  font-size: 13px;
-}
 
-.excitement strong {
-  font-family: var(--font-sign);
-  font-weight: 400;
-  font-size: 40px;
-  line-height: 1.05;
-  color: var(--marquee);
-  font-variant-numeric: tabular-nums;
-}
 
-.hint-inline {
-  font-size: 13px;
-  color: var(--ink-soft);
-}
 
-.stats {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
 
-.stats dd {
-  font-size: 18px;
-}
 
 .report li {
   display: grid;
@@ -880,11 +639,6 @@ button:focus-visible {
   min-width: 0;
 }
 
-@media (max-width: 420px) {
-  .stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .open.circuit {
@@ -1021,16 +775,6 @@ button:focus-visible {
 }
 
 /* ---- Attractions strip (the jokers) ---- */
-.attractions {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 4px;
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  max-width: 820px;
-  overflow-x: auto;
-}
 
 .attraction {
   flex: 1 0 128px;
@@ -1099,16 +843,6 @@ button:focus-visible {
 }
 
 /* ---- Day banner (boss, storm, VIP) ---- */
-.day-banner {
-  margin: 0;
-  width: 100%;
-  max-width: 820px;
-  padding: 7px 12px;
-  border-radius: 7px;
-  font-size: 14px;
-  background: var(--paper);
-  color: var(--ink);
-}
 
 .day-banner.boss,
 .day-banner.finale {
@@ -1126,12 +860,6 @@ button:focus-visible {
 }
 
 /* ---- Excitement × multiplier ---- */
-.excitement {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 10px;
-}
 
 .chipmult {
   display: inline-flex;
@@ -1160,9 +888,6 @@ button:focus-visible {
   color: var(--ink-soft);
 }
 
-.chipmult.big {
-  font-size: 26px;
-}
 
 /* ---- Ride report tally ---- */
 .tally {
@@ -1219,141 +944,6 @@ button:focus-visible {
   }
 }
 
-/* ---- Route map ---- */
-.overlay.wide {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  padding: 16px;
-}
-
-.overlay.wide .card {
-  width: min(880px, 100%);
-}
-
-.map {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 18px;
-  margin: 8px 0 12px;
-  min-width: 560px;
-}
-
-.map-card {
-  overflow: auto;
-}
-
-.map-lines {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.map-lines line {
-  stroke: var(--paper-edge);
-  stroke-width: 2;
-  stroke-dasharray: 4 4;
-}
-
-.map-lines line.on {
-  stroke: var(--marquee);
-  stroke-dasharray: none;
-}
-
-.map-col {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 12px;
-}
-
-.map-node {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  column-gap: 8px;
-  row-gap: 2px;
-  align-items: center;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: 9px;
-  border: 2px solid var(--paper-edge);
-  background: #fff;
-  color: var(--ink);
-}
-
-.node-dot {
-  grid-row: span 2;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--mint);
-  box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--paper-edge);
-}
-
-.node-name {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.node-desc {
-  font-size: 11.5px;
-  line-height: 1.25;
-  color: var(--ink-soft);
-}
-
-.map-node.vip .node-dot {
-  background: var(--bulb);
-}
-
-.map-node.storm .node-dot {
-  background: #3a8fd6;
-}
-
-.map-node.shop .node-dot {
-  background: #9d6ef0;
-}
-
-.map-node.repair .node-dot {
-  background: #ff5d8a;
-}
-
-.map-node.treasure .node-dot {
-  background: #ff9a3c;
-}
-
-.map-node.boss .node-dot,
-.map-node.finale .node-dot {
-  width: 22px;
-  height: 22px;
-  background: var(--marquee);
-}
-
-.map-node.reachable {
-  border-color: var(--marquee);
-  box-shadow: 0 3px 0 #b83344;
-}
-
-.map-node.reachable:hover {
-  transform: translateY(-2px);
-}
-
-.map-node.visited {
-  background: #ebe6fa;
-}
-
-.map-node.current {
-  border-color: var(--mint);
-}
-
-.map-node.locked {
-  opacity: 0.6;
-  cursor: default;
-}
-
 .notice {
   padding: 6px 10px;
   border-radius: 6px;
@@ -1376,9 +966,6 @@ button:focus-visible {
     opacity: 1;
   }
 
-  .map-node.reachable:hover {
-    transform: none;
-  }
 }
 
 /* ---- Capsule eggs ---- */
@@ -1487,14 +1074,7 @@ button:focus-visible {
 }
 
 /* ---- Live scoring show (runs with the ride) ---- */
-.park.riding .controls,
-.park.riding .station {
-  visibility: hidden;
-}
 
-.park.riding .attractions {
-  overflow: visible;
-}
 
 .scoreshow {
   --heat: 0;
@@ -1517,31 +1097,9 @@ button:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.scoreshow[data-mode='side'] {
-  right: calc(100% + 18px);
-  top: 0;
-  width: 236px;
-}
 
-.scoreshow[data-mode='below'] {
-  left: 50%;
-  top: calc(100% + 6px);
-  width: min(340px, 94vw);
-  transform: translateX(-50%);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 8px;
-  padding: 8px 10px;
-}
 
-.scoreshow[data-mode='below'] .ss-totalbox {
-  grid-column: 1 / -1;
-}
 
-.scoreshow[data-mode='below'] .ss-rate,
-.scoreshow[data-mode='below'] .ss-ticker {
-  grid-column: 1 / -1;
-}
 
 .ss-totalbox {
   position: relative;
@@ -1619,9 +1177,6 @@ button:focus-visible {
   gap: 6px;
 }
 
-.scoreshow[data-mode='below'] .ss-cm {
-  grid-column: 1 / -1;
-}
 
 .ss-box {
   position: relative;
@@ -2159,20 +1714,13 @@ body {
     linear-gradient(180deg, #2a3668 0%, #1d2450 100%) fixed;
 }
 
-.panel,
-.card,
-.attraction:not(.empty),
-.day-banner {
-  border-radius: 20px;
-  box-shadow: var(--clay-hi), var(--clay-drop);
-}
 
 .rider {
   border-radius: 16px;
   box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.6), inset 0 -3px 0 rgba(40, 20, 60, 0.08);
 }
 
-.ghost,
+.icon-btn,
 .open,
 .switch,
 .undo,
@@ -2180,8 +1728,7 @@ body {
 .primary,
 .pad button,
 .ghost-dark,
-.perk,
-.map-node {
+.perk {
   border-radius: 16px;
   font-weight: 600;
   transition: transform 0.12s cubic-bezier(0.2, 1.8, 0.4, 1), box-shadow 0.12s ease;
@@ -2199,7 +1746,7 @@ body {
 .primary:hover,
 .pad button:hover,
 .tool:hover,
-.ghost:hover {
+.icon-btn:hover {
   transform: translateY(-2px) scale(1.03, 0.97);
 }
 
@@ -2211,11 +1758,6 @@ body {
   box-shadow: var(--clay-hi), 0 1px 0 rgba(20, 14, 40, 0.3);
 }
 
-.chip {
-  border-radius: 999px;
-  padding: 4px 12px;
-  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), inset 0 -3px 0 rgba(40, 20, 60, 0.15);
-}
 
 .logo {
   text-shadow:
@@ -2227,16 +1769,6 @@ body {
 }
 
 /* The park sits in a chunky clay frame. */
-#park {
-  border-radius: 26px;
-  box-shadow:
-    0 0 0 6px #ffd23f,
-    inset 0 0 0 1px rgba(0, 0, 0, 0.2),
-    0 0 0 9px #e0962a,
-    0 0 0 13px #2b2140,
-    0 7px 0 13px #2b2140,
-    0 18px 26px 6px rgba(6, 8, 24, 0.45);
-}
 
 .scoreshow {
   border-radius: 20px;
@@ -2466,4 +1998,1308 @@ body {
 /* The results card sits over the in-park polaroid (the card has its own copy). */
 .overlay {
   z-index: 6;
+}
+
+/* ==== Full-screen park with a floating clay HUD ==== */
+:root {
+  --glass: rgba(24, 28, 62, 0.74);
+  --glass-edge: rgba(255, 255, 255, 0.14);
+  --hud-shadow: 0 6px 0 rgba(10, 8, 30, 0.35), 0 14px 30px rgba(6, 8, 24, 0.35);
+}
+
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.app {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #1d2450;
+}
+
+.canvas-wrap {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#park {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #2a5a9a;
+}
+
+.card,
+.attraction:not(.empty),
+.day-banner {
+  border-radius: 20px;
+  box-shadow: var(--clay-hi), var(--clay-drop);
+}
+
+/* Glass slabs: the HUD's rounded containers. */
+.hud-left,
+.hud-mid,
+.hud-right,
+.hud-bar {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  backdrop-filter: blur(10px) saturate(1.3);
+  box-shadow: inset 0 0 0 1.5px var(--glass-edge), inset 0 2px 0 rgba(255, 255, 255, 0.12), var(--hud-shadow);
+}
+
+/* ---- Top bar ---- */
+.hud-top {
+  position: absolute;
+  z-index: 5;
+  top: max(10px, env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.hud-top > * {
+  pointer-events: auto;
+}
+
+.hud-left,
+.hud-mid,
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.hud-left {
+  padding-left: 16px;
+}
+
+.logo {
+  margin: 0 4px 0 0;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 24px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--bulb);
+  text-shadow: 0 2px 0 var(--marquee), 0 4px 0 #a8303a;
+  transform: rotate(-3deg);
+}
+
+.logo span {
+  color: var(--paper);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), inset 0 -3px 0 rgba(40, 20, 60, 0.15);
+}
+
+.pill.quota {
+  background: var(--marquee);
+  color: #fff;
+}
+
+.pill.funds {
+  background: var(--bulb);
+}
+
+.hearts {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.heart {
+  width: 20px;
+  height: 18px;
+  background: var(--marquee);
+  clip-path: polygon(0 20%, 20% 0, 40% 0, 50% 15%, 60% 0, 80% 0, 100% 20%, 100% 50%, 50% 100%, 0 50%);
+  filter: drop-shadow(0 2px 0 #a8303a);
+}
+
+.heart.lost {
+  background: #4a5480;
+}
+
+.hud-mid {
+  flex: 0 1 460px;
+  min-width: 0;
+  padding-right: 18px;
+}
+
+.daylight {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.daylight-track {
+  flex: none;
+  height: 10px;
+  border-radius: 5px;
+  background: rgba(8, 10, 30, 0.6);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.daylight-track span {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, #ff9a3c, var(--bulb));
+  transition: width 200ms ease;
+}
+
+.daylight-track span.dusk {
+  background: linear-gradient(90deg, #9d6ef0, #f0584e);
+}
+
+.daylight-left {
+  font-size: 12px;
+  line-height: 1;
+  color: var(--paper-edge);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--paper);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.icon-btn.text {
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.icon-btn[aria-pressed='false'] {
+  opacity: 0.55;
+}
+
+/* ---- Under the top bar: the day's twist and the attraction cards ---- */
+.hud-under {
+  position: absolute;
+  z-index: 4;
+  top: calc(max(10px, env(safe-area-inset-top)) + 58px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(920px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.hud-under > * {
+  pointer-events: auto;
+}
+
+.day-banner {
+  margin: 0;
+  max-width: 640px;
+  padding: 7px 16px;
+  font-size: 14px;
+  text-align: center;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.day-banner.boss,
+.day-banner.finale {
+  background: var(--marquee);
+  color: #fff;
+}
+
+.day-banner.storm {
+  background: #45a8e0;
+  color: #fff;
+}
+
+.day-banner.vip {
+  background: var(--bulb);
+}
+
+.attractions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.attractions:empty {
+  display: none;
+}
+
+.attraction {
+  flex: 0 1 164px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 10px 6px;
+  border-radius: 16px;
+  background: var(--paper);
+  color: var(--ink);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.attraction.empty {
+  flex: 0 0 46px;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  border: 2px dashed rgba(255, 255, 255, 0.28);
+  background: rgba(24, 28, 62, 0.35);
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 18px;
+}
+
+.attraction-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.attraction:hover .attraction-desc {
+  -webkit-line-clamp: unset;
+}
+
+.attraction-actions {
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 150ms ease, max-height 150ms ease;
+}
+
+.attraction:hover .attraction-actions,
+.attraction:focus-within .attraction-actions {
+  opacity: 1;
+  max-height: 30px;
+}
+
+/* ---- Bottom: hint toast, then today's ride and the controls ---- */
+.hud-bottom {
+  position: absolute;
+  z-index: 5;
+  left: 12px;
+  right: 12px;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+.hud-bottom > * {
+  pointer-events: auto;
+}
+
+.station {
+  margin: 0;
+  max-width: 560px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--paper);
+  background: rgba(24, 28, 62, 0.62);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.station:empty {
+  display: none;
+}
+
+.station.ready {
+  color: var(--ink);
+  background: var(--bulb);
+  font-weight: 600;
+}
+
+.hud-bar {
+  width: min(1420px, 100%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 10px 8px 16px;
+  border-radius: 26px;
+}
+
+.ridebar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.rb-score {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sign);
+}
+
+.chipmult {
+  font-size: 19px;
+}
+
+.chipmult .chips,
+.chipmult .mult {
+  padding: 2px 9px;
+  border-radius: 10px;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.18);
+}
+
+.chipmult .times,
+.rb-eq {
+  color: var(--paper-edge);
+}
+
+.rb-rating {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.rb-rating strong {
+  font-weight: 400;
+  font-size: 22px;
+  color: var(--bulb);
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-rating small {
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--paper-edge);
+}
+
+.stats {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+}
+
+.stats div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 46px;
+  padding: 3px 7px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.stats dt {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--paper-edge);
+}
+
+.stats dd {
+  margin: 0;
+  font-family: var(--font-sign);
+  font-size: 17px;
+  line-height: 1.1;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+.pop-wrap {
+  position: relative;
+}
+
+.rb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rb-chip:hover,
+.pop-wrap.open .rb-chip {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.popover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 14px);
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  padding: 12px 14px;
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--clay-hi), var(--clay-drop);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 8px) scale(0.97);
+  transform-origin: 50% 100%;
+  transition: opacity 150ms ease, transform 150ms ease, visibility 0s linear 150ms;
+}
+
+.pop-wrap:hover .popover,
+.pop-wrap:focus-within .popover,
+.pop-wrap.open .popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0) scale(1);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.pop-title {
+  margin: 0 0 4px;
+  font-family: var(--font-sign);
+  font-size: 15px;
+  color: var(--marquee);
+}
+
+.perk-line {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.hint {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.toolbar .muted {
+  display: none;
+}
+
+.controls button {
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.tool {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.undo {
+  padding: 10px 14px;
+}
+
+.switch {
+  padding: 9px 14px;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.controls .open {
+  padding: 12px 20px;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 15px;
+  letter-spacing: 0.03em;
+}
+
+.open .count {
+  margin-left: 4px;
+}
+
+.pad {
+  display: none;
+  grid-template-columns: repeat(3, 38px);
+  grid-template-rows: repeat(2, 36px);
+  gap: 4px;
+}
+
+@media (pointer: coarse) {
+  .pad {
+    display: grid;
+  }
+}
+
+/* While the train runs, the score show takes the bottom of the screen. */
+.app.riding .hud-bottom {
+  opacity: 0;
+  transform: translateY(30px);
+  pointer-events: none;
+}
+
+.app.riding .hud-bottom > * {
+  pointer-events: none;
+}
+
+.scoreshow[data-mode='dock'] {
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(760px, calc(100% - 24px));
+  display: grid;
+  grid-template-columns: 1.3fr 1.4fr 1fr;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 14px;
+  border-radius: 26px;
+}
+
+.scoreshow[data-mode='dock'] .ss-totalbox {
+  grid-row: 1 / span 2;
+}
+
+.scoreshow[data-mode='dock'] .ss-ticker {
+  grid-column: 2 / -1;
+}
+
+/* ---- Guests: hover a rider in the park to meet them ---- */
+.guest-card {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  top: 0;
+  width: 250px;
+  padding: 10px 12px 10px 10px;
+  border-radius: 18px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--clay-hi), var(--clay-drop);
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 18px));
+  animation: guest-in 160ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.guest-card::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 18px;
+  height: 18px;
+  background: var(--paper);
+  transform: translateX(-50%) rotate(45deg);
+  border-radius: 3px;
+}
+
+.guest-card .rider {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.guest-card.vip {
+  box-shadow: var(--clay-hi), var(--clay-drop), 0 0 0 3px var(--bulb);
+}
+
+.guest-card.boss {
+  box-shadow: var(--clay-hi), var(--clay-drop), 0 0 0 3px var(--marquee);
+}
+
+@keyframes guest-in {
+  from {
+    transform: translate(-50%, calc(-100% - 6px)) scale(0.85);
+    opacity: 0;
+  }
+}
+
+/* ---- How to play ---- */
+.help-dialog {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-width: calc(100vw - 24px);
+}
+
+.help-dialog::backdrop,
+.scores-dialog::backdrop {
+  background: rgba(20, 24, 50, 0.6);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.help-dialog .card {
+  width: min(560px, calc(100vw - 24px));
+  max-height: min(720px, calc(100dvh - 40px));
+}
+
+.howto ol {
+  margin: 0 0 10px;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 15px;
+}
+
+.keys {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+/* The overlay cards float over the whole park. */
+.overlay {
+  z-index: 6;
+  padding: 16px;
+  background: rgba(20, 24, 50, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.card {
+  width: min(400px, 100%);
+}
+
+/* ---- Phones and narrow windows ---- */
+@media (max-width: 900px) {
+  .logo {
+    display: none;
+  }
+
+  .hud-top {
+    flex-wrap: wrap;
+  }
+
+  .hud-mid {
+    order: 3;
+    flex: 1 1 100%;
+  }
+
+  .stats div {
+    min-width: 44px;
+    padding: 2px 6px;
+  }
+}
+
+.help-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.help-actions > * {
+  flex: 1;
+  margin: 0;
+}
+
+@media (max-width: 620px) {
+  .hud-top {
+    left: 8px;
+    right: 8px;
+    gap: 6px;
+  }
+
+  .pill .pn,
+  .chip-label,
+  .sw-label,
+  #fullscreen,
+  .pad {
+    display: none !important;
+  }
+
+  .heart {
+    width: 16px;
+    height: 14px;
+  }
+
+  .daylight-left {
+    font-size: 11px;
+  }
+
+  .station {
+    font-size: 12.5px;
+    padding: 5px 12px;
+  }
+
+  .controls {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .controls button {
+    font-size: 13px;
+  }
+
+  .tool,
+  .undo {
+    padding: 8px 10px;
+  }
+
+  .switch {
+    padding: 8px 10px;
+  }
+
+  .switch::before {
+    width: 14px;
+    height: 14px;
+  }
+
+  .controls .open {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .rb-chip {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+
+  .chipmult {
+    font-size: 16px;
+  }
+
+  .rb-rating strong {
+    font-size: 18px;
+  }
+
+  .hud-left,
+  .hud-mid,
+  .hud-right {
+    min-height: 40px;
+    padding: 4px 8px;
+    gap: 6px;
+  }
+
+  .icon-btn {
+    min-width: 32px;
+    height: 32px;
+    font-size: 15px;
+  }
+
+  .icon-btn.text {
+    display: none;
+  }
+
+  .pill {
+    padding: 4px 9px;
+    font-size: 11px;
+  }
+
+  .hud-under {
+    top: calc(max(8px, env(safe-area-inset-top)) + 96px);
+  }
+
+  .hud-bottom {
+    left: 8px;
+    right: 8px;
+  }
+
+  .hud-bar {
+    padding: 8px;
+    gap: 6px;
+    border-radius: 20px;
+  }
+
+  .ridebar {
+    gap: 6px 8px;
+  }
+
+  .stats {
+    order: 3;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .stats div {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 3px;
+  }
+
+  .stats dt {
+    font-size: 8.5px;
+  }
+
+  .stats dd {
+    font-size: 14px;
+  }
+
+  .controls {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .open {
+    flex: 1 1 auto;
+  }
+
+  .attraction {
+    flex-basis: 120px;
+    padding: 5px 8px;
+  }
+
+  .attraction-desc {
+    display: none;
+  }
+
+  .scoreshow[data-mode='dock'] {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .scoreshow[data-mode='dock'] .ss-totalbox {
+    grid-row: auto;
+    grid-column: 1 / -1;
+  }
+
+  .scoreshow[data-mode='dock'] .ss-ticker {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ==== The route map: a painted park map, gates at the bottom, the boss at the top ==== */
+.overlay.mapmode {
+  align-items: center;
+  padding: 12px;
+}
+
+.mapsheet {
+  --ink: #2b2140;
+  position: relative;
+  width: min(calc(100vw - 24px), calc((100dvh - 24px) * 100 / 130), 720px);
+  aspect-ratio: 100 / 130;
+  border-radius: 26px;
+  overflow: hidden;
+  color: var(--ink);
+  box-shadow:
+    0 0 0 5px #fbf6ec,
+    0 0 0 9px var(--ink),
+    0 14px 0 9px rgba(20, 14, 40, 0.5),
+    0 30px 60px rgba(6, 8, 24, 0.6);
+  animation: map-in 420ms cubic-bezier(0.2, 1.3, 0.4, 1);
+}
+
+@keyframes map-in {
+  from {
+    transform: translateY(24px) scale(0.96) rotate(-1deg);
+    opacity: 0;
+  }
+}
+
+.map-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.trail {
+  fill: none;
+  stroke: rgba(43, 33, 64, 0.55);
+  stroke-width: 0.7;
+  stroke-dasharray: 1.4 1.6;
+  stroke-linecap: round;
+}
+
+.park-hollow .trail {
+  stroke: rgba(240, 236, 255, 0.5);
+}
+
+.trail.faded {
+  opacity: 0.35;
+}
+
+.trail.done {
+  stroke: #f0584e;
+  stroke-width: 1.1;
+  stroke-dasharray: none;
+  opacity: 0.9;
+}
+
+.trail.open {
+  stroke: #ffd23f;
+  stroke-width: 1.3;
+  stroke-dasharray: 2 1.4;
+  filter: drop-shadow(0 0 0.8px rgba(43, 33, 64, 0.9));
+  animation: trail-march 0.9s linear infinite;
+}
+
+@keyframes trail-march {
+  to {
+    stroke-dashoffset: 3.4;
+  }
+}
+
+.map-head {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2.2%;
+  text-align: center;
+  pointer-events: none;
+}
+
+.map-eyebrow {
+  margin: 0;
+  font-size: clamp(10px, 1.8vmin, 13px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.75;
+}
+
+.park-hollow .map-eyebrow,
+.park-hollow .map-next,
+.park-hollow .mlabel {
+  color: #fbf6ec;
+}
+
+.map-title {
+  margin: 2px 0 0;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: clamp(18px, 3.6vmin, 30px);
+  line-height: 1;
+}
+
+/* A ribbon banner. */
+.map-title span {
+  position: relative;
+  display: inline-block;
+  padding: 6px 22px 8px;
+  background: var(--marquee);
+  color: #fff;
+  border-radius: 6px;
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.35), inset 0 -4px 0 rgba(0, 0, 0, 0.18), 0 4px 0 #a8303a;
+  transform: rotate(-1.5deg);
+}
+
+.map-title span::before,
+.map-title span::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  width: 16px;
+  height: 100%;
+  background: #b83344;
+  z-index: -1;
+}
+
+.map-title span::before {
+  left: -12px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 40% 50%);
+}
+
+.map-title span::after {
+  right: -12px;
+  clip-path: polygon(0 0, 100% 0, 60% 50%, 100% 100%, 0 100%);
+}
+
+.map-note {
+  position: absolute;
+  left: 50%;
+  top: 13.2%;
+  transform: translateX(-50%) rotate(0.8deg);
+  width: max-content;
+  max-width: 64%;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #fbf6ec;
+  font-size: clamp(11px, 1.9vmin, 14px);
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 3px 0 rgba(43, 33, 64, 0.35);
+  pointer-events: none;
+}
+
+.map-note.soft {
+  background: rgba(251, 246, 236, 0.85);
+  font-weight: 500;
+}
+
+.map-next {
+  position: absolute;
+  right: 4%;
+  bottom: 3.5%;
+  margin: 0;
+  font-family: var(--font-sign);
+  font-size: clamp(9px, 1.6vmin, 12px);
+  transform: rotate(4deg);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* ---- Stops ---- */
+.mnode,
+.mstop {
+  position: absolute;
+  width: 16.5%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  background: none;
+  transform: translate(-50%, -58%);
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+}
+
+.mnode.big {
+  width: 23%;
+}
+
+.mstop.gates {
+  width: 17%;
+}
+
+.mnode img,
+.mstop img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 0 rgba(43, 33, 64, 0.35));
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.mdot {
+  width: 40%;
+  height: 40%;
+  border-radius: 50%;
+  background: var(--marquee);
+  box-shadow: 0 0 0 3px #fbf6ec, 0 0 0 5px var(--ink);
+}
+
+.mlabel {
+  position: absolute;
+  left: 50%;
+  top: 88%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(251, 246, 236, 0.9);
+  color: var(--ink);
+  font-size: clamp(9px, 1.7vmin, 13px);
+  font-weight: 700;
+  box-shadow: 0 2px 0 rgba(43, 33, 64, 0.3);
+}
+
+.park-hollow .mlabel {
+  color: var(--ink);
+}
+
+.mglow {
+  position: absolute;
+  left: 50%;
+  top: 72%;
+  width: 90%;
+  height: 34%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(255, 210, 63, 0.95), rgba(255, 210, 63, 0));
+  opacity: 0;
+}
+
+.mnode.reachable {
+  cursor: pointer;
+  animation: mnode-bob 1.3s ease-in-out infinite;
+}
+
+.mnode.reachable .mglow {
+  opacity: 1;
+  animation: mglow 1.3s ease-in-out infinite;
+}
+
+.mnode.reachable .mlabel {
+  background: var(--bulb);
+}
+
+.mnode.reachable:hover,
+.mnode.reachable:focus-visible {
+  animation: none;
+  transform: translate(-50%, -64%) scale(1.12);
+  z-index: 3;
+}
+
+.mnode:focus-visible {
+  outline: none;
+}
+
+.mnode:focus-visible .mlabel {
+  outline: 3px solid var(--bulb);
+}
+
+.mnode.locked img {
+  filter: saturate(0.75) drop-shadow(0 4px 0 rgba(43, 33, 64, 0.3));
+  opacity: 0.88;
+}
+
+.mnode.visited img {
+  filter: grayscale(0.7) brightness(0.95) drop-shadow(0 4px 0 rgba(43, 33, 64, 0.3));
+}
+
+/* A red ink tick on the stops you've done. */
+.mnode.visited::after {
+  content: '✔';
+  position: absolute;
+  right: 6%;
+  top: 8%;
+  font-size: clamp(16px, 3.4vmin, 28px);
+  color: var(--marquee);
+  text-shadow: 0 2px 0 #fbf6ec;
+  transform: rotate(-8deg);
+}
+
+.mnode:disabled {
+  cursor: default;
+}
+
+.mtip {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  width: max-content;
+  max-width: 220px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: #fbf6ec;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: left;
+  box-shadow: var(--clay-hi), var(--clay-drop);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 6px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.mtip strong {
+  display: block;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  color: var(--marquee);
+}
+
+.mnode:hover .mtip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+/* The coaster car token: you are here. */
+.mtoken {
+  position: absolute;
+  width: 11%;
+  transform: translate(-30%, -125%);
+  filter: drop-shadow(0 3px 0 rgba(43, 33, 64, 0.4));
+  animation: token-hop 1.6s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes mnode-bob {
+  0%,
+  100% {
+    transform: translate(-50%, -58%);
+  }
+  50% {
+    transform: translate(-50%, -64%);
+  }
+}
+
+@keyframes mglow {
+  50% {
+    opacity: 0.5;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+}
+
+@keyframes token-hop {
+  0%,
+  80%,
+  100% {
+    transform: translate(-30%, -125%);
+  }
+  88% {
+    transform: translate(-30%, -140%) rotate(-6deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mnode.reachable,
+  .mnode.reachable .mglow,
+  .mtoken,
+  .trail.open,
+  .mapsheet {
+    animation: none;
+  }
+}
+
+.mnode.big .mtip {
+  bottom: auto;
+  top: 108%;
+  transform: translate(-50%, -6px);
 }

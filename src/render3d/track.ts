@@ -200,13 +200,19 @@ export class TrackPath {
   /** Where the lead car waits: the left end of the station's lower lane. */
   parkAt = 0;
 
-  constructor(cells: ChainCell[], closed: boolean) {
+  /** Ground under the board (hills) and how high the station stands. */
+  private ground: (x: number, y: number) => number;
+  private lift: number;
+
+  constructor(cells: ChainCell[], closed: boolean, ground: (x: number, y: number) => number = () => 0, lift = 0) {
     this.cells = cells;
     this.closed = closed;
+    this.ground = ground;
+    this.lift = lift;
     this.build();
   }
 
-  static fromBoard(b: Board): TrackPath {
+  static fromBoard(b: Board, ground?: (x: number, y: number) => number, lift = 0): TrackPath {
     const [A, B] = b.ends;
     const st = (end: 0 | 1): ChainCell => ({ x: b.station.x + end, y: b.station.y, tier: 0, station: true });
     const cells: ChainCell[] = [
@@ -215,12 +221,12 @@ export class TrackPath {
       st(0),
       ...A.map((c) => ({ x: c.x, y: c.y, tier: c.tier, station: false })),
     ];
-    return new TrackPath(cells, b.opened === 'circuit');
+    return new TrackPath(cells, b.opened === 'circuit', ground, lift);
   }
 
   deck(i: number): number {
     const c = this.cells[i];
-    return c.station ? STATION_H : DECK_H[c.tier];
+    return c.station ? STATION_H + this.lift : DECK_H[c.tier] + this.ground(c.x, c.y);
   }
 
   private neighbor(i: number, d: -1 | 1): number {
@@ -378,7 +384,7 @@ export class TrackPath {
     // b: bank toward a turn's centre (cx, cz) by k, so the train leans into the station's turns.
     type S = { p: Vector3; park?: boolean; b?: { cx: number; cz: number; k: number } };
     const pts: S[] = [];
-    const H = STATION_H;
+    const H = STATION_H + this.lift;
     const ramp = (h: number, k: number) => H + (h - H) * (1 - smooth(0, 1, k));
     type Bank = { cx: number; cz: number; k0: number; k1: number };
     const line = (ax: number, az: number, bx: number, bz: number, steps: number, h0?: number, bank?: Bank) => {
@@ -439,7 +445,7 @@ export class TrackPath {
   /** Height where a station cell meets its neighbour up in the board (dir -1: previous, 1: next). */
   private edgeHeight(i: number, dir: -1 | 1): number {
     const j = this.neighbor(i, dir);
-    const h = STATION_H;
+    const h = STATION_H + this.lift;
     return j >= 0 && !this.cells[j].station ? (this.deck(j) + h) / 2 : h;
   }
 

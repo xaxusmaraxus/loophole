@@ -108,26 +108,20 @@ export class ScoreShow {
     this.el.goal.textContent = `Target ${fmtNum(result.target)}`;
     this.el.fill.style.width = '0%';
     this.panel.hidden = false;
-    document.querySelector('.park')?.classList.add('riding');
+    document.querySelector('.app')?.classList.add('riding');
     this.layout();
-    // On a phone the Open button sits below the park: bring the ride back into view.
-    const top = this.wrap.getBoundingClientRect().top;
-    if (top < 0) window.scrollBy({ top: top - 8, behavior: this.reduce ? 'auto' : 'smooth' });
   }
 
   end(): void {
     this.panel.hidden = true;
     this.result = null;
-    document.querySelector('.park')?.classList.remove('riding');
+    document.querySelector('.app')?.classList.remove('riding');
     for (const p of this.layer.querySelectorAll('.ss-pop')) p.remove();
   }
 
-  /** Beside the park when there's room, otherwise under it (where the controls were). */
+  /** Docked along the bottom of the screen, where the ride bar was. */
   layout(): void {
-    const park = this.wrap.closest('.park')?.getBoundingClientRect();
-    const box = this.wrap.getBoundingClientRect();
-    const room = park ? box.left - park.left : 0;
-    this.panel.dataset.mode = room >= 250 ? 'side' : 'below';
+    this.panel.dataset.mode = 'dock';
   }
 
   /** How many events have played this ride (the pitch ladder). */

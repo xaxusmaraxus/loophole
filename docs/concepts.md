@@ -191,6 +191,12 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Bigger coaster:** taller hills, drops, helixes, loops and Mega Loops; smaller cars and riders; the camera sits closer. The ride is a little slower again, the chain lift clacks, and the lens widens a touch in the fast dips.
 - **Track:** rounder, smoother rails with less clay wobble. The piece into the station already leans into the station's turn, and the piece out of it leans back out.
 
+## Full-screen park, guests with personality, hills (v0.16)
+- **The park fills the screen.** A slim clay top bar (park and day, hearts, target, daylight, funds, and icon buttons for highscores, help, sound, full screen) and a bottom bar with today's ride in one line (excitement × multiplier = tickets a puke, length, thrill, variety, inversions, nausea, best combo) next to the controls. The camera frames the board, station and queue in the space between the bars, so the rides come out much bigger. While the train runs, the score show docks where the bottom bar was.
+- **No list of people.** Hover a guest in the park (or tap one on a phone) to meet them: name, type, stomach, weakness, and how often the ride will make them puke. They wave back. The full line is still one hover away on the "in line" chip. Only guests the ride will make puke get a (green) thought bubble.
+- **Funnier guests.** Bigger heads, thick clay eyebrows, ears, mitten hands, round bodies and chunky shoes. Every type has a personality: thrill seekers smirk in line and laugh through the loops with their hands up, grandmas smile sweetly and then wail, nerds sweat and grimace, kids can't stand still, influencers take selfies, VIPs and bosses look smug until the first inversion. Faces: smile, grin, cocky, nervous, meh, joy, scream, terror, sick.
+- **Hills and high stations.** Later parks aren't flat. The Boardwalk station stands on a pier, the Hollow's on a crag, the Grand Opening's on gold scaffolding, with a flight of stairs the riders climb, so every ride starts with a drop. Grassy hills rise out of the board and lift the crates and the track built on them. It's scenery: the puzzle and scoring don't change.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
@@ -210,6 +216,7 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Multiple stations:** two rides on one board, sharing space. Track crossings need a Tunnel or Bridge piece.
 
 ### Stuff that makes it more awesome
+- **An illustrated route map** (Slay the Spire style): a painted, scrolling map of the park with little clay dioramas for each stop (a tent for the shop, a storm cloud, a VIP limo, the boss's lair), paths inked between them, and your train token moving along.
 - *(Built in v0.12.)* **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
 - **Guest thought feed** (RCT nod): little quotes pop up ("This looks too intense for me", "I want to go on something more thrilling").
 - **Special pieces:** Launch (speed boost), Water Splash (soaks the front row), Tunnel (passes under your own track), Brake Run (cancels nausea).

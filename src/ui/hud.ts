@@ -2,11 +2,12 @@ import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
 import { BOSSES, KINDS, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
 import { drawPortrait3D } from '../render3d/portrait';
+import { mapHtml } from './map';
 import { photoStore } from './photo';
 import { lastRecord, playerName, recordLocal } from './scores';
 import { setShareText, shareLinks } from './share';
 import { ATTRACTIONS, ATTRACTION_SLOTS, type Effect } from '../run/attractions';
-import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, PARKS, PARK_BOSS, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
+import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -38,13 +39,14 @@ function rewardLabel(r: Reward | ShopItem | EggItem, day = 1): { tag: string; na
 export class Hud {
   private portraits = new Map<number, HTMLCanvasElement>();
   private lastOverlay = '';
+  private lastStrip = '';
 
   constructor(private game: Game) {}
 
   update(): void {
     const g = this.game;
     const park = g.cfg.park;
-    $('day').textContent = park.id === 'finale' ? park.name : `${park.name} · Day ${g.dayNum} of ${FINALE_DAY}`;
+    $('day').innerHTML = park.id === 'finale' ? park.name : `<span class="pn">${park.name} · </span>Day ${g.dayNum}<span class="of"> of ${FINALE_DAY}</span>`;
     $('hearts').innerHTML = Array.from({ length: 3 }, (_, i) => `<span class="heart${i < g.hearts ? '' : ' lost'}" aria-hidden="true"></span>`).join('');
     $('hearts').setAttribute('aria-label', `${g.hearts} of 3 park reputation left`);
     $('quota').textContent = `Sell ${g.cfg.target.toLocaleString()} tickets`;
@@ -77,7 +79,7 @@ export class Hud {
     $('statVariety').textContent = String(s.variety);
     $('statInversions').textContent = String(s.inversions);
     $('statNausea').textContent = String(s.nausea);
-    $('bestCombo').textContent = g.bestCombo >= 2 ? `x${g.bestCombo}` : 'none yet';
+    $('bestCombo').textContent = g.bestCombo >= 2 ? `×${g.bestCombo}` : '–';
     const counts = new Map<UpgradeId, number>();
     for (const u of g.upgrades) counts.set(u, (counts.get(u) ?? 0) + 1);
     $('perks').textContent = counts.size ? [...counts].map(([u, n]) => `${UPGRADES[u].name}${n > 1 ? ` ×${n}` : ''}`).join(', ') : 'None yet';
@@ -131,8 +133,12 @@ export class Hud {
         </div>
       </li>`;
     });
-    for (let i = g.attractions.length; i < ATTRACTION_SLOTS; i++) cards.push('<li class="attraction empty">Empty slot</li>');
-    strip.innerHTML = cards.join('');
+    // Empty slots only show once there's something in the strip (they'd clutter the park otherwise).
+    if (cards.length) for (let i = g.attractions.length; i < ATTRACTION_SLOTS; i++) cards.push('<li class="attraction empty" title="Empty attraction slot">+</li>');
+    const html = cards.join('');
+    if (html === this.lastStrip) return;
+    this.lastStrip = html;
+    strip.innerHTML = html;
   }
 
   private renderTools(): void {
@@ -165,6 +171,12 @@ export class Hud {
     list.replaceChildren(
       ...g.queue.map((r) => this.riderCard(r, g.phase === 'build' ? g.pukes(r) : riding ? 0 : g.phase === 'results' ? puked(r) : null, riding, g.phase === 'results')),
     );
+  }
+
+  /** The card for a guest hovered (or tapped) in the park. */
+  guestCard(r: Rider): HTMLElement {
+    const g = this.game;
+    return this.riderCard(r, g.phase === 'build' ? g.pukes(r) : null);
   }
 
   private riderCard(r: Rider, pukes: number | null, riding = false, past = false): HTMLLIElement {
@@ -205,8 +217,7 @@ export class Hud {
     if (html === this.lastOverlay) return;
     this.lastOverlay = html;
     el.innerHTML = html;
-    el.classList.toggle('wide', g.phase === 'map');
-    if (g.phase === 'map') requestAnimationFrame(() => this.drawMapLines());
+    el.classList.toggle('mapmode', g.phase === 'map');
   }
 
   private overlayHtml(): string {
@@ -400,61 +411,7 @@ export class Hud {
   }
 
   private mapHtml(): string {
-    const g = this.game;
-    const park = g.cfg.park;
-    const next = SEASON_ORDER[g.parkIndex + 1];
-    const cols = g.parkMap
-      .map((col, ci) => {
-        const nodes = col
-          .map((n, ni) => {
-            const visited = g.visited.some((v) => v.col === ci && v.node === ni);
-            const current = g.mapPos?.col === ci && g.mapPos.node === ni;
-            const reachable = g.isReachable(ci);
-            const info = NODE_INFO[n.kind];
-            const boss = n.kind === 'boss' ? PARK_BOSS[park.id] : undefined;
-            const name = boss ? `Boss: ${BOSSES[boss].name}` : info.name;
-            const desc = boss ? `Stomach ${BOSSES[boss].stomach}. ${BOSSES[boss].trait}` : info.desc;
-            const state = current ? 'current' : visited ? 'visited' : reachable ? 'reachable' : 'locked';
-            return `<button type="button" class="map-node ${n.kind} ${state}" data-action="node" data-col="${ci}" data-node="${ni}" ${reachable ? '' : 'disabled'} title="${desc}">
-              <span class="node-dot" aria-hidden="true"></span>
-              <span class="node-name">${name}</span>
-              <span class="node-desc">${desc}</span>
-            </button>`;
-          })
-          .join('');
-        return `<div class="map-col" data-col="${ci}">${nodes}</div>`;
-      })
-      .join('');
-    return `
-      <div class="card map-card">
-        <p class="eyebrow">${park.name} · Season day ${g.dayNum} of ${FINALE_DAY}</p>
-        <h2>Pick your route</h2>
-        ${g.notice ? `<p class="notice">${g.notice}</p>` : '<p>Days are in the columns. The last one is the park’s boss.</p>'}
-        <div class="map" id="map"><svg class="map-lines" id="mapLines" aria-hidden="true"></svg>${cols}</div>
-        <p class="muted">Next: ${next ? PARKS[next].name : 'the end of the season'}.</p>
-      </div>`;
-  }
-
-  /** Connect every node to every node in the next column. */
-  private drawMapLines(): void {
-    const map = document.getElementById('map');
-    const svg = document.getElementById('mapLines');
-    if (!map || !svg) return;
-    const box = map.getBoundingClientRect();
-    svg.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
-    const cols = [...map.querySelectorAll<HTMLElement>('.map-col')];
-    const lines: string[] = [];
-    for (let c = 0; c + 1 < cols.length; c++)
-      for (const a of cols[c].querySelectorAll<HTMLElement>('.node-dot'))
-        for (const b of cols[c + 1].querySelectorAll<HTMLElement>('.node-dot')) {
-          const ra = a.getBoundingClientRect();
-          const rb = b.getBoundingClientRect();
-          const on = a.closest('.visited, .current') && b.closest('.visited, .current, .reachable');
-          lines.push(
-            `<line x1="${ra.left + ra.width / 2 - box.left}" y1="${ra.top + ra.height / 2 - box.top}" x2="${rb.left + rb.width / 2 - box.left}" y2="${rb.top + rb.height / 2 - box.top}" class="${on ? 'on' : ''}"/>`,
-          );
-        }
-    svg.innerHTML = lines.join('');
+    return mapHtml(this.game);
   }
 }
 

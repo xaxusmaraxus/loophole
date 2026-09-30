@@ -5,6 +5,7 @@ import type { Board, RideStop } from '../puzzle/board';
 import { PIECES } from '../puzzle/pieces';
 import { PAL, SHIRTS } from '../render/palette';
 import { CAR_GAP, type Renderer } from '../render/renderer';
+import { rideArms, rideFace } from '../render/moods';
 import type { Face } from '../render3d/models';
 import type { TrackPath } from '../render3d/track';
 import type { ScoreEvent } from '../run/timeline';
@@ -503,8 +504,10 @@ export class RideAnim {
       const f = this.path.sample(s);
       const inverted = f.up.y < -0.2;
       const shot = this.r.inShot;
-      const face: Face = this.sick[i] ? 'sick' : shot || inverted || this.scream[i] > 0 ? 'scream' : 'smile';
-      const arms = this.sick[i] ? (shot ? 0.6 : 0.15) : shot || inverted || this.scream[i] > 0 ? 1 : 0.1;
+      // Wild through drops, inversions and slow-motion shots; each guest in their own way.
+      const wild = shot || inverted || this.scream[i] > 0;
+      const face: Face = this.sick[i] ? 'sick' : v ? rideFace(v.rider, wild) : 'smile';
+      const arms = this.sick[i] ? (shot ? 0.6 : 0.15) : v ? rideArms(v.rider, wild) : 0.1;
       const kind = i === 0 ? 'lead' : i === this.cars - 1 ? 'tail' : 'mid';
       const c = this.r.car(kind, s, aboard && v ? { look: v.rider.look, face, arms } : undefined);
       this.heads[i].copy(c.head);
