@@ -197,6 +197,10 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Funnier guests.** Bigger heads, thick clay eyebrows, ears, mitten hands, round bodies and chunky shoes. Every type has a personality: thrill seekers smirk in line and laugh through the loops with their hands up, grandmas smile sweetly and then wail, nerds sweat and grimace, kids can't stand still, influencers take selfies, VIPs and bosses look smug until the first inversion. Faces: smile, grin, cocky, nervous, meh, joy, scream, terror, sick.
 - **Hills and high stations.** Later parks aren't flat. The Boardwalk station stands on a pier, the Hollow's on a crag, the Grand Opening's on gold scaffolding, with a flight of stairs the riders climb, so every ride starts with a drop. Grassy hills rise out of the board and lift the crates and the track built on them. It's scenery: the puzzle and scoring don't change.
 
+## The painted route map and a park that shows what you bought (v0.17)
+- **Route map, Slay the Spire style.** A painted map of the park, read from the gates at the bottom up to the boss's lair at the top. Every stop is a little clay diorama (a loop for a day, a crown on a red carpet for a VIP, a storm cloud, the shop's striped tent, a patched-up heart, the capsule machine, the boss on a pedestal). Inked trails join each stop to every stop in the next row; the ones you can take next march toward you in gold, the route you took is red, and a coaster-car token marks where you are. Each park has its own terrain: a duck pond in the Meadow, the sea and palms on the Boardwalk, a moon and tombstones in the Hollow, bunting at the Grand Opening.
+- **What you buy stands in the park.** Every attraction gets its own landmark on a lot beside or behind the board, in the same left-to-right order as the cards (Splash Zone is a fountain, Photo Booth a booth with a flash, Adrenaline Junkie a drop tower, Corn Dog Cart a cart with a giant corn dog, Twilight Ride a moon lamp, and so on); it bounces when it scores and when you hover its card. Upgrades are props on the free side of the plaza (a clock tower for Late Closing, a fry stand for Greasy Fries, a billboard, a tool shed...). Every bus tour parks a bus behind the board.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
@@ -216,7 +220,7 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Multiple stations:** two rides on one board, sharing space. Track crossings need a Tunnel or Bridge piece.
 
 ### Stuff that makes it more awesome
-- **An illustrated route map** (Slay the Spire style): a painted, scrolling map of the park with little clay dioramas for each stop (a tent for the shop, a storm cloud, a VIP limo, the boss's lair), paths inked between them, and your train token moving along.
+- *(Built in v0.17.)* **An illustrated route map** (Slay the Spire style). Next: let the token ride along the trail when you pick a stop.
 - *(Built in v0.12.)* **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
 - **Guest thought feed** (RCT nod): little quotes pop up ("This looks too intense for me", "I want to go on something more thrilling").
 - **Special pieces:** Launch (speed boost), Water Splash (soaks the front row), Tunnel (passes under your own track), Brake Run (cancels nausea).

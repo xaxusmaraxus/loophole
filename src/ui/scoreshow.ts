@@ -41,6 +41,8 @@ export class ScoreShow {
   onShake: (mag: number, ms: number) => void = () => {};
   /** Celebration bursts in the park (canvas particles). */
   onCheer: () => void = () => {};
+  /** An attraction scores: its landmark in the park bounces. */
+  onAttraction: (slot: number) => void = () => {};
 
   constructor(private wrap: HTMLElement) {
     this.panel = document.createElement('div');
@@ -183,6 +185,7 @@ export class ScoreShow {
         break;
       }
       case 'attraction': {
+        this.onAttraction(e.slot);
         const card = document.querySelectorAll<HTMLElement>('#attractions .attraction')[e.slot];
         if (card) {
           card.classList.remove('wiggle');

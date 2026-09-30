@@ -145,6 +145,14 @@ document.getElementById('attractions')!.addEventListener('click', (e) => {
   if (btn.dataset.attrSell) act(() => game.sellAttraction(Number(btn.dataset.attrSell)));
   else if (btn.dataset.attrMove) act(() => game.moveAttraction(Number(btn.dataset.attrMove), Number(btn.dataset.by) as -1 | 1));
 });
+// Hovering an attraction's card makes its landmark in the park wave hello.
+let lastAttr = -1;
+document.getElementById('attractions')!.addEventListener('mouseover', (e) => {
+  const li = (e.target as HTMLElement).closest('.attraction:not(.empty)');
+  const i = li ? [...li.parentElement!.children].indexOf(li) : -1;
+  if (i !== lastAttr && i >= 0) renderer.pulseAttraction(i);
+  lastAttr = i;
+});
 document.getElementById('switchEnd')!.addEventListener('click', () => act(() => game.selectEnd()));
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
 document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));

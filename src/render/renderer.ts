@@ -45,11 +45,13 @@ import { Particles, Pool, bubbleMaterial, makeBubble, makeMarker, puddleGeo } fr
 import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
 import { MATS, SHARED, toon } from '../render3d/toon';
 import { FLAT, type Terrain, hillGeo, makeTerrain } from '../render3d/terrain';
+import { attractionGroup, busGroup, upgradeGroup } from '../render3d/structures';
+import { ATTRACTIONS } from '../run/attractions';
 import { TrackPath, stationLayout } from '../render3d/track';
 import { buildCellTrack } from '../render3d/trackmesh';
 import { composeCard, photoStore } from '../ui/photo';
 import { ScoreShow } from '../ui/scoreshow';
-import { PAL, type ParkTheme, THEMES, TIER_RAMPS } from './palette';
+import { PAL, type ParkTheme, SHIRTS, THEMES, TIER_RAMPS } from './palette';
 import { lineAntics, lineFace } from './moods';
 
 // The park as a little 3D diorama: cel-shaded, ink-lined, procedurally built
@@ -70,6 +72,8 @@ const CAR_SCALE = 1.05;
 const STAND_SCALE = 1.3;
 /** The queue starts beside the station's sign, not in front of it. */
 const QUEUE_START = 0.7;
+/** Attraction landmarks are built at toy scale and shown bigger. */
+const STRUCT_SCALE = 1.6;
 /** Depth of the stairs up to a raised station. */
 const STAIRS = 0.42;
 
@@ -161,6 +165,11 @@ export class Renderer {
   private lampLights: PointLight[] = [];
   /** The on-ride camera's flash: always in the scene (so no shader recompiles), lit only for the photo. */
   private rush = 0;
+  /** What you've bought, standing in the park: attraction landmarks, upgrade props, tour buses. */
+  private structures = new Group();
+  private structKey = '';
+  private attrLots: Group[] = [];
+  private attrPulse: number[] = [];
   /** Hills on the board and the station's height (later parks). */
   terrain: Terrain = FLAT;
   private flashLight = new PointLight('#fff6ea', 0, 4, 2);
@@ -239,6 +248,7 @@ export class Renderer {
     this.show = new ScoreShow(canvas.parentElement!);
     this.show.onShake = (mag, ms) => this.kick(mag, ms);
     this.show.onCheer = () => this.cheer(1);
+    this.show.onAttraction = (slot) => this.pulseAttraction(slot);
     this.scene.add(this.world, this.dyn, this.trackGroup);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
@@ -985,6 +995,8 @@ export class Renderer {
     this.fireTileEffects();
     this.updateFog();
     this.syncTrack();
+    this.syncStructures();
+    this.animateStructures();
     this.updateLight(dt);
     this.drawTrackRise();
     this.drawCrates();
@@ -1178,6 +1190,78 @@ export class Renderer {
   }
 
   // ---- Track -----------------------------------------------------------------------
+
+  /** Rebuilds the park's bought structures when the set changes. */
+  private syncStructures(): void {
+    const g = this.game;
+    const up = new Map<string, number>();
+    for (const u of g.upgrades) up.set(u, (up.get(u) ?? 0) + 1);
+    const tours = [...new Set(g.crowd)];
+    const key = [g.attractions.map((a) => a.id).join(','), [...up].map(([u, n]) => `${u}${n}`).join(','), tours.join(','), this.n, this.board.station.x, this.terrain.lift].join('|');
+    if (key === this.structKey) return;
+    this.structKey = key;
+    this.structures.traverse((o) => (o as Mesh).geometry?.dispose());
+    this.structures.clear();
+    if (!this.structures.parent) this.scene.add(this.structures);
+    const n = this.n;
+    // Attraction lots: left front, left back, behind the board, right back, right front
+    // (the same left-to-right order as the cards).
+    const lots: [number, number][] = [
+      [-0.4, n * 0.72],
+      [-0.4, n * 0.28],
+      [n / 2, -0.4],
+      [n + 0.4, n * 0.28],
+      [n + 0.4, n * 0.72],
+    ];
+    const had = this.attrLots.length;
+    this.attrLots = g.attractions.slice(0, lots.length).map((a, i) => {
+      const grp = attractionGroup(a.id, ATTRACTIONS[a.id].rarity === 'rare');
+      grp.position.set(lots[i][0], 0, lots[i][1]);
+      grp.userData.s = STRUCT_SCALE;
+      grp.scale.setScalar(STRUCT_SCALE);
+      this.structures.add(grp);
+      return grp;
+    });
+    // A fresh attraction pops in.
+    this.attrPulse = this.attrLots.map((_, i) => (i >= had && had + 1 === this.attrLots.length ? this.now : this.attrPulse[i] ?? -1e9));
+    // Upgrades on the free side of the front plaza (the queue has the other side).
+    const sc = this.stationCenter();
+    const side = -this.queueDir();
+    let k = 0;
+    for (const [u, count] of up) {
+      const row = k % 2;
+      const x = sc.x + side * (0.8 + Math.floor(k / 2) * 0.6 + row * 0.3);
+      const grp = upgradeGroup(u as Parameters<typeof upgradeGroup>[0], count);
+      grp.scale.setScalar(1.5);
+      grp.position.set(Math.min(n + 0.3, Math.max(-0.3, x)), 0, this.board.station.y + 2.2 + row * 0.45);
+      this.structures.add(grp);
+      k++;
+    }
+    // Tour buses parked behind the board.
+    const busX = [0.6, n - 0.6, 1.5, n - 1.5].filter((x) => Math.abs(x - n / 2) > 0.95);
+    tours.slice(0, busX.length).forEach((t, i) => {
+      const grp = busGroup(SHIRTS[(t.length * 5 + t.charCodeAt(0)) % SHIRTS.length]);
+      grp.scale.setScalar(1.25);
+      grp.position.set(busX[i], 0, -0.4);
+      this.structures.add(grp);
+    });
+  }
+
+  /** An attraction scores (or its card is hovered): its landmark bounces. */
+  pulseAttraction(slot: number): void {
+    if (slot < 0 || slot >= this.attrLots.length) return;
+    this.attrPulse[slot] = this.now;
+    const at = this.attrLots[slot].position.clone().setY(0.35);
+    this.burst(at, 10, [PAL.gold, PAL.white]);
+  }
+
+  private animateStructures(): void {
+    this.attrLots.forEach((grp, i) => {
+      const t = (this.now - (this.attrPulse[i] ?? -1e9)) / 1000;
+      const k = t >= 0 && t < 0.7 ? Math.sin(t * 18) * Math.exp(-t * 5) : 0;
+      grp.scale.set(STRUCT_SCALE * (1 - k * 0.18), STRUCT_SCALE * (1 + k * 0.3), STRUCT_SCALE * (1 - k * 0.18));
+    });
+  }
 
   private syncTrack(force = false): void {
     const b = this.board;
