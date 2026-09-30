@@ -901,3 +901,49 @@ button:focus-visible {
   background: #ffe3ec;
   color: #a3244d;
 }
+
+/* ---- Season cards ---- */
+.eyebrow {
+  margin: 0 0 2px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.rules {
+  margin: 0 0 10px;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 15px;
+}
+
+.funds {
+  background: var(--bulb);
+}
+
+.shop-item {
+  position: relative;
+  padding-right: 64px;
+}
+
+.shop-item .price {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-family: var(--font-sign);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.shop-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.card .primary + .primary,
+.perks + .primary {
+  margin-top: 10px;
+}

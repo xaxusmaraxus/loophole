@@ -34,7 +34,44 @@ export const PAL = {
   car: ['#ffb0a0', '#f0584e', '#b83344', '#6e1f36'] as Ramp,
 };
 
-export const SKINS = ['#fbd9bd', '#eab893', '#c98d63', '#95603f', '#63402b'];
+// Index 5 is ghost-pale.
+export const SKINS = ['#fbd9bd', '#eab893', '#c98d63', '#95603f', '#63402b', '#dfe6f5'];
 export const HAIRS = ['#3a2718', '#6b4428', '#b0602e', '#e8bf5a', '#e4e4ec', '#232338', '#e0484e', '#8a5ad0'];
 export const SHIRTS = ['#f0584e', '#45a8e0', '#72c457', '#ffd23f', '#9d6ef0', '#ff9a3c', '#ff8fb8', '#35c2b0', '#fbf6ec'];
-export const PANTS = ['#3a4a7a', '#4a4a5c', '#6b5238', '#2e5a8a'];
+// Index 4 is a ghost's sheet.
+export const PANTS = ['#3a4a7a', '#4a4a5c', '#6b5238', '#2e5a8a', '#eef2fb'];
+
+export interface ParkTheme {
+  grass: Ramp;
+  plaza: Ramp;
+  plazaStyle: 'pavers' | 'planks';
+  /** Sand or mud patches. */
+  soft: Ramp;
+  /** A constant color wash over the whole park, if any. */
+  tint?: string;
+}
+
+export const THEMES: Record<'meadow' | 'boardwalk' | 'hollow' | 'finale', ParkTheme> = {
+  meadow: { grass: PAL.grass, plaza: PAL.plaza, plazaStyle: 'pavers', soft: ['#f4dca0', '#e9c987', '#d2ae6a', '#a88550'] },
+  boardwalk: {
+    grass: ['#c2e08a', '#aed178', '#98c066', '#6f9a4c'],
+    plaza: ['#e8c28c', '#d3a66c', '#b5864f', '#7e5a35'],
+    plazaStyle: 'planks',
+    soft: ['#fbe7b3', '#f1d696', '#dcbb74', '#b08e52'],
+  },
+  hollow: {
+    grass: ['#8fa88a', '#7a9676', '#688466', '#48604c'],
+    plaza: ['#9d98b3', '#86819e', '#716b89', '#524c68'],
+    plazaStyle: 'pavers',
+    soft: ['#9a7a58', '#826346', '#6a4f38', '#4a3626'],
+    tint: 'rgba(70, 40, 120, 0.16)',
+  },
+  finale: {
+    grass: PAL.grass,
+    plaza: ['#fbe9f0', '#f3d6e2', '#e2bccd', '#b98ea3'],
+    plazaStyle: 'pavers',
+    soft: ['#f4dca0', '#e9c987', '#d2ae6a', '#a88550'],
+  },
+};
+
+export const MYSTERY: Ramp = ['#c3b3ec', '#8b74c6', '#63509c', '#3d2f6b'];

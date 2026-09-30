@@ -89,6 +89,9 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
   act(() => {
     if (action === 'continue') game.continueFromResults();
     else if (action === 'reward') game.chooseReward(Number(btn.dataset.index));
+    else if (action === 'begin') game.beginDay();
+    else if (action === 'buy') game.buy(Number(btn.dataset.index));
+    else if (action === 'leave') game.leaveShop();
     else if (action === 'newrun') game.newRun();
   });
   requestAnimationFrame(() => document.querySelector<HTMLElement>('#overlay [autofocus], #overlay button')?.focus());

@@ -25,11 +25,12 @@ import { RideAnim } from '../ride/ride';
 import { sfx } from '../core/sfx';
 import { drawText, textWidth } from './font';
 import { C, DECK, STATION_DECK } from './metrics';
-import { PAL, TIER_RAMPS } from './palette';
+import { PAL, type ParkTheme, THEMES, TIER_RAMPS } from './palette';
 import {
   type Ctx,
   drawBubble,
   drawCrate,
+  drawMystery,
   drawPerson,
   drawPond,
   drawRock,
@@ -99,6 +100,8 @@ export class Renderer {
   private riderPos = new Map<number, { x: number; y: number; moving: boolean }>();
   private links = new Map<string, Pt[]>();
   private lamps: Pt[] = [];
+  /** Cells the fog hides this frame (Haunted Hollow). */
+  private fogged = new Set<number>();
   private ride: RideAnim | null = null;
   private now = 0;
 
@@ -126,6 +129,27 @@ export class Renderer {
 
   private get board(): Board {
     return this.game.board;
+  }
+
+  private get theme(): ParkTheme {
+    return THEMES[this.game.cfg.park.id];
+  }
+
+  /** In fog, only cells within two steps of the station or any track are visible. */
+  private updateFog(): void {
+    this.fogged.clear();
+    const b = this.board;
+    if (!this.game.cfg.park.fog || this.game.phase === 'ride' || this.game.phase === 'results') return;
+    const seen = [b.station, ...trackCells(b)];
+    for (let y = 0; y < b.size; y++)
+      for (let x = 0; x < b.size; x++)
+        if (!seen.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) <= 2)) this.fogged.add(idx(b, x, y));
+  }
+
+  /** Draws a tile crate, or a mystery crate if its cell is fogged. */
+  private crate(tier: number, x: number, y: number, cell: Pt, flash = 0): void {
+    if (this.fogged.has(idx(this.board, cell.x, cell.y))) drawMystery(this.ctx, x, y);
+    else drawCrate(this.ctx, tier, x, y, flash);
   }
 
   private outward(): Pt {
@@ -208,16 +232,30 @@ export class Renderer {
     const ctx = t.getContext('2d')!;
     const day = this.game.dayNum + this.game.seed.charCodeAt(0);
     const ground = this.H - FRONT;
-    // Plaza pavers.
-    px(ctx, 0, 0, this.W, ground, PAL.plaza[1]);
-    for (let y = 0; y < ground; y += 8)
-      for (let x = 0; x < this.W; x += 8) {
-        const off = (y / 8) % 2 ? 4 : 0;
-        const v = hash(day, x, y);
-        if (v < 0.12) px(ctx, x + off, y, 8, 8, PAL.plaza[0]);
-        px(ctx, x + off, y, 8, 1, PAL.plaza[2]);
-        px(ctx, x + off, y, 1, 8, PAL.plaza[2]);
+    const th = this.theme;
+    px(ctx, 0, 0, this.W, ground, th.plaza[1]);
+    if (th.plazaStyle === 'planks') {
+      // Boardwalk: long planks with staggered seams and nail heads.
+      for (let y = 0; y < ground; y += 5) {
+        px(ctx, 0, y, this.W, 1, th.plaza[2]);
+        const off = Math.floor(hash(day, y) * 20);
+        for (let x = off; x < this.W; x += 24) {
+          px(ctx, x, y, 1, 5, th.plaza[2]);
+          if (hash(day, x, y) < 0.3) px(ctx, x + 1, y + 1, 22, 4, th.plaza[0]);
+          px(ctx, x + 2, y + 2, 1, 1, th.plaza[3]);
+        }
       }
+    } else {
+      // Pavers.
+      for (let y = 0; y < ground; y += 8)
+        for (let x = 0; x < this.W; x += 8) {
+          const off = (y / 8) % 2 ? 4 : 0;
+          const v = hash(day, x, y);
+          if (v < 0.12) px(ctx, x + off, y, 8, 8, th.plaza[0]);
+          px(ctx, x + off, y, 8, 1, th.plaza[2]);
+          px(ctx, x + off, y, 1, 8, th.plaza[2]);
+        }
+    }
     // Diorama front: the park is a little slab of earth.
     px(ctx, 0, ground, this.W, FRONT, PAL.dirt[1]);
     px(ctx, 0, ground, this.W, 2, PAL.plaza[3]);
@@ -227,16 +265,31 @@ export class Renderer {
     const bx = this.cellX(0);
     const by = this.cellY(0);
     const bw = b.size * C;
-    px(ctx, bx - 1, by - 1, bw + 2, bw + 4, PAL.grass[3]);
+    px(ctx, bx - 1, by - 1, bw + 2, bw + 4, th.grass[3]);
     for (let y = 0; y < b.size; y++)
-      for (let x = 0; x < b.size; x++) px(ctx, bx + x * C, by + y * C, C, C, (x + y) % 2 ? PAL.grass[1] : PAL.grass[2]);
+      for (let x = 0; x < b.size; x++) px(ctx, bx + x * C, by + y * C, C, C, (x + y) % 2 ? th.grass[1] : th.grass[2]);
     px(ctx, bx, by + bw, bw, 2, PAL.dirt[1]);
     for (let y = 0; y < bw; y++)
       for (let x = 0; x < bw; x++) {
         const v = hash(day, x + 300, y + 300);
-        if (v < 0.04) px(ctx, bx + x, by + y, 1, 1, PAL.grass[0]);
-        else if (v < 0.07) px(ctx, bx + x, by + y, 1, 1, PAL.grass[3]);
+        if (v < 0.04) px(ctx, bx + x, by + y, 1, 1, th.grass[0]);
+        else if (v < 0.07) px(ctx, bx + x, by + y, 1, 1, th.grass[3]);
         else if (v < 0.074) px(ctx, bx + x, by + y, 1, 1, hash(x, y) < 0.5 ? PAL.gold : PAL.heart);
+      }
+    // Sand or mud patches: soft edges, speckles.
+    for (let y = 0; y < b.size; y++)
+      for (let x = 0; x < b.size; x++) {
+        if (!b.soft[idx(b, x, y)]) continue;
+        const cx = bx + x * C;
+        const cy = by + y * C;
+        px(ctx, cx + 1, cy + 1, C - 2, C - 2, th.soft[1]);
+        px(ctx, cx, cy + 3, C, C - 6, th.soft[1]);
+        px(ctx, cx + 3, cy, C - 6, C, th.soft[1]);
+        for (let k = 0; k < 14; k++) {
+          const sx = Math.floor(hash(day, x * 31 + k, y) * 14) + 1;
+          const sy = Math.floor(hash(day, y * 17 + k, x) * 14) + 1;
+          px(ctx, cx + sx, cy + sy, 1, 1, k % 3 ? th.soft[2] : th.soft[0]);
+        }
       }
     // A few lamp posts on the plaza corners.
     this.lamps = [];
@@ -401,6 +454,7 @@ export class Renderer {
       ctx.translate(Math.round((Math.random() - 0.5) * 2 * m), Math.round((Math.random() - 0.5) * 2 * m));
     }
     this.fireTileEffects();
+    this.updateFog();
     ctx.drawImage(this.terrain, 0, 0);
 
     const behind = (y: number) => y < this.cellY(0) + 4;
@@ -418,6 +472,10 @@ export class Renderer {
         this.ride = null;
         this.onRideDone();
       }
+    }
+    if (this.theme.tint) {
+      ctx.fillStyle = this.theme.tint;
+      ctx.fillRect(0, 0, this.W, this.H);
     }
     this.drawDusk();
     this.drawParticles(dt);
@@ -479,7 +537,7 @@ export class Renderer {
         const tc = trackAt(b, x, y);
         if (tc) this.drawTrackCell(tc);
         const tier = b.tiles[idx(b, x, y)];
-        if (tier && !anim) drawCrate(ctx, tier, cx, cy, this.flashAt(idx(b, x, y)));
+        if (tier && !anim) this.crate(tier, cx, cy, { x, y }, this.flashAt(idx(b, x, y)));
       }
   }
 
@@ -504,7 +562,7 @@ export class Renderer {
       for (const s of m.slides) {
         const x = this.cellX(s.from.x) + (this.cellX(s.to.x) - this.cellX(s.from.x)) * e;
         const y = this.cellY(s.from.y) + (this.cellY(s.to.y) - this.cellY(s.from.y)) * e;
-        drawCrate(this.ctx, s.tier, x, y);
+        this.crate(s.tier, x, y, s.to);
       }
       return;
     }
@@ -516,14 +574,14 @@ export class Renderer {
     for (let y = 0; y < b.size; y++)
       for (let x = 0; x < b.size; x++) {
         const i = idx(b, x, y);
-        if (base[i] && !busy.has(i)) drawCrate(this.ctx, base[i], this.cellX(x), this.cellY(y), this.flashAt(i));
+        if (base[i] && !busy.has(i)) this.crate(base[i], this.cellX(x), this.cellY(y), { x, y }, this.flashAt(i));
       }
     for (const w of wave) {
-      drawCrate(this.ctx, w.tier - 1, this.cellX(w.to.x), this.cellY(w.to.y));
+      this.crate(w.tier - 1, this.cellX(w.to.x), this.cellY(w.to.y), w.to);
       const t = Math.min(1, e);
       const x = this.cellX(w.from.x) + (this.cellX(w.to.x) - this.cellX(w.from.x)) * t;
       const y = this.cellY(w.from.y) + (this.cellY(w.to.y) - this.cellY(w.from.y)) * t - Math.sin(t * Math.PI) * 5;
-      drawCrate(this.ctx, w.tier - 1, x, y);
+      this.crate(w.tier - 1, x, y, w.to);
     }
   }
 
@@ -572,6 +630,12 @@ export class Renderer {
 
   private finishMove(m: MoveResult): void {
     for (const s of m.spawned) this.flashes.set(idx(this.board, s.x, s.y), this.now + 140);
+    for (const k of m.sunk) {
+      const c = this.center(k);
+      this.dust(c.x, c.y + 2, 6, this.theme.soft[2]);
+      if (!k.tier) this.word('GLUB', c.x, c.y - 14, this.theme.soft[0]);
+    }
+    if (m.sunk.length) sfx.meh();
     if (m.chain.waves.length) sfx.hype();
   }
 
@@ -754,7 +818,7 @@ export class Renderer {
   // ---- People ----------------------------------------------------------------
 
   private drawQueue(dt: number, include: (y: number) => boolean): void {
-    if (this.game.phase !== 'build') return;
+    if (this.game.phase !== 'build' && this.game.phase !== 'intro') return;
     const queue = this.game.queue;
     const order = queue.map((r, i) => ({ r, i })).sort((a, b) => this.slot(a.i).y - this.slot(b.i).y);
     for (const { r, i } of order) {

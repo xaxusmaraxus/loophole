@@ -2,7 +2,7 @@ import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
 import { KINDS, type Rider, type Verdict } from '../riders/riders';
 import { drawPortrait } from '../render/sprites';
-import { TOOLS, type ToolId, UPGRADES, type UpgradeId } from '../run/run';
+import { DAYS_PER_PARK, FINALE_DAY, SEASON_ORDER, TOOLS, type ToolId, UPGRADES, type UpgradeId, dayInPark } from '../run/run';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -16,7 +16,9 @@ export class Hud {
 
   update(): void {
     const g = this.game;
-    $('day').textContent = `Day ${g.dayNum}`;
+    const park = g.cfg.park;
+    $('day').textContent = park.id === 'finale' ? park.name : `${park.name} · Day ${dayInPark(g.dayNum)}/${DAYS_PER_PARK}`;
+    $('funds').textContent = `Funds ${g.funds}`;
     $('hearts').innerHTML = Array.from({ length: 3 }, (_, i) => `<span class="heart${i < g.hearts ? '' : ' lost'}" aria-hidden="true"></span>`).join('');
     $('hearts').setAttribute('aria-label', `${g.hearts} of 3 park reputation left`);
     $('quota').textContent = `Sell ${g.cfg.target} tickets`;
@@ -125,8 +127,54 @@ export class Hud {
   private renderOverlay(): void {
     const g = this.game;
     const el = $('overlay');
-    el.hidden = !['results', 'reward', 'over'].includes(g.phase);
+    el.hidden = !['intro', 'results', 'reward', 'shop', 'over', 'won'].includes(g.phase);
     if (el.hidden) return;
+    if (g.phase === 'intro') {
+      const park = g.cfg.park;
+      const n = SEASON_ORDER.indexOf(park.id) + 1;
+      el.innerHTML = `
+        <div class="card intro">
+          <p class="eyebrow">${park.id === 'finale' ? `Season finale · Day ${FINALE_DAY}` : `Park ${n} of 3`}</p>
+          <h2>${park.name}</h2>
+          <p>${park.intro}</p>
+          <ul class="rules">${park.rules.map((r) => `<li>${r}</li>`).join('')}</ul>
+          <p class="total"><span>Today's target</span><strong>${g.cfg.target} tickets</strong></p>
+          <button class="primary" data-action="begin" autofocus>Open the gates</button>
+        </div>`;
+      return;
+    }
+    if (g.phase === 'shop') {
+      const label = (i: (typeof g.shop)[number]) =>
+        i.kind === 'heart' ? { name: 'Repair a heart', desc: 'Win back one heart of park reputation.' } : i.kind === 'tool' ? { name: `${TOOLS[i.id].name} ×${TOOLS[i.id].charges}`, desc: TOOLS[i.id].desc } : { name: UPGRADES[i.id].name, desc: UPGRADES[i.id].desc };
+      el.innerHTML = `
+        <div class="card">
+          <p class="eyebrow">End of ${g.cfg.park.name}</p>
+          <h2>Park shop</h2>
+          <p>You have <strong>${g.funds}</strong> in park funds: tickets sold beyond each day's target.</p>
+          <div class="perks">
+            ${g.shop
+              .map((item, i) => {
+                const { name, desc } = label(item);
+                const blocked = item.sold || g.funds < item.price || (item.kind === 'heart' && g.hearts >= 3);
+                return `<button class="perk shop-item kind-${item.kind}" data-action="buy" data-index="${i}" ${blocked ? 'disabled' : ''}><span class="price">${item.sold ? 'Sold' : item.price}</span><strong>${name}</strong><span>${desc}</span></button>`;
+              })
+              .join('')}
+          </div>
+          <button class="primary" data-action="leave">On to ${g.dayNum + 1 >= FINALE_DAY ? 'the Grand Opening' : 'the next park'}</button>
+        </div>`;
+      return;
+    }
+    if (g.phase === 'won') {
+      el.innerHTML = `
+        <div class="card">
+          <p class="eyebrow">Season complete</p>
+          <h2>The Grand Opening was a hit!</h2>
+          <p>You sold <strong>${g.runScore}</strong> tickets over the season.</p>
+          <p class="muted">Best run: ${g.best} tickets. Seed ${g.seed}.</p>
+          <button class="primary" data-action="newrun" autofocus>Start a new season</button>
+        </div>`;
+      return;
+    }
     if (g.phase === 'results' && g.result) {
       const r = g.result;
       const title: Record<RideKind, string> = { circuit: 'Ride report', shuttle: 'Shuttle report' };
@@ -139,7 +187,8 @@ export class Hud {
           <p>Excitement ${r.stats.excitement}${r.kind === 'shuttle' ? ' (shuttle, half)' : ''}. Every rider paid that, more if you met their wish.</p>
           ${rows ? `<ul class="report">${rows}</ul>` : ''}
           <p class="total"><span>Tickets sold</span><strong>${r.score} / ${r.target}</strong></p>
-          <p class="outcome ${r.passed ? 'good' : 'bad'}">${r.passed ? 'Target reached. Day passed.' : 'Short of the target. The park loses a heart.'}</p>
+          ${r.passed ? `<p class="total"><span>Into park funds</span><strong>+${r.score - r.target}</strong></p>` : ''}
+          <p class="outcome ${r.passed ? 'good' : 'bad'}">${r.passed ? 'Target reached. Day passed.' : g.dayNum === FINALE_DAY ? 'Short of the target. The park loses a heart, and the Grand Opening runs again tomorrow.' : 'Short of the target. The park loses a heart.'}</p>
           <button class="primary" data-action="continue" autofocus>Continue</button>
         </div>`;
     } else if (g.phase === 'reward') {
@@ -161,9 +210,9 @@ export class Hud {
       el.innerHTML = `
         <div class="card">
           <h2>The park closed for good</h2>
-          <p>You made it to day ${g.dayNum} and sold <strong>${g.runScore}</strong> tickets.</p>
+          <p>You made it to ${g.cfg.park.name}, day ${g.dayNum} of the season, and sold <strong>${g.runScore}</strong> tickets.</p>
           <p class="muted">Best run: ${g.best} tickets. Seed ${g.seed}.</p>
-          <button class="primary" data-action="newrun" autofocus>Start a new run</button>
+          <button class="primary" data-action="newrun" autofocus>Start a new season</button>
         </div>`;
     }
   }

@@ -1,5 +1,5 @@
 import type { Look } from '../riders/riders';
-import { HAIRS, PAL, PANTS, type Ramp, SHIRTS, SKINS, TIER_RAMPS } from './palette';
+import { HAIRS, MYSTERY, PAL, PANTS, type Ramp, SHIRTS, SKINS, TIER_RAMPS } from './palette';
 
 export type Ctx = CanvasRenderingContext2D;
 
@@ -57,6 +57,19 @@ export function drawCrate(ctx: Ctx, tier: number, x: number, y: number, flash = 
     px(ctx, x + 1, y + 1, 14, 14, PAL.white);
     ctx.globalAlpha = 1;
   }
+}
+
+const QUESTION = ['..##..', '.#..#.', '....#.', '...#..', '..#...', '......', '..#...'];
+
+/** A fogged tile: you can see a crate is there, not what's in it. */
+export function drawMystery(ctx: Ctx, x: number, y: number): void {
+  const r = MYSTERY;
+  px(ctx, x + 2, y + 14, 13, 2, PAL.shadow);
+  px(ctx, x + 1, y + 11, 14, 4, r[2]);
+  px(ctx, x + 1, y + 14, 14, 1, r[3]);
+  px(ctx, x + 1, y + 1, 14, 10, r[1]);
+  px(ctx, x + 1, y + 1, 14, 1, r[0]);
+  bitmap(ctx, QUESTION, x + 5, y + 3, r[0]);
 }
 
 // ---- People ---------------------------------------------------------------

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
 import { idx } from '../src/puzzle/board';
+import { dayConfig, modsFor, parkFor } from '../src/run/run';
 
+/** A new game past the first park's intro card. */
 function freshGame(): Game {
   const g = new Game('TEST01');
+  g.beginDay();
   g.events.length = 0;
   return g;
 }
@@ -91,10 +94,63 @@ describe('tools', () => {
     g.offer = [{ kind: 'upgrade', id: 'latenight' }];
     g.chooseReward(0);
     expect(g.upgrades).toContain('latenight');
-    expect(g.cfg.daylight).toBe(dayDaylight(g.dayNum) + 5);
+    expect(g.cfg.daylight).toBe(dayConfig(g.dayNum, modsFor([])).daylight + 5);
   });
 });
 
-function dayDaylight(day: number): number {
-  return day <= 2 ? 40 : 48;
+/** Pretend the current day just ended with this many tickets. */
+function finish(g: Game, score: number): void {
+  g.phase = 'results';
+  g.result = { kind: 'circuit', stats: g.stats, tickets: [], score, target: g.cfg.target, passed: score >= g.cfg.target };
+  g.continueFromResults();
 }
+
+describe('season', () => {
+  it('runs three parks of three days, then the finale', () => {
+    expect([1, 3, 4, 6, 7, 9, 10, 11].map((d) => parkFor(d).id)).toEqual([
+      'meadow', 'meadow', 'boardwalk', 'boardwalk', 'hollow', 'hollow', 'finale', 'finale',
+    ]);
+  });
+
+  it('opens each park with its intro card', () => {
+    const g = new Game('TEST01');
+    expect(g.phase).toBe('intro');
+    g.beginDay();
+    expect(g.phase).toBe('build');
+  });
+
+  it('banks surplus tickets and opens the shop after the last day of a park', () => {
+    const g = freshGame();
+    for (let d = 1; d <= 3; d++) {
+      finish(g, g.cfg.target + 50);
+      expect(g.phase).toBe('reward');
+      g.chooseReward(0);
+    }
+    expect(g.funds).toBe(150);
+    expect(g.phase).toBe('shop');
+    const heart = g.shop.findIndex((i) => i.kind === 'heart');
+    g.hearts = 2;
+    g.funds = 500;
+    g.buy(heart);
+    expect(g.hearts).toBe(3);
+    g.leaveShop();
+    expect(g.dayNum).toBe(4);
+    expect(g.cfg.park.id).toBe('boardwalk');
+    expect(g.phase).toBe('intro');
+  });
+
+  it('wins the season by beating the finale, and repeats it on a miss', () => {
+    const g = freshGame();
+    g.dayNum = 9;
+    finish(g, g.cfg.target);
+    g.chooseReward(0);
+    g.leaveShop();
+    expect(g.dayNum).toBe(10);
+    finish(g, 0);
+    expect(g.hearts).toBe(2);
+    g.chooseReward(0);
+    expect(g.dayNum).toBe(10);
+    finish(g, g.cfg.target);
+    expect(g.phase).toBe('won');
+  });
+});

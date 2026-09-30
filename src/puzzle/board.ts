@@ -38,6 +38,8 @@ export interface Board {
   /** Track grown out of each side of the station, in build order. */
   ends: [TrackCell[], TrackCell[]];
   opened: 'circuit' | 'shuttle' | null;
+  /** Sand or mud: a loose tile resting here after a swipe sinks one tier. */
+  soft: boolean[];
 }
 
 /** Track cells needed before the circuit may close (smallest loop is 2x2). */
@@ -172,6 +174,7 @@ export function cloneBoard(b: Board): Board {
     tiles: [...b.tiles],
     obstacles: [...b.obstacles],
     station: { ...b.station },
+    soft: [...b.soft],
     ends: [b.ends[0].map((c) => ({ ...c })), b.ends[1].map((c) => ({ ...c }))],
   };
 }
@@ -316,6 +319,8 @@ export interface SwipeResult {
   slid: number[];
   chain: ChainResult;
   spawned: TrackCell[];
+  /** Tiles that sank a tier on sand (tier is the new tier; 0 = gone). */
+  sunk: TrackCell[];
   /** Slide merges plus chain merges. */
   mergeCount: number;
 }
@@ -333,11 +338,23 @@ export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeRe
   b.tiles = s.tiles;
   const slid = [...b.tiles];
   const chain = resolveChains(b, s.merges);
+  const sunk = sink(b);
   const spawned: TrackCell[] = [];
   for (let k = 0; k < opts.spawns; k++) {
     const t = spawnTile(b, rng, opts.hillChance);
     if (t) spawned.push(t);
   }
   const mergeCount = s.merges.length + chain.waves.reduce((a, w) => a + w.length, 0);
-  return { dir, slides: s.slides, merges: s.merges, slid, chain, spawned, mergeCount };
+  return { dir, slides: s.slides, merges: s.merges, slid, chain, spawned, sunk, mergeCount };
+}
+
+/** Loose tiles on sand sink one tier; a tier-1 tile sinks away. */
+export function sink(b: Board): TrackCell[] {
+  const out: TrackCell[] = [];
+  for (let i = 0; i < b.tiles.length; i++)
+    if (b.soft[i] && b.tiles[i] > 0) {
+      b.tiles[i]--;
+      out.push({ x: i % b.size, y: Math.floor(i / b.size), tier: b.tiles[i] });
+    }
+  return out;
 }

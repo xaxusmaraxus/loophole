@@ -24,17 +24,22 @@ import { type Rider, type Verdict, evaluate, makeRider } from './riders/riders';
 import {
   type DayConfig,
   type Mods,
+  FINALE_DAY,
   type Reward,
+  type ShopItem,
   TOOLS,
   type ToolId,
   type UpgradeId,
   dayConfig,
   generateBoard,
+  isFirstDayOfPark,
+  isLastDayOfPark,
   modsFor,
   rewardOffer,
+  shopStock,
 } from './run/run';
 
-export type Phase = 'build' | 'ride' | 'results' | 'reward' | 'over';
+export type Phase = 'intro' | 'build' | 'ride' | 'results' | 'reward' | 'shop' | 'over' | 'won';
 export type RideKind = 'circuit' | 'shuttle';
 
 /** Why a rider joined the queue. */
@@ -113,6 +118,9 @@ export class Game {
   phase: Phase = 'build';
   result: DayResult | null = null;
   offer: Reward[] = [];
+  /** Park funds: tickets sold beyond each day's target, spent in the shop. */
+  funds = 0;
+  shop: ShopItem[] = [];
   best = loadBest();
   events: GameEvent[] = [];
   private buzz = 0;
@@ -130,6 +138,7 @@ export class Game {
     this.hearts = HEARTS;
     this.runScore = 0;
     this.upgrades = [];
+    this.funds = 0;
     this.tools = { ...emptyTools(), paint: 1 };
     this.mods = modsFor([]);
     this.startDay();
@@ -149,12 +158,18 @@ export class Game {
     this.undos = this.mods.undos;
     this.history = [];
     this.result = null;
-    this.phase = 'build';
+    // A new park opens with its intro card; the board is already visible behind it.
+    this.phase = isFirstDayOfPark(this.dayNum) ? 'intro' : 'build';
     this.events.push({ type: 'day' });
   }
 
+  /** Dismiss the park intro card. */
+  beginDay(): void {
+    if (this.phase === 'intro') this.phase = 'build';
+  }
+
   private newRider(): Rider {
-    return makeRider(this.rng, this.dayNum, this.nextId++);
+    return makeRider(this.rng, this.dayNum, this.nextId++, this.cfg.park.id);
   }
 
   /** Stats of the track as a full circuit. */
@@ -319,7 +334,7 @@ export class Game {
     const chain = resolveChains(b, seeds);
     const mergeCount = chain.waves.reduce((a, w) => a + w.length, 0);
     this.bestCombo = Math.max(this.bestCombo, mergeCount);
-    this.events.push({ type: 'swipe', result: { dir: 'up', slides, merges: [], slid, chain, spawned: [], mergeCount } });
+    this.events.push({ type: 'swipe', result: { dir: 'up', slides, merges: [], slid, chain, spawned: [], sunk: [], mergeCount } });
     for (let w = 0; w < chain.waves.length; w++) this.arrive('chain');
   }
 
@@ -426,10 +441,12 @@ export class Game {
 
   continueFromResults(): void {
     if (this.phase !== 'results' || !this.result) return;
-    this.runScore += this.result.score;
-    if (!this.result.passed) this.hearts--;
-    if (this.hearts <= 0) {
-      this.phase = 'over';
+    const r = this.result;
+    this.runScore += r.score;
+    if (r.passed) this.funds += r.score - r.target;
+    else this.hearts--;
+    if (this.hearts <= 0 || (r.passed && this.dayNum === FINALE_DAY)) {
+      this.phase = this.hearts <= 0 ? 'over' : 'won';
       if (this.runScore > this.best) {
         this.best = this.runScore;
         saveBest(this.best);
@@ -447,7 +464,34 @@ export class Game {
       this.upgrades.push(r.id);
       this.mods = modsFor(this.upgrades);
     } else this.tools[r.id] += TOOLS[r.id].charges;
-    this.dayNum++;
+    if (isLastDayOfPark(this.dayNum)) {
+      this.shop = shopStock(this.rng);
+      this.phase = 'shop';
+      return;
+    }
+    this.nextDay();
+  }
+
+  buy(i: number): void {
+    const item = this.shop[i];
+    if (this.phase !== 'shop' || !item || item.sold || this.funds < item.price) return;
+    if (item.kind === 'heart' && this.hearts >= 3) return;
+    this.funds -= item.price;
+    item.sold = true;
+    if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
+    else if (item.kind === 'upgrade') {
+      this.upgrades.push(item.id);
+      this.mods = modsFor(this.upgrades);
+    } else this.hearts++;
+  }
+
+  leaveShop(): void {
+    if (this.phase === 'shop') this.nextDay();
+  }
+
+  /** The finale repeats until it's won (or the hearts run out). */
+  private nextDay(): void {
+    if (this.dayNum < FINALE_DAY) this.dayNum++;
     this.startDay();
   }
 }

@@ -107,10 +107,18 @@ After each day you pick 1 of 3 rewards. There's always at least one of each kind
 - **Upgrades (permanent, stackable):** Late Closing (+5 swipes), Better Lumber, Hype Guy, Barf Bags, Billboard, Landscaper, Scenic Route, Tip Jar, Toolbox (+1 undo).
 - **Tools (charges you spend when you like):** Coffee (+5 swipes, works after sunset), Paint Can (a tile +1 tier, can start a chain), Crane (move a tile anywhere), Dynamite (remove an obstacle), Megaphone (+3 riders now). A run starts with one Paint Can.
 
+## Season (v0.6)
+- A season is **Meadow Park → Sunny Boardwalk → Haunted Hollow**, 3 days each, then **The Grand Opening** (day 10, 7x7, every twist). Win the finale to win the season. Missing it costs a heart, and it runs again the next day.
+- **Sand / mud:** a loose tile that ends a swipe on a soft cell sinks one tier; a Bump sinks away. Track over sand is fine.
+- **Fog (Hollow, finale):** tiles more than 2 steps from the station and track show as mystery crates.
+- **Ghost riders (Hollow, finale):** can't get sick; they tip for high nausea.
+- **Park funds:** tickets beyond each day's target. Spend them in the **shop** at the end of each park on tools (40–70), an upgrade (140) or a heart repair (160).
+- Targets (bot-calibrated; the bot's daily median is about 250–340, and 520 in the finale): 230, 260, 300 · 320, 360, 400 · 400, 450, 500 · 700.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
-- A run is a **season**: 3 parks × 3 days, then a **Grand Opening** finale. Each park has a theme and one rule twist that later parks keep stacking.
+- *(Built in v0.6: Meadow, Boardwalk, Hollow, finale, shop.)* A run is a **season**: 3 parks × 3 days, then a **Grand Opening** finale. Each park has a theme and one rule twist that later parks keep stacking.
   1. *Meadow:* the basics.
   2. *Boardwalk:* sand tiles sink back a tier if not merged within a few swipes; the pier can take track over water.
   3. *Haunted Hollow:* fog hides tiles until track is next to them; ghost riders only pay for inversions.

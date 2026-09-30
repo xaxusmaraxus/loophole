@@ -1,7 +1,8 @@
 import type { Rng } from '../core/rng';
 import type { RideStats } from '../puzzle/pieces';
+import type { ParkId } from '../run/run';
 
-export type RiderKind = 'thrill' | 'looper' | 'grandma' | 'nerd' | 'corndog' | 'kid' | 'critic';
+export type RiderKind = 'thrill' | 'looper' | 'grandma' | 'nerd' | 'corndog' | 'kid' | 'critic' | 'ghost';
 export type HairStyle = 'short' | 'long' | 'bun' | 'spiky' | 'bald' | 'cap';
 export type Accessory = 'none' | 'glasses' | 'shades' | 'corndog' | 'camera' | 'balloon';
 
@@ -31,6 +32,8 @@ export type Verdict = 'happy' | 'meh' | 'sick';
 interface KindDef {
   label: string;
   minDay: number;
+  /** Only shows up in these parks (default: everywhere). */
+  parks?: ParkId[];
   weight: number;
   tolerance: (day: number) => number;
   target: (day: number) => number;
@@ -100,6 +103,17 @@ export const KINDS: Record<RiderKind, KindDef> = {
     happy: (r, s) => s.variety >= r.target,
     look: () => ({ accessory: 'glasses', hairStyle: 'short' }),
   },
+  ghost: {
+    label: 'Ghost',
+    minDay: 1,
+    parks: ['hollow', 'finale'],
+    weight: 3,
+    tolerance: () => 999,
+    target: (d) => 6 + Math.floor(d / 2),
+    want: (r) => `Nausea ${r.target}+ (can't get sick)`,
+    happy: (r, s) => s.nausea >= r.target,
+    look: () => ({ skin: 5, hairStyle: 'bald', shirt: 8, pants: 4, accessory: 'none' }),
+  },
   kid: {
     label: 'Kid',
     minDay: 2,
@@ -116,10 +130,10 @@ const FIRST = [
   'Dot', 'Gus', 'Mo', 'Pip', 'Rex', 'Lou', 'Bea', 'Taz', 'Ned', 'Ivy', 'Hal', 'Kit',
   'Zed', 'Flo', 'Abe', 'Uma', 'Rod', 'Wen', 'Cy', 'Vi', 'Otto', 'Bo', 'Sal', 'June',
 ];
-const PREFIX: Partial<Record<RiderKind, string>> = { grandma: 'Nana', kid: 'Lil' };
+const PREFIX: Partial<Record<RiderKind, string>> = { grandma: 'Nana', kid: 'Lil', ghost: 'Boo' };
 
-export function makeRider(rng: Rng, day: number, id: number): Rider {
-  const kinds = (Object.keys(KINDS) as RiderKind[]).filter((k) => KINDS[k].minDay <= day);
+export function makeRider(rng: Rng, day: number, id: number, park: ParkId = 'meadow'): Rider {
+  const kinds = (Object.keys(KINDS) as RiderKind[]).filter((k) => KINDS[k].minDay <= day && (!KINDS[k].parks || KINDS[k].parks!.includes(park)));
   const total = kinds.reduce((a, k) => a + KINDS[k].weight, 0);
   let roll = rng.next() * total;
   let kind = kinds[0];

@@ -22,7 +22,7 @@ function board(rows: string[], station = { x: 0, y: 3 }): Board {
       tiles.push(/\d/.test(ch) ? Number(ch) : 0);
       obstacles.push(ch === '#' ? 'rock' : null);
     }
-  return { size, tiles, obstacles, station, ends: [[], []], opened: null };
+  return { size, tiles, obstacles, station, ends: [[], []], opened: null, soft: rows.join('').split('').map((ch) => ch === '~') };
 }
 
 const opts = { hillChance: 0, spawns: 0 };
@@ -121,5 +121,23 @@ describe('rideStats', () => {
   it('halves a shuttle', () => {
     const path = [{ tier: 3 }, { tier: 3 }, { tier: 3 }, { tier: 3 }];
     expect(rideStats(path, mods, true).excitement).toBe(Math.round(rideStats(path, mods).excitement / 2));
+  });
+});
+
+describe('sand', () => {
+  it('sinks loose tiles that end a swipe on sand, and swallows Bumps', () => {
+    // Row 0 slides left onto sand at x=0; the 3 at x=3 row 1 stays off sand.
+    const b = board(['~.3.', '...1', '....', '....'], { x: 0, y: 3 });
+    b.tiles[0] = 0;
+    const res = swipe(b, 'left', new Rng(1), { hillChance: 0, spawns: 0 })!;
+    expect(b.tiles[0]).toBe(2);
+    expect(b.tiles[4]).toBe(1);
+    expect(res.sunk).toEqual([{ x: 0, y: 0, tier: 2 }]);
+  });
+
+  it('removes a Bump that lands on sand', () => {
+    const b = board(['~..1', '....', '....', '....'], { x: 0, y: 3 });
+    swipe(b, 'left', new Rng(1), { hillChance: 0, spawns: 0 });
+    expect(b.tiles.filter(Boolean)).toHaveLength(0);
   });
 });
