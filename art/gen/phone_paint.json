@@ -1,0 +1,11 @@
+{
+ "edit": "art/paintover/phone_render.png",
+ "refs": [
+  "docs/mood/coaster_town_mood.png"
+ ],
+ "prompt": "Repaint image 1 in the painted art style of image 2 (the style reference). Keep the exact layout and camera of image 1: the grid of tiles in the same place and size, the coaster track and its loops where they are, the station canopy, the queue of guests, the carousel, the trees. Add the richness of image 2: cobblestone paving, flower beds, painted grass, benches, lamps, soft outlines. Cozy hand-painted theme park mobile game art, portrait phone screen, seen from the front and above. Richly detailed painterly illustration: warm cobblestone plaza paving, lush grass with tiny flowers, dense round autumn trees and pine trees, wooden benches, lamp posts, flower beds, a red and white striped carousel, a queue of tiny cheerful guests and a big round man in a red shirt, in the middle a large square 5 by 5 grid of green tiles with colored crates, a red wooden rollercoaster with loops and a corkscrew rising from the grid, a striped station canopy at the front of the grid. Warm sunny afternoon light, soft shadows, saturated friendly colors, crisp dark outlines, no text, no UI.",
+ "size": "1024x1536",
+ "quality": "high",
+ "count": 1,
+ "model": "gpt-6-astra"
+}

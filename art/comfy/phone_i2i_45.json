@@ -1,0 +1,12 @@
+{
+ "size": [
+  768,
+  1360
+ ],
+ "prompt": "Cozy hand-painted theme park mobile game art, portrait phone screen, seen from the front and above. Richly detailed painterly illustration: warm cobblestone plaza paving, lush grass with tiny flowers, dense round autumn trees and pine trees, wooden benches, lamp posts, flower beds, a red and white striped carousel, a queue of tiny cheerful guests and a big round man in a red shirt, in the middle a large square 5 by 5 grid of green tiles with colored crates, a red wooden rollercoaster with loops and a corkscrew rising from the grid, a striped station canopy at the front of the grid. Warm sunny afternoon light, soft shadows, saturated friendly colors, crisp dark outlines, no text, no UI.",
+ "krea": {
+  "init": "art/paintover/phone_render.png",
+  "denoise": 0.45
+ },
+ "out": "art/comfy/out/phone_i2i_45"
+}

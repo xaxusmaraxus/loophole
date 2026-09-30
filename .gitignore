@@ -7,3 +7,4 @@ art/comfy/out/
 *.blend1
 __pycache__/
 art/paintover/mood_ref.png
+art/gen/out/

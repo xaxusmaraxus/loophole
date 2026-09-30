@@ -15,7 +15,9 @@ const ISLAND_R := 13.0
 const WATER_Y := -2.8
 const PLOT_TOP := 0.14
 ## Deck height of the track above the plot, per tier (Flat .. Mega Loop).
-const DECK := [0.45, 0.6, 1.1, 1.6, 0.9, 0.75, 0.9, 0.9]
+const DECK := [0.45, 0.75, 1.5, 2.2, 1.0, 0.8, 1.0, 1.0]
+## Overall size of loops, helixes and corkscrews (1.0 = the original toy scale).
+const ELEMENT_SCALE := 1.5
 
 var rng := RandomNumberGenerator.new()
 var noise := FastNoiseLite.new()
@@ -594,23 +596,23 @@ func _build_coaster() -> void:
 		match tier:
 			5, 7:
 				# Vertical loop in the direction of travel, drifting sideways so it doesn't collide.
-				var r := 0.55 if tier == 5 else 0.75
-				var start := base - fwd * 0.35
+				var r := (0.55 if tier == 5 else 0.75) * ELEMENT_SCALE
+				var start := base - fwd * 0.35 * ELEMENT_SCALE
 				pts.append(start)
 				for k in range(1, 12):
 					var a := TAU * k / 12.0
 					pts.append(start + Vector3(0, r, 0) + fwd * sin(a) * r - Vector3(0, cos(a) * r, 0) + right * (k / 12.0 - 0.5) * 0.24)
-				pts.append(start + fwd * 0.4 + right * 0.12)
+				pts.append(start + fwd * 0.4 * ELEMENT_SCALE + right * 0.12)
 			4:
 				# Helix: one rising turn around the cell center.
 				for k in 8:
 					var a := TAU * k / 8.0
-					pts.append(base + (fwd * sin(a) + right * (1.0 - cos(a))) * 0.3 + Vector3(0, k * 0.05, 0))
+					pts.append(base + (fwd * sin(a) + right * (1.0 - cos(a))) * 0.3 * ELEMENT_SCALE + Vector3(0, k * 0.08, 0))
 			6:
 				# Corkscrew: a roll along the direction of travel.
 				for k in 7:
 					var a := TAU * k / 6.0
-					pts.append(base + fwd * (-0.35 + 0.7 * k / 6.0) + (right * sin(a) + Vector3(0, 1.0 - cos(a), 0)) * 0.22)
+					pts.append(base + fwd * (-0.35 + 0.7 * k / 6.0) + (right * sin(a) + Vector3(0, 1.0 - cos(a), 0)) * 0.22 * ELEMENT_SCALE)
 			_:
 				pts.append(base)
 		prev = pts[pts.size() - 1]
@@ -687,19 +689,19 @@ func _build_track_mesh(curve: Curve3D) -> void:
 		var up: Vector3 = f[2]
 		var right: Vector3 = f[3]
 		for s in 2:
-			var c: Vector3 = p + right * (0.1 if s == 0 else -0.1) + up * 0.03
+			var c: Vector3 = p + right * (0.12 if s == 0 else -0.12) + up * 0.03
 			var ring := []
 			for k in 6:
 				var a := TAU * k / 6.0
-				ring.append(c + (right * cos(a) + up * sin(a)) * 0.024)
+				ring.append(c + (right * cos(a) + up * sin(a)) * 0.032)
 			rails[s].append(ring)
 		var sp := []
 		for k in 6:
 			var a := TAU * k / 6.0
-			sp.append(p - up * 0.05 + (right * cos(a) + up * sin(a)) * 0.035)
+			sp.append(p - up * 0.05 + (right * cos(a) + up * sin(a)) * 0.045)
 		spine.append(sp)
 		if i % 3 == 0:
-			_oriented_box(st, p - up * 0.01, right * 0.13, up * 0.015, fwd * 0.022, Color("#5b3f2e"))
+			_oriented_box(st, p - up * 0.01, right * 0.155, up * 0.018, fwd * 0.026, Color("#5b3f2e"))
 		if i % 8 == 0 and up.y > 0.7 and p.y > PLOT_TOP + 0.25:
 			supports.append(p - up * 0.07)
 		o += step
@@ -710,7 +712,7 @@ func _build_track_mesh(curve: Curve3D) -> void:
 	# Supports: timber posts down to the plot.
 	for s in supports:
 		var h: float = s.y - PLOT_TOP
-		_oriented_box(st, Vector3(s.x, PLOT_TOP + h / 2.0, s.z), Vector3(0.025, 0, 0), Vector3(0, h / 2.0, 0), Vector3(0, 0, 0.025), Color("#8a6038"))
+		_oriented_box(st, Vector3(s.x, PLOT_TOP + h / 2.0, s.z), Vector3(0.035, 0, 0), Vector3(0, h / 2.0, 0), Vector3(0, 0, 0.035), Color("#8a6038"))
 	st.generate_normals()
 	var m := StandardMaterial3D.new()
 	m.vertex_color_use_as_albedo = true
@@ -908,11 +910,15 @@ func _build_guests() -> void:
 
 # ---- Camera, input, screenshots ----------------------------------------------
 
-const CAMERAS := 6
+const CAMERAS := 7
+## Phone camera turn in degrees. 0 keeps the grid square-on, but loops that run
+## up or down a column are then seen edge-on.
+var PHONE_YAW := 20.0
 
 
 func _set_camera(mode: int) -> void:
 	cam_mode = mode
+	cam.keep_aspect = Camera3D.KEEP_HEIGHT
 	var target := Vector3(0, 0.2, 0.6)
 	match mode:
 		3:
@@ -953,6 +959,17 @@ func _set_camera(mode: int) -> void:
 			cam.fov = 38.0
 			cam.position = Vector3(3.8, 2.4, 4.6)
 			cam.look_at(Vector3(0.6, 0.9, -0.4))
+		6:
+			# Phone portrait: the plot spans almost the full width; the park frames it
+			# above, the station and the queue sit below it.
+			cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+			cam.keep_aspect = Camera3D.KEEP_WIDTH
+			var pitch := deg_to_rad(40.0)
+			var yaw := deg_to_rad(PHONE_YAW)
+			cam.size = maxf(6.4, 5.5 * (cos(yaw) + sin(yaw)))
+			var t := Vector3(0, 0.6, 0.6)
+			cam.position = t + Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * 30.0
+			cam.look_at(t)
 		5:
 			# Mood framing (docs/mood/coaster_town_mood.png): square-on and steep, the
 			# plot upper-center, the park around it and the island edge at the bottom.
@@ -992,8 +1009,15 @@ func _render_shots() -> void:
 		["05_play_square_sunset", 4, true, 9.0],
 		["06_ride_closeup", 2, true, 5.6],
 		["07_mood_square_day", 5, false, 9.0],
+		["08_phone_day", 6, false, 9.0, Vector2i(720, 1280)],
+		["09_phone_sunset", 6, true, 9.0, Vector2i(720, 1280)],
 	]
+	if "--phone-yaw" in OS.get_cmdline_user_args():
+		PHONE_YAW = float(OS.get_cmdline_user_args()[OS.get_cmdline_user_args().find("--phone-yaw") + 1])
 	for s in shots:
+		var size: Vector2i = s[4] if s.size() > 4 else Vector2i(1600, 1000)
+		if get_window().size != size:
+			get_window().size = size
 		_set_time(s[2])
 		_set_camera(s[1])
 		_place_train(s[3])
