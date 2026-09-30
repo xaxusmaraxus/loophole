@@ -136,6 +136,14 @@ Shops stock two eggs; Treasure stops give one free. Next egg idea: **Blueprint E
 
 Bug fixed in v0.8: at the end of every swipe animation, the board drew no tiles for one frame (the animation layer retired itself after the board had already skipped drawing tiles).
 
+## The live scoring show (v0.9)
+The score is no longer revealed after the ride: it **builds up while the train runs**, Balatro-style, so scoring is part of the fun.
+- **The timeline** (`src/run/timeline.ts`, tested): opening the ride breaks the final score into ordered events that sum *exactly* to the day's total, so balance is unchanged. When the lead car passes a piece: **+excitement** (its thrill plus 1 for length; thrill upgrades are rounded on the running sum so the pieces add up). The first piece of each new type past the first: **+0.5 mult**. When a rider's nausea passes another stomachful on a piece: **a puke**, paid right away at the rating so far × their worth. Back at the station the **attractions fire left to right** (their cards wiggle), and then **the slam**: chips × mult crash together into the final rating and every puke of the ride is re-paid at it. That last hit is usually the biggest jump of the day, so the attractions visibly feed the payout. A shuttle's half pay is baked into every rating from the start, so the numbers only ever go up.
+- **On screen:** a score board beside the park (below it on phones) with the ticket total rolling up like an odometer, a target bar that turns green and shimmers when the target falls, and big blue EXCITEMENT × red MULT boxes that punch on every event; the mult box glows hotter as it grows and catches fire from ×8. Popups rise from the piece or the rider (+12 blue, +0.5 mult red, +340 gold with "BLEH ×2"), green puke bursts scale with the payout, rider cards in the line fill their puke pips live, and the screen shakes harder for bigger hits. Crossing the target (and 2×, 5×, 10×...) gets a banner, confetti and a fanfare.
+- **Sound** (all WebAudio synth): every event climbs one semitone, reset each ride. Chip ticks, a mult zing, a heavy ×mult hit with a chord, a wet puke squelch with a falling pitch, a crunchy boss puke with a beat of slow motion and a green flash, a register-click roll on the total, a fanfare arpeggio for the target, and a big slam.
+- **Skip:** click the park or press Space/Enter during the ride to resolve everything at once (same totals). The results card is now brief (verdict, total, rating × pukes, funds, with the breakdown folded away) since the show already did the counting.
+- Screenshots: `docs/ride-scoring/`.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

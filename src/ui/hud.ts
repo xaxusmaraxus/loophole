@@ -156,13 +156,19 @@ export class Hud {
       list.innerHTML = '<li class="empty">Nobody in line yet. A wilder ride draws a crowd.</li>';
       return;
     }
-    list.replaceChildren(...g.queue.map((r) => this.riderCard(r, g.phase === 'build' ? g.pukes(r) : null)));
+    // During the ride the pips start empty and the score show fills them in as riders puke.
+    const riding = g.phase === 'ride';
+    const puked = (r: Rider) => g.result?.tickets.find((t) => t.rider.id === r.id)?.pukes ?? 0;
+    list.replaceChildren(
+      ...g.queue.map((r) => this.riderCard(r, g.phase === 'build' ? g.pukes(r) : riding ? 0 : g.phase === 'results' ? puked(r) : null, riding, g.phase === 'results')),
+    );
   }
 
-  private riderCard(r: Rider, pukes: number | null): HTMLLIElement {
+  private riderCard(r: Rider, pukes: number | null, riding = false, past = false): HTMLLIElement {
     const g = this.game;
     const li = document.createElement('li');
     li.className = `rider${r.kind === 'vip' ? ' vip' : ''}${r.boss ? ' boss' : ''}`;
+    li.dataset.rider = String(r.id);
     let portrait = this.portraits.get(r.id);
     if (!portrait) {
       portrait = document.createElement('canvas');
@@ -178,7 +184,7 @@ export class Hud {
     info.innerHTML = `
       <div class="rider-top"><span class="rider-name">${r.name}</span><span class="rider-kind">${riderLabel(r)}${worth > 1 ? ` · ${worth}× per puke` : ''}</span></div>
       <div class="rider-want">Stomach ${g.stomach(r)}. ${riderTrait(r)}</div>
-      ${pukes !== null ? `<div class="rider-bottom"><span class="pukes" aria-label="${pukeLabel(pukes, true)}">${'<i></i>'.repeat(pukes)}${'<i class="off"></i>'.repeat(MAX_PUKES - pukes)}</span><span class="verdict ${pukes > 0 ? 'sick' : 'meh'}">${pukeLabel(pukes, true)}</span></div>` : ''}`;
+      ${pukes !== null ? `<div class="rider-bottom"><span class="pukes" aria-label="${pukeLabel(pukes, true)}">${'<i></i>'.repeat(pukes)}${'<i class="off"></i>'.repeat(MAX_PUKES - pukes)}</span><span class="verdict ${pukes > 0 ? 'sick' : 'meh'}">${riding ? 'On the ride' : pukeLabel(pukes, !past)}</span></div>` : ''}`;
     li.append(portrait, info);
     return li;
   }
@@ -198,7 +204,6 @@ export class Hud {
     el.innerHTML = html;
     el.classList.toggle('wide', g.phase === 'map');
     if (g.phase === 'map') requestAnimationFrame(() => this.drawMapLines());
-    if (g.phase === 'results') this.countUp();
   }
 
   private overlayHtml(): string {
@@ -306,63 +311,57 @@ export class Hud {
     return '';
   }
 
-  /** Balatro-style tally: each line pops in after the last, then the total counts up. */
+  /**
+   * The score was already built up live during the ride, so the report is brief:
+   * the verdict, the total, and the breakdown tucked away for the curious.
+   */
   private resultsHtml(): string {
     const g = this.game;
     const r = g.result!;
     const title: Record<RideKind, string> = { circuit: 'Ride report', shuttle: 'Shuttle report' };
-    let i = 0;
     const steps = r.score.steps
       .map((st, k) => {
         const delta = k === 0 ? '' : `<span class="delta">${effectText(st.effect)}</span>`;
-        return `<li class="tally-row" style="--i:${i++}"><span class="tally-label">${st.label}${delta}</span><span class="chipmult"><span class="chips">${fmt(st.chips)}</span><span class="times">×</span><span class="mult">${fmt(st.mult)}</span></span></li>`;
+        return `<li class="tally-row"><span class="tally-label">${st.label}${delta}</span><span class="chipmult"><span class="chips">${fmt(st.chips)}</span><span class="times">×</span><span class="mult">${fmt(st.mult)}</span></span></li>`;
       })
       .join('');
-    const rating = `<li class="tally-row rating" style="--i:${i++}"><span>Every puke pays</span><strong>${r.score.rating.toLocaleString()}</strong></li>`;
     const riders = r.tickets
       .map((t) => {
         const worth = riderWorth(t.rider);
-        return `<li class="tally-row${t.rider.boss ? ' boss' : ''}" style="--i:${i++}"><span>${t.rider.name}${worth > 1 && t.pukes ? ` <small>×${worth}</small>` : ''}</span><span class="verdict ${t.pukes ? 'sick' : 'meh'}">${pukeLabel(t.pukes, false)}</span><span class="paid">${t.paid.toLocaleString()}</span></li>`;
+        return `<li class="tally-row${t.rider.boss ? ' boss' : ''}"><span>${t.rider.name}${worth > 1 && t.pukes ? ` <small>×${worth}</small>` : ''}</span><span class="verdict ${t.pukes ? 'sick' : 'meh'}">${pukeLabel(t.pukes, false)}</span><span class="paid">${t.paid.toLocaleString()}</span></li>`;
       })
       .join('');
-    const delay = i * 180;
+    const pukes = r.tickets.reduce((a, t) => a + t.pukes * riderWorth(t.rider), 0);
+    const times = r.passed ? Math.floor(r.total / Math.max(1, r.target)) : 0;
+    const headline = r.passed
+      ? g.cfg.boss
+        ? `${BOSSES[g.cfg.boss].name} lost their lunch!`
+        : times >= 2
+          ? `${times}× the target!`
+          : 'Target reached!'
+      : !r.bossPuked
+        ? `${BOSSES[g.cfg.boss!].name} kept it down`
+        : 'Short of the target';
     return `
-      <div class="card results">
-        <h2>${title[r.kind]}</h2>
-        <ul class="tally">${steps}${rating}</ul>
-        ${riders ? `<ul class="report">${riders}</ul>` : ''}
-        <p class="total big" style="--delay:${delay}ms"><span>Tickets sold</span><strong><span id="countUp" data-to="${r.total}" data-delay="${delay}">0</span> / ${r.target.toLocaleString()}</strong></p>
+      <div class="card results brief ${r.passed ? 'good' : 'bad'}">
+        <p class="eyebrow">${title[r.kind]}</p>
+        <h2>${headline}</h2>
+        <p class="total big"><span>Tickets sold</span><strong>${r.total.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
+        <p class="total"><span>${r.score.rating.toLocaleString()} a puke × ${pukes} puke${pukes === 1 ? '' : 's'}</span></p>
         ${r.passed ? `<p class="total"><span>Into park funds</span><strong>+${(r.total - r.target).toLocaleString()}</strong></p>` : ''}
         <p class="outcome ${r.passed ? 'good' : 'bad'}">${
           r.passed
             ? g.cfg.boss
-              ? `${BOSSES[g.cfg.boss].name} lost their lunch. Park cleared!`
-              : 'Target reached.'
-            : !r.bossPuked
-              ? `${BOSSES[g.cfg.boss!].name} kept it down. The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
-              : `Short of the target. The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
+              ? 'Park cleared!'
+              : 'The crowd loved it.'
+            : `The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
         }</p>
+        <details class="breakdown"><summary>Breakdown</summary>
+          <ul class="tally">${steps}<li class="tally-row rating"><span>Every puke pays</span><strong>${r.score.rating.toLocaleString()}</strong></li></ul>
+          ${riders ? `<ul class="report">${riders}</ul>` : ''}
+        </details>
         <button class="primary" data-action="continue" autofocus>Continue</button>
       </div>`;
-  }
-
-  private countUp(): void {
-    const el = document.getElementById('countUp');
-    if (!el) return;
-    const to = Number(el.dataset.to);
-    const delay = Number(el.dataset.delay);
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) {
-      el.textContent = to.toLocaleString();
-      return;
-    }
-    const start = performance.now() + delay;
-    const tick = (now: number) => {
-      const t = Math.max(0, Math.min(1, (now - start) / 700));
-      el.textContent = Math.round(to * (1 - (1 - t) ** 3)).toLocaleString();
-      if (t < 1 && el.isConnected) requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
   }
 
   private mapHtml(): string {

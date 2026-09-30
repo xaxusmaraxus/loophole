@@ -14,6 +14,8 @@ const hud = new Hud(game);
 function act(fn: () => void): void {
   fn();
   hud.update();
+  // The score show stays up through the results, then clears.
+  if (renderer.show.active && game.phase !== 'ride' && game.phase !== 'results') renderer.show.end();
 }
 
 // Handy for playtesting from the browser console.
@@ -28,6 +30,14 @@ const KEYS: Record<string, Dir> = {
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLElement && e.target.closest('input, textarea')) return;
+  if (game.phase === 'ride') {
+    // Fast-forward the scoring show: everything resolves at once, same totals.
+    if (e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') {
+      e.preventDefault();
+      renderer.skipRide();
+    }
+    return;
+  }
   const dir = KEYS[e.key];
   if (dir && (e.key.startsWith('Arrow') || game.phase === 'build')) {
     e.preventDefault();
@@ -53,6 +63,10 @@ const wrap = document.getElementById('canvasWrap')!;
 let start: { x: number; y: number } | null = null;
 wrap.addEventListener('pointerdown', (e) => {
   if ((e.target as HTMLElement).closest('.overlay')) return;
+  if (game.phase === 'ride') {
+    renderer.skipRide();
+    return;
+  }
   start = { x: e.clientX, y: e.clientY };
 });
 wrap.addEventListener('pointerup', (e) => {

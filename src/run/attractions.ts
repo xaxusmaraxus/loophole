@@ -152,6 +152,8 @@ export interface ScoreStep {
   effect: Effect;
   chips: number;
   mult: number;
+  /** Which attraction slot fired this step (absent for the base line and the shuttle). */
+  slot?: number;
 }
 
 export interface Score {
@@ -167,13 +169,13 @@ export function scoreRide(ctx: ScoreContext, owned: readonly OwnedAttraction[], 
   let chips = ctx.stats.chips;
   let mult = ctx.stats.mult;
   const steps: ScoreStep[] = [{ label: 'Your ride', effect: { chips, mult }, chips, mult }];
-  for (const a of owned) {
+  for (const [slot, a] of owned.entries()) {
     const e = ATTRACTIONS[a.id].effect(ctx, a.counter);
     if (!e) continue;
     chips += e.chips ?? 0;
     mult += e.mult ?? 0;
     mult *= e.xmult ?? 1;
-    steps.push({ label: ATTRACTIONS[a.id].name, effect: e, chips, mult });
+    steps.push({ label: ATTRACTIONS[a.id].name, effect: e, chips, mult, slot });
   }
   mult = Math.round(mult * 100) / 100;
   let rating = Math.round(chips * mult);

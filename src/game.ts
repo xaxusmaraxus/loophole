@@ -23,6 +23,7 @@ import {
 import { MAX_TIER, type RideStats, rideStats } from './puzzle/pieces';
 import { type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { ATTRACTION_SLOTS, type OwnedAttraction, type Score, scoreRide } from './run/attractions';
+import { type ScoreEvent, rideTimeline } from './run/timeline';
 import {
   type BusRider,
   type DayConfig,
@@ -84,6 +85,8 @@ export interface DayResult {
   /** The boss (if any) puked at least once. */
   bossPuked: boolean;
   passed: boolean;
+  /** The score as it builds up during the ride: sums exactly to `total`. */
+  timeline: ScoreEvent[];
 }
 
 interface Snapshot {
@@ -562,7 +565,14 @@ export class Game {
     const total = tickets.reduce((a, t) => a + t.paid, 0);
     const boss = tickets.find((t) => t.rider.boss);
     const bossPuked = !boss || boss.pukes > 0;
-    this.result = { kind, stats, score, tickets, total, target: this.cfg.target, bossPuked, passed: total >= this.cfg.target && bossPuked };
+    const timeline = rideTimeline({
+      stops: rideOrder(this.board, kind),
+      mods: this.mods,
+      score,
+      shuttle: kind === 'shuttle',
+      riders: this.queue.map((r) => ({ nausea: (t: number) => this.nausea(r, t), stomach: this.stomach(r), worth: riderWorth(r), boss: !!r.boss })),
+    });
+    this.result = { kind, stats, score, tickets, total, target: this.cfg.target, bossPuked, passed: total >= this.cfg.target && bossPuked, timeline };
     // The ride plays out on the board first; the renderer calls rideDone() after.
     this.phase = 'ride';
     this.events.push({ type: 'open', kind });

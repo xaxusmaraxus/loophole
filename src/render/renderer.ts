@@ -23,6 +23,7 @@ import {
 } from '../puzzle/board';
 import type { Rider } from '../riders/riders';
 import { RideAnim } from '../ride/ride';
+import { ScoreShow } from '../ui/scoreshow';
 import { sfx } from '../core/sfx';
 import { drawText, textWidth } from './font';
 import { C, DECK, STATION_DECK } from './metrics';
@@ -105,12 +106,17 @@ export class Renderer {
   private fogged = new Set<number>();
   private ride: RideAnim | null = null;
   private now = 0;
+  /** The live scoring show that runs with the ride. */
+  readonly show: ScoreShow;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
     readonly game: Game,
   ) {
     this.ctx = canvas.getContext('2d')!;
+    this.show = new ScoreShow(canvas.parentElement!);
+    this.show.onShake = (mag, ms) => this.kick(mag, ms);
+    this.show.onCheer = () => this.cheer(1);
     this.setupDay();
   }
 
@@ -189,6 +195,7 @@ export class Renderer {
     this.tileAnim = null;
     this.combo = null;
     this.ride = null;
+    this.show.end();
     this.walkers = [];
     this.particles = [];
     this.words = [];
@@ -212,6 +219,29 @@ export class Renderer {
     this.scale = Math.max(1, Math.min(availW / this.W, availH / this.H));
     this.canvas.style.width = `${this.W * this.scale}px`;
     this.canvas.style.height = `${this.H * this.scale}px`;
+    if (this.show?.active) this.show.layout();
+  }
+
+  /** Canvas pixel to page (client) coordinates, and back. */
+  toPage(x: number, y: number): Pt {
+    const r = this.canvas.getBoundingClientRect();
+    return { x: r.left + (x / this.W) * r.width, y: r.top + (y / this.H) * r.height };
+  }
+
+  fromPage(x: number, y: number): Pt {
+    const r = this.canvas.getBoundingClientRect();
+    return { x: ((x - r.left) / r.width) * this.W, y: ((y - r.top) / r.height) * this.H };
+  }
+
+  /** Shake the park (keeps the stronger of overlapping shakes). */
+  kick(mag: number, ms: number): void {
+    if (this.now < this.shake.until && this.shake.mag > mag) return;
+    this.shake = { until: this.now + ms, mag };
+  }
+
+  /** Click or space during the ride: resolve the rest of the scoring at once. */
+  skipRide(): void {
+    this.ride?.skip(this.now);
   }
 
   private buildTerrain(): void {
@@ -385,7 +415,7 @@ export class Renderer {
       this.walkers.push({ look: r.look, x: p.x, y: p.y, tx: sc.x, ty: sc.y, speed: 45, delay: i * 70 });
     });
     this.riderPos.clear();
-    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.game, this.now + 900);
+    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.show, this.now + 900);
   }
 
   // ---- Effects ---------------------------------------------------------------
@@ -405,9 +435,51 @@ export class Renderer {
     }
   }
 
-  puke(x: number, y: number): void {
-    for (let i = 0; i < 8; i++)
-      this.particles.push({ x, y, vx: (Math.random() - 0.5) * 30, vy: -20 - Math.random() * 20, g: 120, life: 0, max: 0.7, color: i % 2 ? PAL.sick : '#6fae2e', size: 1 });
+  puke(x: number, y: number, n = 8): void {
+    const ramp = [PAL.sick, '#6fae2e', '#c8e86a', '#4f8a1f'];
+    for (let i = 0; i < n; i++) {
+      const spread = 30 + n * 1.2;
+      this.particles.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * spread,
+        vy: -20 - Math.random() * (20 + n),
+        g: 120,
+        life: 0,
+        max: 0.6 + Math.random() * 0.5,
+        color: ramp[i % ramp.length],
+        size: i % 5 === 0 ? 2 : 1,
+      });
+    }
+  }
+
+  /** Little stars off a piece when it scores. */
+  sparkle(x: number, y: number, n: number, color: string): void {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 15 + Math.random() * 25;
+      this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 20, g: 40, life: 0, max: 0.35 + Math.random() * 0.25, color: i % 3 ? color : PAL.white, size: 1 });
+    }
+  }
+
+  /** Confetti over the whole park, for the target and the slam. */
+  cheer(power: number): void {
+    const colors = [PAL.gold, PAL.heart, '#45a8e0', PAL.sick, PAL.white];
+    const n = Math.round(40 * power);
+    for (let i = 0; i < n; i++)
+      this.particles.push({
+        x: Math.random() * this.W,
+        y: -4 - Math.random() * 20,
+        vx: (Math.random() - 0.5) * 30,
+        vy: 20 + Math.random() * 40,
+        g: 30,
+        life: 0,
+        max: 1.6 + Math.random(),
+        color: colors[i % colors.length],
+        size: i % 3 === 0 ? 2 : 1,
+      });
+    const sc = this.stationCenter();
+    this.burst(sc.x, sc.y - 8, Math.round(24 * power), [PAL.gold, PAL.heart, PAL.white]);
   }
 
   hat(x: number, y: number, color: string): void {
@@ -463,6 +535,7 @@ export class Renderer {
         this.onRideDone();
       }
     }
+    this.show.tick(dt, now);
     if (this.theme.tint) {
       ctx.fillStyle = this.theme.tint;
       ctx.fillRect(0, 0, this.W, this.H);
