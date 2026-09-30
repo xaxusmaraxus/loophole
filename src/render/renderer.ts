@@ -11,6 +11,7 @@ import {
   buildTargets,
   canConnect,
   head,
+  isWall,
   rideOrder,
   samePt,
   trackAt,
@@ -100,7 +101,6 @@ export class Renderer {
   private lamps: Pt[] = [];
   private ride: RideAnim | null = null;
   private now = 0;
-  private stuckUntil = 0;
 
   constructor(
     readonly canvas: HTMLCanvasElement,
@@ -177,7 +177,6 @@ export class Renderer {
     this.tileAnim = null;
     this.combo = null;
     this.ride = null;
-    this.stuckUntil = 0;
     this.walkers = [];
     this.particles = [];
     this.words = [];
@@ -291,30 +290,35 @@ export class Renderer {
           sfx.open();
           this.startRide();
           break;
-        case 'dark':
-          if (this.game.result && !this.game.result.kind) this.closeEmpty();
-          else {
-            const sc = this.center(this.board.station);
-            this.word('CLOSING TIME', sc.x, sc.y - 24, PAL.gold);
-          }
+        case 'dark': {
+          const sc = this.center(this.board.station);
+          this.word('SUNSET', sc.x, sc.y - 24, PAL.gold);
+          sfx.meh();
           break;
+        }
+        case 'tool': {
+          const at = e.at ? this.center(e.at) : this.center(this.board.station);
+          if (e.tool === 'dynamite') {
+            this.burst(at.x, at.y - 4, 22, [PAL.gold, PAL.red, PAL.rock[1]]);
+            this.word('BOOM', at.x, at.y - 18, PAL.gold);
+            this.shake = { until: this.now + 260, mag: 3 };
+            sfx.blocked();
+            sfx.chain(1);
+          } else if (e.tool === 'paint' && e.at) {
+            this.flashes.set(idx(this.board, e.at.x, e.at.y), this.now + 200);
+            this.burst(at.x, at.y - 4, 10, [PAL.heart, PAL.gold, PAL.white]);
+            sfx.merge(3);
+          } else if (e.tool === 'coffee') {
+            this.word('+5 SWIPES', at.x, at.y - 24, PAL.gold);
+            sfx.hype();
+          } else if (e.tool === 'megaphone') {
+            this.word('COME RIDE!', at.x, at.y - 24, PAL.white);
+            sfx.open();
+          } else sfx.lay();
+          break;
+        }
       }
     }
-  }
-
-  /** Dusk with nothing built: the queue goes home. */
-  private closeEmpty(): void {
-    const sc = this.center(this.board.station);
-    this.word('CLOSED', sc.x, sc.y - 22, PAL.red);
-    const side = this.sideDir();
-    this.game.queue.forEach((r, i) => {
-      const p = this.riderPos.get(r.id);
-      if (!p) return;
-      this.word('BOO', p.x, p.y - 18, PAL.white);
-      this.walkers.push({ look: r.look, x: p.x, y: p.y, tx: p.x + side.x * this.W, ty: p.y + side.y * this.H, speed: 35, mood: 'angry', delay: 500 + i * 80 });
-    });
-    this.riderPos.clear();
-    this.stuckUntil = this.now + 1600;
   }
 
   /** Board cell under a page coordinate, or null. */
@@ -414,10 +418,6 @@ export class Renderer {
         this.ride = null;
         this.onRideDone();
       }
-    }
-    if (this.stuckUntil && now >= this.stuckUntil) {
-      this.stuckUntil = 0;
-      this.onRideDone();
     }
     this.drawDusk();
     this.drawParticles(dt);
@@ -703,6 +703,11 @@ export class Renderer {
       ])
         px(ctx, cx, cy, w, hh, col);
     };
+    const aim = this.game.aiming;
+    if (aim) {
+      this.drawAimTargets(aim, corners, blink);
+      return;
+    }
     const targets = buildTargets(b);
     // The other end's targets first, so the selected end's gold corners win on shared cells.
     for (const t of targets.filter((t) => t.end !== sel)) corners(this.cellX(t.x), this.cellY(t.y), END_COLORS[t.end]);
@@ -721,6 +726,28 @@ export class Renderer {
     if (canConnect(b)) {
       const [a, c] = [this.center(head(b, 0)), this.center(head(b, 1))];
       drawText(ctx, 'GO!', (a.x + c.x) / 2 - 5, Math.min(a.y, c.y) - 26 + (blink ? 0 : -1), PAL.gold, PAL.ink);
+    }
+  }
+
+  private drawAimTargets(aim: NonNullable<Game['aiming']>, corners: (x: number, y: number, col: string) => void, blink: boolean): void {
+    const b = this.board;
+    const col = blink ? PAL.heart : PAL.white;
+    for (let y = 0; y < b.size; y++)
+      for (let x = 0; x < b.size; x++) {
+        const i = idx(b, x, y);
+        const tile = b.tiles[i];
+        const wall = isWall(b, x, y);
+        const ok =
+          aim.tool === 'dynamite' ? !!b.obstacles[i] : aim.tool === 'paint' ? !!tile && tile < 7 && !wall : aim.first ? !wall : !!tile && !wall;
+        if (ok) corners(this.cellX(x), this.cellY(y), col);
+      }
+    if (aim.first) {
+      const x = this.cellX(aim.first.x);
+      const y = this.cellY(aim.first.y);
+      px(this.ctx, x, y, 16, 1, PAL.gold);
+      px(this.ctx, x, y + 15, 16, 1, PAL.gold);
+      px(this.ctx, x, y, 1, 16, PAL.gold);
+      px(this.ctx, x + 15, y, 1, 16, PAL.gold);
     }
   }
 

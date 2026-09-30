@@ -846,3 +846,58 @@ button:focus-visible {
     animation: none;
   }
 }
+
+/* ---- Toolbar ---- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.toolbar .muted {
+  color: var(--paper-edge);
+  font-size: 14px;
+}
+
+.tool {
+  border: 2px solid var(--paper-edge);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--dusk-deep);
+  color: var(--paper);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tool:hover {
+  border-color: var(--bulb);
+}
+
+.tool.active {
+  background: #ff5d8a;
+  border-color: #ff5d8a;
+  color: #fff;
+}
+
+.tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.perk .tag {
+  align-self: flex-start;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #ebe6fa;
+  color: var(--ink-soft);
+}
+
+.perk.kind-tool .tag {
+  background: #ffe3ec;
+  color: #a3244d;
+}

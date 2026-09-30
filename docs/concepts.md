@@ -68,7 +68,7 @@ v0.1 tied track-laying to every swipe, which left 3 choices at most and punished
 
 **Two track ends.** The track grows out of both sides of the station (red and blue pennants). When the pennants are next to each other, the full circuit can open. Before that, you can cash out any time as a **shuttle** (out and back) at half excitement.
 
-**Daylight is the only clock.** At dusk the ride opens with whatever you have: the circuit if the ends meet, otherwise a shuttle.
+**Daylight is the only clock, and it only limits swipes.** After sunset you can't swipe, but you can keep building and open the ride whenever you're ready.
 
 **Rewards, not punishments:**
 - **Excitement** = (thrill + length) × (1 + 10% per distinct piece type past the first). Every rider pays it as a ticket.
@@ -102,12 +102,36 @@ A modern take on the cozy RCT2 theme-park look, without copying it:
 - After each day, **pick 1 of 3 perks** (Late Closing, Tip Jar, Barf Bags, Hype Guy, Scenic Route...). They bend the puzzle without replacing it.
 - The board grows from 5x5 to 6x6 on day 3, with more obstacles and pickier riders (Kid and Just Ate unlock on day 2).
 
-## Ideas parked for later
-- Energy budget (step 2 above).
-- Rare special tiles: Tunnel (passes under track), Bridge (crosses a pond), Bulldozer.
-- Weather days: rain makes riders impatient faster.
-- Boss days: a VIP rider with a very specific request.
-- Voxel or HD-2D version of the ride only, as the "reward camera".
+## Rewards (v0.5)
+After each day you pick 1 of 3 rewards. There's always at least one of each kind:
+- **Upgrades (permanent, stackable):** Late Closing (+5 swipes), Better Lumber, Hype Guy, Barf Bags, Billboard, Landscaper, Scenic Route, Tip Jar, Toolbox (+1 undo).
+- **Tools (charges you spend when you like):** Coffee (+5 swipes, works after sunset), Paint Can (a tile +1 tier, can start a chain), Crane (move a tile anywhere), Dynamite (remove an obstacle), Megaphone (+3 riders now). A run starts with one Paint Can.
+
+## Roadmap ideas
+
+### Progression: a season of parks
+- A run is a **season**: 3 parks × 3 days, then a **Grand Opening** finale. Each park has a theme and one rule twist that later parks keep stacking.
+  1. *Meadow:* the basics.
+  2. *Boardwalk:* sand tiles sink back a tier if not merged within a few swipes; the pier can take track over water.
+  3. *Haunted Hollow:* fog hides tiles until track is next to them; ghost riders only pay for inversions.
+  4. *Mountain:* elevation and the **energy budget** (lift hills vs. loops) arrive here.
+  5. *Space Park:* low gravity; loops count double, but the train can float off a Mega Loop.
+- **A route map between days** (Slay the Spire style): regular days, **VIP days** (one rider with a huge, specific contract), **Storm days** (harder, better reward), the **Shop** (spend surplus tickets on tools or upgrades), and **Repair** (regain a heart).
+- **Your park grows across the run.** Each day's coaster stays in the park, and the season finale ends on a panorama of everything you built.
+
+### What keeps later stages hard
+- **Contracts:** VIPs and inspectors with exact demands ("exactly 2 inversions, length 12+, nausea under 10").
+- **Board modifiers:** rusty tiles that fall a tier each swipe until merged, locked crates that open after a merge next to them, puddles from rain, wind that shifts one row.
+- **Rival park across the road:** your excitement must beat theirs or part of the line walks over.
+- **Multiple stations:** two rides on one board, sharing space. Track crossings need a Tunnel or Bridge piece.
+
+### Stuff that makes it more awesome
+- **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
+- **Guest thought feed** (RCT nod): little quotes pop up ("This looks too intense for me", "I want to go on something more thrilling").
+- **Special pieces:** Launch (speed boost), Water Splash (soaks the front row), Tunnel (passes under your own track), Brake Run (cancels nausea).
+- **Daily seed challenge**, since runs are already seeded; later a leaderboard.
+- **Chiptune park music** that layers up with combos, and fireworks when you beat the target by a lot.
+- **Meta-progression:** unlock new pieces, riders, station styles and starting tools across runs.
 
 ## Name
 **Loophole** (picked). Other candidates: Thrill Issues, Hold Your Lunch, Queasy Does It.

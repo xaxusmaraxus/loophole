@@ -1,33 +1,48 @@
 import type { Rng } from '../core/rng';
 import { type Board, type ObstacleKind, idx, isWall } from '../puzzle/board';
 
-export type PerkId =
-  | 'latenight'
-  | 'lumber'
-  | 'wrench'
-  | 'hype'
-  | 'barfbags'
-  | 'billboard'
-  | 'dynamite'
-  | 'scenic'
-  | 'tipjar';
+// Rewards between days come in two kinds:
+//  - Upgrades: permanent, stackable boosts to the park's stats.
+//  - Tools: charges you keep in a toolbar and spend whenever you like.
 
-export interface PerkDef {
+export type UpgradeId = 'latenight' | 'lumber' | 'hype' | 'barfbags' | 'billboard' | 'landscaper' | 'scenic' | 'tipjar' | 'wrench';
+export type ToolId = 'coffee' | 'paint' | 'crane' | 'dynamite' | 'megaphone';
+
+export interface UpgradeDef {
   name: string;
   desc: string;
 }
 
-export const PERKS: Record<PerkId, PerkDef> = {
-  latenight: { name: 'Late Closing', desc: '5 more swipes of daylight every day.' },
-  lumber: { name: 'Better Lumber', desc: 'New tiles are Hills more often.' },
-  wrench: { name: 'Spare Wrench', desc: '+1 undo every day.' },
-  hype: { name: 'Hype Guy', desc: 'Rides count +25% thrill.' },
-  barfbags: { name: 'Barf Bags', desc: 'Everyone stomachs 3 more nausea.' },
-  billboard: { name: 'Billboard', desc: '2 extra riders are waiting each morning.' },
-  dynamite: { name: 'Dynamite', desc: 'Parks have 2 fewer obstacles.' },
-  scenic: { name: 'Scenic Route', desc: 'Flat track is worth 1 thrill.' },
-  tipjar: { name: 'Tip Jar', desc: 'Riders whose wish you meet pay triple instead of double.' },
+export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
+  latenight: { name: 'Late Closing', desc: '+5 swipes of daylight every day.' },
+  lumber: { name: 'Better Lumber', desc: 'New tiles are Hills 15% more often.' },
+  hype: { name: 'Hype Guy', desc: '+25% thrill on every ride.' },
+  barfbags: { name: 'Barf Bags', desc: 'Riders stomach 3 more nausea.' },
+  billboard: { name: 'Billboard', desc: '+2 riders waiting each morning.' },
+  landscaper: { name: 'Landscaper', desc: '2 fewer obstacles in each park.' },
+  scenic: { name: 'Scenic Route', desc: 'Flat track is worth +1 thrill.' },
+  tipjar: { name: 'Tip Jar', desc: 'Riders whose wish you meet tip one more ticket-price.' },
+  wrench: { name: 'Toolbox', desc: '+1 undo every day.' },
 };
+
+export interface ToolDef {
+  name: string;
+  desc: string;
+  /** What the next tap targets, or null if the tool works instantly. */
+  aim: 'tile' | 'swap' | 'obstacle' | null;
+  /** Charges one reward grants. */
+  charges: number;
+}
+
+export const TOOLS: Record<ToolId, ToolDef> = {
+  coffee: { name: 'Coffee', desc: '+5 swipes of daylight today. Works after sunset too.', aim: null, charges: 2 },
+  paint: { name: 'Paint Can', desc: 'Upgrade one tile a tier. It can set off a chain.', aim: 'tile', charges: 2 },
+  crane: { name: 'Crane', desc: 'Move a loose tile anywhere (it swaps with whatever is there).', aim: 'swap', charges: 2 },
+  dynamite: { name: 'Dynamite', desc: 'Blow up one tree, rock, pond or stand.', aim: 'obstacle', charges: 2 },
+  megaphone: { name: 'Megaphone', desc: 'Call 3 more riders into line right now.', aim: null, charges: 1 },
+};
+
+export type Reward = { kind: 'upgrade'; id: UpgradeId } | { kind: 'tool'; id: ToolId };
 
 export interface Mods {
   thrillMult: number;
@@ -42,24 +57,28 @@ export interface Mods {
   tipMult: number;
 }
 
-export function modsFor(perks: readonly PerkId[]): Mods {
-  const n = (id: PerkId) => perks.filter((p) => p === id).length;
+export function modsFor(upgrades: readonly UpgradeId[]): Mods {
+  const n = (id: UpgradeId) => upgrades.filter((p) => p === id).length;
   return {
     thrillMult: 1 + 0.25 * n('hype'),
     flatThrill: n('scenic'),
     toleranceBonus: 3 * n('barfbags'),
-    hillChance: Math.min(0.6, 0.1 + 0.15 * n('lumber')),
+    hillChance: Math.min(0.7, 0.1 + 0.15 * n('lumber')),
     undos: 1 + n('wrench'),
-    obstacleDelta: -2 * n('dynamite'),
+    obstacleDelta: -2 * n('landscaper'),
     spawns: 1,
     daylightBonus: 5 * n('latenight'),
     extraRiders: 2 * n('billboard'),
-    tipMult: n('tipjar') ? 3 : 2,
+    tipMult: 2 + n('tipjar'),
   };
 }
 
-export function perkOffer(rng: Rng): PerkId[] {
-  return rng.shuffle(Object.keys(PERKS) as PerkId[]).slice(0, 3);
+/** Three choices: at least one upgrade and one tool. */
+export function rewardOffer(rng: Rng): Reward[] {
+  const ups = rng.shuffle(Object.keys(UPGRADES) as UpgradeId[]);
+  const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]);
+  const third: Reward = rng.chance(0.5) ? { kind: 'upgrade', id: ups[1] } : { kind: 'tool', id: tools[1] };
+  return rng.shuffle<Reward>([{ kind: 'upgrade', id: ups[0] }, { kind: 'tool', id: tools[0] }, third]);
 }
 
 export interface DayConfig {

@@ -9,25 +9,32 @@ import {
   buildTargets,
   canConnect,
   canShuttle,
+  type Pt,
   cloneBoard,
   head,
+  idx,
+  isWall,
+  resolveChains,
   step,
   swipe,
   trackCells,
 } from './puzzle/board';
-import { type RideStats, rideStats } from './puzzle/pieces';
+import { MAX_TIER, type RideStats, rideStats } from './puzzle/pieces';
 import { type Rider, type Verdict, evaluate, makeRider } from './riders/riders';
 import {
   type DayConfig,
   type Mods,
-  type PerkId,
+  type Reward,
+  TOOLS,
+  type ToolId,
+  type UpgradeId,
   dayConfig,
   generateBoard,
   modsFor,
-  perkOffer,
+  rewardOffer,
 } from './run/run';
 
-export type Phase = 'build' | 'ride' | 'results' | 'perk' | 'over';
+export type Phase = 'build' | 'ride' | 'results' | 'reward' | 'over';
 export type RideKind = 'circuit' | 'shuttle';
 
 /** Why a rider joined the queue. */
@@ -41,6 +48,7 @@ export type GameEvent =
   | { type: 'arrive'; rider: Rider; reason: ArrivalReason }
   | { type: 'open'; kind: RideKind }
   | { type: 'dark' }
+  | { type: 'tool'; tool: ToolId; at?: Pt }
   | { type: 'undo' };
 
 export interface RiderTicket {
@@ -50,7 +58,7 @@ export interface RiderTicket {
 }
 
 export interface DayResult {
-  kind: RideKind | null;
+  kind: RideKind;
   stats: RideStats;
   tickets: RiderTicket[];
   score: number;
@@ -66,6 +74,7 @@ interface Snapshot {
   buzz: number;
   bestCombo: number;
   selected: End;
+  tools: Record<ToolId, number>;
   rngState: number;
   nextId: number;
 }
@@ -86,7 +95,11 @@ export class Game {
   dayNum = 1;
   hearts = HEARTS;
   runScore = 0;
-  perks: PerkId[] = [];
+  upgrades: UpgradeId[] = [];
+  /** Tool charges carried through the run. */
+  tools: Record<ToolId, number> = emptyTools();
+  /** A tool waiting for its target tap (the crane remembers its first pick). */
+  aiming: { tool: ToolId; first?: Pt } | null = null;
   mods: Mods = modsFor([]);
   cfg!: DayConfig;
   board!: Board;
@@ -99,7 +112,7 @@ export class Game {
   undos = 0;
   phase: Phase = 'build';
   result: DayResult | null = null;
-  offer: PerkId[] = [];
+  offer: Reward[] = [];
   best = loadBest();
   events: GameEvent[] = [];
   private buzz = 0;
@@ -116,7 +129,8 @@ export class Game {
     this.dayNum = 1;
     this.hearts = HEARTS;
     this.runScore = 0;
-    this.perks = [];
+    this.upgrades = [];
+    this.tools = { ...emptyTools(), paint: 1 };
     this.mods = modsFor([]);
     this.startDay();
   }
@@ -131,6 +145,7 @@ export class Game {
     this.buzz = 0;
     this.bestCombo = 0;
     this.selected = 0;
+    this.aiming = null;
     this.undos = this.mods.undos;
     this.history = [];
     this.result = null;
@@ -183,6 +198,7 @@ export class Game {
       buzz: this.buzz,
       bestCombo: this.bestCombo,
       selected: this.selected,
+      tools: { ...this.tools },
       rngState: this.rng.state,
       nextId: this.nextId,
     });
@@ -190,6 +206,12 @@ export class Game {
 
   swipe(dir: Dir): void {
     if (this.phase !== 'build') return;
+    this.aiming = null;
+    if (this.daylight <= 0) {
+      // After sunset the tiles stay put; building and opening still work.
+      this.events.push({ type: 'blocked' });
+      return;
+    }
     this.snapshot();
     const result = swipe(this.board, dir, this.rng, { hillChance: this.mods.hillChance, spawns: this.mods.spawns });
     if (!result) {
@@ -203,6 +225,102 @@ export class Game {
     // Chain reactions draw a crowd: one new rider per link.
     for (let i = 0; i < result.chain.waves.length; i++) this.arrive('chain');
     this.tick();
+  }
+
+  /** A tap on the park: aims the active tool, or builds. */
+  tap(x: number, y: number): void {
+    if (this.aiming) this.aimAt(x, y);
+    else this.buildAt(x, y);
+  }
+
+  /** Arm a tool (or use it right away if it needs no target). Tapping the armed tool again disarms it. */
+  useTool(id: ToolId): void {
+    if (this.phase !== 'build' || !this.tools[id]) return;
+    if (this.aiming?.tool === id) {
+      this.aiming = null;
+      return;
+    }
+    if (TOOLS[id].aim) {
+      this.aiming = { tool: id };
+      return;
+    }
+    this.snapshot();
+    this.tools[id]--;
+    this.aiming = null;
+    if (id === 'coffee') this.daylight += 5;
+    if (id === 'megaphone') for (let i = 0; i < 3; i++) this.arrive('buzz');
+    this.events.push({ type: 'tool', tool: id });
+  }
+
+  private aimAt(x: number, y: number): void {
+    const aim = this.aiming!;
+    const b = this.board;
+    const i = idx(b, x, y);
+    const fail = (): void => {
+      this.events.push({ type: 'blocked' });
+    };
+    if (aim.tool === 'dynamite') {
+      if (!b.obstacles[i]) return fail();
+      this.snapshot();
+      b.obstacles[i] = null;
+      this.spend('dynamite', { x, y });
+      return;
+    }
+    if (aim.tool === 'paint') {
+      if (!b.tiles[i] || b.tiles[i] >= MAX_TIER || isWall(b, x, y)) return fail();
+      this.snapshot();
+      const before = [...b.tiles];
+      b.tiles[i]++;
+      this.spend('paint', { x, y });
+      this.settle(before, [], [{ x, y }]);
+      return;
+    }
+    // Crane: first tap picks a cell, second tap swaps it with another.
+    if (isWall(b, x, y)) return fail();
+    if (!aim.first) {
+      if (!b.tiles[i]) return fail();
+      this.aiming = { tool: 'crane', first: { x, y } };
+      return;
+    }
+    const a = aim.first;
+    const j = idx(b, a.x, a.y);
+    if (a.x === x && a.y === y) {
+      this.aiming = { tool: 'crane' };
+      return;
+    }
+    this.snapshot();
+    const before = [...b.tiles];
+    [b.tiles[i], b.tiles[j]] = [b.tiles[j], b.tiles[i]];
+    const moved = [
+      { from: a, to: { x, y }, tier: before[j] },
+      ...(before[i] ? [{ from: { x, y }, to: a, tier: before[i] }] : []),
+    ];
+    this.spend('crane', { x, y });
+    this.settle(before, moved, [a, { x, y }].filter((p) => b.tiles[idx(b, p.x, p.y)]));
+  }
+
+  private spend(tool: ToolId, at: Pt): void {
+    this.tools[tool]--;
+    this.aiming = null;
+    this.events.push({ type: 'tool', tool, at });
+  }
+
+  /** After a tool changes tiles, let chains resolve and animate like a swipe (without the slide or a spawn). */
+  private settle(before: number[], moved: { from: Pt; to: Pt; tier: number }[], seeds: Pt[]): void {
+    const b = this.board;
+    const movedFrom = new Set(moved.map((m) => idx(b, m.from.x, m.from.y)));
+    const slides = moved.map((m) => ({ ...m, merged: false }));
+    for (let k = 0; k < before.length; k++)
+      if (before[k] && !movedFrom.has(k)) {
+        const p = { x: k % b.size, y: Math.floor(k / b.size) };
+        slides.push({ from: p, to: p, tier: b.tiles[k] || before[k], merged: false });
+      }
+    const slid = [...b.tiles];
+    const chain = resolveChains(b, seeds);
+    const mergeCount = chain.waves.reduce((a, w) => a + w.length, 0);
+    this.bestCombo = Math.max(this.bestCombo, mergeCount);
+    this.events.push({ type: 'swipe', result: { dir: 'up', slides, merges: [], slid, chain, spawned: [], mergeCount } });
+    for (let w = 0; w < chain.waves.length; w++) this.arrive('chain');
   }
 
   /** Build into (x, y) from whichever end can reach it, preferring the selected one. */
@@ -258,20 +376,15 @@ export class Game {
       this.buzz -= 1;
       this.arrive('buzz');
     }
-    if (this.daylight <= 0) {
-      // Dusk: open whatever we have. Nothing built means nothing to ride.
-      const kind = this.openKind;
-      if (kind) this.open(kind, true);
-      else this.finishDay(null);
-    }
+    if (this.daylight === 0) this.events.push({ type: 'dark' });
   }
 
-  open(kind: RideKind | null = this.openKind, atDusk = false): void {
+  open(kind: RideKind | null = this.openKind): void {
     if (this.phase !== 'build' || !kind) return;
     if (kind === 'circuit' && !canConnect(this.board)) return;
     if (kind === 'shuttle' && !canShuttle(this.board)) return;
+    this.aiming = null;
     this.board.opened = kind;
-    if (atDusk) this.events.push({ type: 'dark' });
     this.finishDay(kind);
   }
 
@@ -285,29 +398,28 @@ export class Game {
     this.buzz = s.buzz;
     this.bestCombo = s.bestCombo;
     this.selected = s.selected;
+    this.tools = s.tools;
+    this.aiming = null;
     this.rng.state = s.rngState;
     this.nextId = s.nextId;
     this.undos--;
     this.events.push({ type: 'undo' });
   }
 
-  private finishDay(kind: RideKind | null): void {
-    const stats = this.statsFor(kind ?? 'shuttle');
-    const tickets: RiderTicket[] = kind
-      ? this.queue.map((rider) => {
-          const verdict = evaluate(rider, this.stats, this.mods.toleranceBonus);
-          return { rider, verdict, paid: this.ticket(verdict, stats.excitement) };
-        })
-      : this.queue.map((rider) => ({ rider, verdict: 'meh' as Verdict, paid: 0 }));
+  private finishDay(kind: RideKind): void {
+    const stats = this.statsFor(kind);
+    const tickets: RiderTicket[] = this.queue.map((rider) => {
+      const verdict = evaluate(rider, this.stats, this.mods.toleranceBonus);
+      return { rider, verdict, paid: this.ticket(verdict, stats.excitement) };
+    });
     const score = tickets.reduce((a, t) => a + t.paid, 0);
     this.result = { kind, stats, tickets, score, target: this.cfg.target, passed: score >= this.cfg.target };
-    // Both play out on the board first; the renderer calls rideDone() after.
+    // The ride plays out on the board first; the renderer calls rideDone() after.
     this.phase = 'ride';
-    if (kind) this.events.push({ type: 'open', kind });
-    else this.events.push({ type: 'dark' });
+    this.events.push({ type: 'open', kind });
   }
 
-  /** Called by the renderer when the ride (or empty-dusk) animation ends. */
+  /** Called by the renderer when the ride animation ends. */
   rideDone(): void {
     if (this.phase === 'ride') this.phase = 'results';
   }
@@ -324,17 +436,24 @@ export class Game {
       }
       return;
     }
-    this.offer = perkOffer(this.rng);
-    this.phase = 'perk';
+    this.offer = rewardOffer(this.rng);
+    this.phase = 'reward';
   }
 
-  choosePerk(id: PerkId): void {
-    if (this.phase !== 'perk') return;
-    this.perks.push(id);
-    this.mods = modsFor(this.perks);
+  chooseReward(i: number): void {
+    const r = this.offer[i];
+    if (this.phase !== 'reward' || !r) return;
+    if (r.kind === 'upgrade') {
+      this.upgrades.push(r.id);
+      this.mods = modsFor(this.upgrades);
+    } else this.tools[r.id] += TOOLS[r.id].charges;
     this.dayNum++;
     this.startDay();
   }
+}
+
+function emptyTools(): Record<ToolId, number> {
+  return { coffee: 0, paint: 0, crane: 0, dynamite: 0, megaphone: 0 };
 }
 
 function loadBest(): number {

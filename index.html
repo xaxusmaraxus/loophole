@@ -40,6 +40,7 @@
             <button id="open" type="button" class="open">Open the ride</button>
             <button id="switchEnd" type="button" class="switch" title="Switch which pennant keyboard building extends (Tab)">Switch end</button>
             <button id="undo" type="button" class="undo">Undo <span id="undoCount" class="count">1</span></button>
+            <div id="tools" class="toolbar" role="group" aria-label="Tools"></div>
             <div class="pad" role="group" aria-label="Swipe">
               <button type="button" data-dir="up" class="up" aria-label="Swipe up">↑</button>
               <button type="button" data-dir="left" class="left" aria-label="Swipe left">←</button>
@@ -65,7 +66,7 @@
               <div><dt>Nausea</dt><dd id="statNausea">0</dd></div>
             </dl>
             <p class="perk-line"><span class="label">Best combo today</span> <span id="bestCombo">none yet</span></p>
-            <p class="perk-line"><span class="label">Perks</span> <span id="perks">None yet</span></p>
+            <p class="perk-line"><span class="label">Upgrades</span> <span id="perks">None yet</span></p>
           </section>
 
           <section class="panel">
@@ -81,9 +82,10 @@
               <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
               <li><strong>Tap a highlighted cell</strong> to build: the tile there becomes that piece of track. Track grows from both sides of the station (the red and blue pennants).</li>
               <li>When the pennants meet, <strong>open the full circuit</strong>. Or cash out any time as a shuttle for half.</li>
-              <li>Every swipe uses daylight; building is free. At dusk the ride opens with whatever you have.</li>
+              <li>Every swipe uses daylight; building is free. After sunset you can't swipe, but you can keep building and open the ride whenever you're ready.</li>
+              <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
             </ol>
-            <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
+            <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
           </details>
         </aside>
       </main>

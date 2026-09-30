@@ -3,7 +3,7 @@ import { sfx } from './core/sfx';
 import { Game } from './game';
 import type { Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
-import type { PerkId } from './run/run';
+import type { ToolId } from './run/run';
 import { Hud } from './ui/hud';
 
 const game = new Game();
@@ -37,6 +37,12 @@ window.addEventListener('keydown', (e) => {
     act(() => game.selectEnd());
   } else if (e.key === 'Enter' && game.phase === 'build' && !(e.target instanceof HTMLButtonElement)) {
     act(() => game.open());
+  } else if (e.key === 'Escape' && game.aiming) {
+    act(() => (game.aiming = null));
+  } else if (/^[1-5]$/.test(e.key) && game.phase === 'build') {
+    const owned = document.querySelectorAll<HTMLButtonElement>('#tools [data-tool]');
+    const btn = owned[Number(e.key) - 1];
+    if (btn) act(() => game.useTool(btn.dataset.tool as ToolId));
   } else if (e.key === 'z' || e.key === 'Z' || e.key === 'Backspace') {
     act(() => game.undo());
   }
@@ -56,7 +62,7 @@ wrap.addEventListener('pointerup', (e) => {
   start = null;
   if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) {
     const cell = renderer.cellAt(e.clientX, e.clientY);
-    if (cell) act(() => game.buildAt(cell.x, cell.y));
+    if (cell) act(() => game.tap(cell.x, cell.y));
     return;
   }
   const dir: Dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
@@ -68,6 +74,10 @@ document.querySelectorAll<HTMLButtonElement>('[data-dir]').forEach((b) =>
   b.addEventListener('click', () => act(() => game.swipe(b.dataset.dir as Dir))),
 );
 document.getElementById('open')!.addEventListener('click', () => act(() => game.open()));
+document.getElementById('tools')!.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tool]');
+  if (btn) act(() => game.useTool(btn.dataset.tool as ToolId));
+});
 document.getElementById('switchEnd')!.addEventListener('click', () => act(() => game.selectEnd()));
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
 document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));
@@ -78,7 +88,7 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
   const action = btn.dataset.action;
   act(() => {
     if (action === 'continue') game.continueFromResults();
-    else if (action === 'perk') game.choosePerk(btn.dataset.perk as PerkId);
+    else if (action === 'reward') game.chooseReward(Number(btn.dataset.index));
     else if (action === 'newrun') game.newRun();
   });
   requestAnimationFrame(() => document.querySelector<HTMLElement>('#overlay [autofocus], #overlay button')?.focus());

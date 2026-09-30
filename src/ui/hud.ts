@@ -2,7 +2,7 @@ import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
 import { KINDS, type Rider, type Verdict } from '../riders/riders';
 import { drawPortrait } from '../render/sprites';
-import { PERKS } from '../run/run';
+import { TOOLS, type ToolId, UPGRADES, type UpgradeId } from '../run/run';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -23,10 +23,10 @@ export class Hud {
     $('seed').textContent = g.seed;
 
     // Daylight.
-    const frac = Math.max(0, g.daylight / g.cfg.daylight);
+    const frac = Math.min(1, Math.max(0, g.daylight / g.cfg.daylight));
     $('daylightBar').style.width = `${frac * 100}%`;
     $('daylightBar').classList.toggle('dusk', frac < 0.3);
-    $('daylightLeft').textContent = `${g.daylight} swipe${g.daylight === 1 ? '' : 's'} of daylight left`;
+    $('daylightLeft').textContent = g.daylight > 0 ? `${g.daylight} swipe${g.daylight === 1 ? '' : 's'} of daylight left` : 'Sunset: no more swipes';
 
     // Ride stats.
     const s = g.stats;
@@ -37,13 +37,21 @@ export class Hud {
     $('statInversions').textContent = String(s.inversions);
     $('statNausea').textContent = String(s.nausea);
     $('bestCombo').textContent = g.bestCombo >= 2 ? `x${g.bestCombo}` : 'none yet';
-    $('perks').textContent = g.perks.length ? g.perks.map((p) => PERKS[p].name).join(', ') : 'None yet';
+    const counts = new Map<UpgradeId, number>();
+    for (const u of g.upgrades) counts.set(u, (counts.get(u) ?? 0) + 1);
+    $('perks').textContent = counts.size ? [...counts].map(([u, n]) => `${UPGRADES[u].name}${n > 1 ? ` ×${n}` : ''}`).join(', ') : 'None yet';
+    this.renderTools();
 
     // What to do next, and the open button.
     const building = g.phase === 'build';
     const kind = g.openKind;
     const hint = $('station');
+    const aim = g.aiming;
     if (!building) hint.textContent = '';
+    else if (aim?.tool === 'paint') hint.textContent = 'Tap a tile to paint it up a tier. Tap the Paint Can again to cancel.';
+    else if (aim?.tool === 'dynamite') hint.textContent = 'Tap a tree, rock, pond or stand to blow it up.';
+    else if (aim?.tool === 'crane') hint.textContent = aim.first ? 'Now tap where the tile should go.' : 'Tap the tile the crane should lift.';
+    else if (g.daylight <= 0 && !canConnect(g.board)) hint.textContent = 'The sun has set. No more swipes, but you can still build and open the ride.';
     else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit, or keep building for a wilder ride.';
     else if (trackLength(g.board) === 0) hint.textContent = 'Tap a highlighted cell next to the station to start building.';
     else hint.textContent = 'Steer the two pennants toward each other to close the loop, or cash out now as a shuttle.';
@@ -61,6 +69,22 @@ export class Hud {
 
     this.renderQueue();
     this.renderOverlay();
+  }
+
+  private renderTools(): void {
+    const g = this.game;
+    const bar = $('tools');
+    const owned = (Object.keys(TOOLS) as ToolId[]).filter((t) => g.tools[t] > 0);
+    if (!owned.length) {
+      bar.innerHTML = '<span class="muted">No tools yet. Earn them between days.</span>';
+      return;
+    }
+    bar.innerHTML = owned
+      .map(
+        (t, i) =>
+          `<button type="button" class="tool${g.aiming?.tool === t ? ' active' : ''}" data-tool="${t}" title="${TOOLS[t].desc} (key ${i + 1})" ${g.phase === 'build' ? '' : 'disabled'}>${TOOLS[t].name} <span class="count">${g.tools[t]}</span></button>`,
+      )
+      .join('');
   }
 
   private renderQueue(): void {
@@ -101,30 +125,36 @@ export class Hud {
   private renderOverlay(): void {
     const g = this.game;
     const el = $('overlay');
-    el.hidden = !['results', 'perk', 'over'].includes(g.phase);
+    el.hidden = !['results', 'reward', 'over'].includes(g.phase);
     if (el.hidden) return;
     if (g.phase === 'results' && g.result) {
       const r = g.result;
       const title: Record<RideKind, string> = { circuit: 'Ride report', shuttle: 'Shuttle report' };
       const rows = r.tickets
-        .map((t) => `<li><span>${t.rider.name}</span><span class="verdict ${t.verdict}">${r.kind ? REPORT_LABEL[t.verdict] : 'Went home'}</span><span class="paid">${t.paid}</span></li>`)
+        .map((t) => `<li><span>${t.rider.name}</span><span class="verdict ${t.verdict}">${REPORT_LABEL[t.verdict]}</span><span class="paid">${t.paid}</span></li>`)
         .join('');
       el.innerHTML = `
         <div class="card">
-          <h2>${r.kind ? title[r.kind] : 'Park closed'}</h2>
-          <p>${r.kind ? `Excitement ${r.stats.excitement}${r.kind === 'shuttle' ? ' (shuttle, half)' : ''}. Every rider paid that, doubled if you met their wish.` : 'Nothing was built by dusk, so nobody could ride.'}</p>
+          <h2>${title[r.kind]}</h2>
+          <p>Excitement ${r.stats.excitement}${r.kind === 'shuttle' ? ' (shuttle, half)' : ''}. Every rider paid that, more if you met their wish.</p>
           ${rows ? `<ul class="report">${rows}</ul>` : ''}
           <p class="total"><span>Tickets sold</span><strong>${r.score} / ${r.target}</strong></p>
           <p class="outcome ${r.passed ? 'good' : 'bad'}">${r.passed ? 'Target reached. Day passed.' : 'Short of the target. The park loses a heart.'}</p>
           <button class="primary" data-action="continue" autofocus>Continue</button>
         </div>`;
-    } else if (g.phase === 'perk') {
+    } else if (g.phase === 'reward') {
       el.innerHTML = `
         <div class="card">
-          <h2>Pick a perk</h2>
-          <p>It lasts for the rest of the run. Day ${g.dayNum + 1} is next.</p>
+          <h2>Pick a reward</h2>
+          <p>Upgrades last all run. Tools go in your toolbar to use whenever you want. Day ${g.dayNum + 1} is next.</p>
           <div class="perks">
-            ${g.offer.map((id) => `<button class="perk" data-action="perk" data-perk="${id}"><strong>${PERKS[id].name}</strong><span>${PERKS[id].desc}</span></button>`).join('')}
+            ${g.offer
+              .map((r, i) => {
+                const def = r.kind === 'upgrade' ? UPGRADES[r.id] : TOOLS[r.id];
+                const tag = r.kind === 'upgrade' ? 'Upgrade' : `Tool ×${TOOLS[r.id].charges}`;
+                return `<button class="perk kind-${r.kind}" data-action="reward" data-index="${i}"><span class="tag">${tag}</span><strong>${def.name}</strong><span>${def.desc}</span></button>`;
+              })
+              .join('')}
           </div>
         </div>`;
     } else if (g.phase === 'over') {
