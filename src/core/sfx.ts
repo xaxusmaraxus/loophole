@@ -178,6 +178,20 @@ export const sfx = {
   },
   /** The total rolls: a soft register click (throttled by the caller). */
   roll: (n: number) => tone(semi(880, n), 0.025, 'square', 0.012),
+  /** A rider plops into a seat. */
+  board() {
+    tone(260 + Math.random() * 60, 0.08, 'sine', 0.06, 0, 140);
+    noise(0.05, 0.05, 0, 900, 200);
+  },
+  /** One click of the chain lift. */
+  clack() {
+    noise(0.025, 0.05, 0, 3200, 1200, 4);
+  },
+  /** The dispatch bell: everybody's in, off we go. */
+  bell() {
+    tone(1318, 0.5, 'triangle', 0.07);
+    tone(1318, 0.5, 'triangle', 0.06, 0.16);
+  },
   isMuted: () => muted,
   setMuted(m: boolean) {
     muted = m;

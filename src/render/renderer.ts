@@ -59,11 +59,11 @@ const WAVE_MS = 170;
 const END_COLORS = ['#f0584e', '#45a8e0'];
 const PITCH = (48 * Math.PI) / 180;
 const FOV = 30;
-export const CAR_GAP = 0.37;
+export const CAR_GAP = 0.32;
 /** One stop-motion frame (12 a second). */
 const STOP_MS = 1000 / 12;
 /** Cars (and their riders) are drawn this much larger than the model. */
-const CAR_SCALE = 1.25;
+const CAR_SCALE = 1.05;
 /** Guests on foot are drawn a little larger than riders, so the crowd reads. */
 const STAND_SCALE = 1.3;
 /** The queue starts beside the station's sign, not in front of it. */
@@ -155,6 +155,9 @@ export class Renderer {
   private sun = new DirectionalLight('#fff4e0', 2);
   private hemi = new HemisphereLight('#d6e6ff', '#b89a78', 1.2);
   private lampLights: PointLight[] = [];
+  /** The on-ride camera's flash: always in the scene (so no shader recompiles), lit only for the photo. */
+  private rush = 0;
+  private flashLight = new PointLight('#fff6ea', 0, 4, 2);
   private trackKey = '';
   private cellGroups = new Map<string, Group>();
   private riseAt = new Map<string, number>();
@@ -235,6 +238,7 @@ export class Renderer {
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.015;
     this.scene.add(this.sun, this.sun.target, this.hemi);
+    this.scene.add(this.flashLight);
     for (let i = 0; i < 4; i++) {
       const l = new PointLight('#ffd98a', 0, 2.6, 1.6);
       this.lampLights.push(l);
@@ -531,13 +535,13 @@ export class Renderer {
         }
       return pts;
     }
-    for (const x of [is.x0 - 0.1, is.x1 + 0.1])
-      for (const z of [is.z0 - 0.05, is.z1 + 0.1]) {
+    for (const x of [is.x0 + 0.2, is.x1 - 0.2])
+      for (const z of [is.z0 + 0.15, is.z1 - 0.05]) {
         pts.push(v3(x, 0, z));
         pts.push(v3(x, -0.66, z));
       }
     // Room above the back row for tall loops and the trees.
-    pts.push(v3(this.n / 2, 1.45, 0.1));
+    pts.push(v3(this.n / 2, 1.85, 0.2));
     return pts;
   }
 
@@ -685,19 +689,30 @@ export class Renderer {
     const result = this.game.result!;
     if (!result.kind) return;
     const sc = this.stationCenter();
-    // Riders walk onto the platform, then the train leaves.
+    this.syncTrack();
+    // Each rider walks to their own car's side of the platform and hops in; the train
+    // only leaves once the last one is seated.
+    const park = this.path.parkAt;
+    const boardAt = result.tickets.map(() => this.gameNow + 300);
+    const WALK = 1.6;
     this.game.queue.forEach((r, i) => {
       const p = this.riderPos.get(r.id);
       if (!p) return;
-      this.walkers.push({ look: r.look, x: p.x, z: p.z, tx: sc.x + (Math.random() - 0.5) * 0.3, tz: sc.z, speed: 1.3, delay: i * 70 });
+      const seat = result.tickets.findIndex((t) => t.rider.id === r.id);
+      const at = seat >= 0 ? this.path.sample(park - seat * CAR_GAP).p : sc;
+      const tx = at.x;
+      const tz = seat >= 0 ? at.z - 0.2 : sc.z;
+      const delay = i * 90;
+      this.walkers.push({ look: r.look, x: p.x, z: p.z, tx, tz, speed: WALK, delay });
+      if (seat >= 0) boardAt[seat] = this.gameNow + delay + (Math.hypot(tx - p.x, tz - p.z) / WALK) * 1000 + 40;
     });
     this.riderPos.clear();
-    this.syncTrack();
     photoStore.url = null;
     photoStore.card = null;
     this.polaroid?.remove();
     this.polaroid = null;
-    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.show, this.gameNow + 900);
+    const go = Math.max(this.gameNow + 600, ...boardAt) + 450;
+    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.show, go, boardAt);
   }
 
   // ---- Effects ---------------------------------------------------------------------
@@ -938,7 +953,10 @@ export class Renderer {
     let pitch = PITCH;
     let yaw = 0;
     let roll = 0;
-    let fov = FOV;
+    // Speed: the lens widens and the camera leans in a touch as the train rips through the dips.
+    this.rush += ((this.ride?.rush() ?? 0) - this.rush) * Math.min(1, dt * 3);
+    let fov = FOV + this.rush * 4;
+    dist *= 1 - this.rush * 0.06;
     const c = this.cine;
     if (c > 0) {
       // Product-video push-in: close on the subject, lower angle, a slow orbit.
@@ -1080,7 +1098,7 @@ export class Renderer {
     this.path.cells.forEach((c, i) => {
       const parts = buildCellTrack(this.path, i, { support: look.support, tie: look.tie });
       const g = new Group();
-      for (const [k, mat] of [['gloss', MATS.gloss], ['matte', MATS.matte]] as const) {
+      for (const [k, mat] of [['gloss', MATS.rail], ['matte', MATS.steel]] as const) {
         const geo = parts[k];
         if (!geo || geo.empty) continue;
         const m = new Mesh(geo.build(), mat);
@@ -1478,7 +1496,7 @@ export class Renderer {
     c.matrixWorldNeedsUpdate = true;
     let head = f.p.clone().addScaledVector(f.up, 0.3);
     if (rider) {
-      const seat = new Matrix4().copy(m).multiply(M(0, 0.075, -0.025)).multiply(new Matrix4().makeScale(0.8, 0.8, 0.8));
+      const seat = new Matrix4().copy(m).multiply(M(0, 0.075, -0.025)).multiply(new Matrix4().makeScale(0.76, 0.76, 0.76));
       this.person(rider.look, null, { seated: true, matrix: seat, face: rider.face, arms: rider.arms });
       const g = personGeo(rider.look, rider.face, true);
       head = v3(0, (g.headY - 0.03) * g.scale, 0.09 * g.scale).applyMatrix4(seat);
@@ -1550,19 +1568,19 @@ export class Renderer {
     const pose = req.pose();
     cam.up.copy(pose.up);
     cam.position.copy(pose.eye);
-    cam.fov = 78;
+    cam.fov = 50;
     cam.updateProjectionMatrix();
     cam.lookAt(pose.look);
-    cam.rotateZ((Math.random() < 0.5 ? -1 : 1) * 0.17);
+    cam.rotateZ((Math.random() < 0.5 ? -1 : 1) * 0.05);
     cam.updateMatrixWorld();
-    // Focus on the riders, with a gentler blur than the park view.
-    const focus = u.uFocusD.value;
-    const aperture = u.uAperture.value;
-    u.uFocusD.value = pose.eye.distanceTo(pose.look);
-    u.uAperture.value = aperture * 0.35;
+    // Flash! A bright light right at the lens, a hair above it.
+    this.flashLight.position.copy(pose.eye).add(new Vector3(0, 0.05, 0));
+    this.flashLight.intensity = 1.6;
+    const sun = this.sun.intensity;
+    this.sun.intensity = sun * 0.9;
     this.post.render(this.gl, this.scene, cam, this.now / 1000);
-    u.uFocusD.value = focus;
-    u.uAperture.value = aperture;
+    this.flashLight.intensity = 0;
+    this.sun.intensity = sun;
     const src = this.gl.domElement;
     const out = document.createElement('canvas');
     out.width = 640;
@@ -1570,67 +1588,25 @@ export class Renderer {
     const sw = Math.min(src.width, (src.height * 4) / 3);
     const sh = (sw * 3) / 4;
     const o = out.getContext('2d')!;
-    // Comic-book punch: crank the color, add halftone shade and a shout.
-    o.filter = 'contrast(1.25) saturate(1.45)';
     o.drawImage(src, (src.width - sw) / 2, (src.height - sh) / 2, sw, sh, 0, 0, 640, 480);
-    o.filter = 'none';
-    const img = o.getImageData(0, 0, 640, 480);
-    const d = img.data;
-    for (let y = 0; y < 480; y += 6)
-      for (let x = 0; x < 640; x += 6) {
-        const i = (y * 640 + x) * 4;
-        const lum = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255;
-        const r = (1 - lum) * 2.6;
-        for (let yy = -2; yy <= 2; yy++)
-          for (let xx = -2; xx <= 2; xx++) {
-            if (xx * xx + yy * yy > r * r) continue;
-            const px = x + xx + (Math.floor(y / 6) % 2) * 3;
-            const py = y + yy;
-            if (px < 0 || py < 0 || px >= 640 || py >= 480) continue;
-            const j = (py * 640 + px) * 4;
-            d[j] *= 0.72;
-            d[j + 1] *= 0.7;
-            d[j + 2] *= 0.78;
-          }
-      }
-    o.putImageData(img, 0, 0);
-    const g = o.createRadialGradient(320, 240, 140, 320, 240, 440);
-    g.addColorStop(0, 'rgba(255,250,235,0.1)');
-    g.addColorStop(1, 'rgba(30,10,50,0.45)');
+    // Flash falloff: a warm, bright middle and corners that drop off.
+    const g = o.createRadialGradient(320, 250, 60, 320, 250, 430);
+    g.addColorStop(0, 'rgba(255,248,236,0.16)');
+    g.addColorStop(0.55, 'rgba(255,248,236,0)');
+    g.addColorStop(1, 'rgba(20,12,30,0.4)');
     o.fillStyle = g;
     o.fillRect(0, 0, 640, 480);
-    // A starburst with the loudest scream in it.
-    const shout = ['AAAAH!', 'WHEEE!', 'MOMMY!', 'OH NO!', 'YEEHAW!'][Math.floor(Math.random() * 5)];
-    const bx = 470;
-    const by = 88;
-    o.beginPath();
-    for (let k = 0; k < 24; k++) {
-      const a = (k / 24) * Math.PI * 2;
-      const r = k % 2 ? 62 : 104;
-      o.lineTo(bx + Math.cos(a) * r * 1.35, by + Math.sin(a) * r * 0.75);
-    }
-    o.closePath();
-    o.fillStyle = '#ffd23f';
-    o.fill();
-    o.lineWidth = 6;
-    o.strokeStyle = '#2b2140';
-    o.stroke();
-    o.save();
-    o.translate(bx, by + 4);
-    o.rotate(-0.12);
-    o.font = '400 40px Bungee, "Arial Black", Impact, sans-serif';
-    o.textAlign = 'center';
-    o.textBaseline = 'middle';
-    o.lineWidth = 8;
-    o.lineJoin = 'round';
-    o.strokeStyle = '#2b2140';
-    o.strokeText(shout, 0, 0);
-    o.fillStyle = '#f0584e';
-    o.fillText(shout, 0, 0);
-    o.restore();
-    o.lineWidth = 10;
-    o.strokeStyle = '#2b2140';
-    o.strokeRect(5, 5, 630, 470);
+    // The disposable camera's date stamp.
+    const d = new Date();
+    const stamp = `'${String(d.getFullYear()).slice(2)} ${d.getMonth() + 1} ${d.getDate()}`;
+    o.font = '600 22px "Courier New", monospace';
+    o.textAlign = 'right';
+    o.textBaseline = 'alphabetic';
+    o.shadowColor = 'rgba(255,120,30,0.9)';
+    o.shadowBlur = 6;
+    o.fillStyle = '#ffa23a';
+    o.fillText(stamp, 612, 456);
+    o.shadowBlur = 0;
     const url = out.toDataURL('image/jpeg', 0.9);
     cam.up.set(0, 1, 0);
     cam.position.copy(saved.pos);

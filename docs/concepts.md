@@ -183,6 +183,14 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Clay everywhere else:** puke, confetti and sparks are lumpy clay pellets; the sea is sculpted clay swells lit by the key light that shift each frame.
 - **Plasticine UI:** panels, cards and buttons are squished slabs with a soft top highlight and bottom shade, buttons squash when pressed, and the park sits in a chunky clay frame.
 
+## Sharing, highscores, boarding (v0.15)
+- **Share every ride report.** The results card has a Share button (the system share sheet, with the photo card attached where the browser takes files), plus X, Facebook, WhatsApp, Reddit and Bluesky links, Copy, and Save photo. The text brags about how many riders went green and how many tickets the ride sold.
+- **Highscores:** the best single rides (tickets sold in one ride). Every ride goes on this device's top 10; posting puts your best on a shared board (each player's best, top 20) when the game runs inside claude.ai. A Highscores button in the header opens both boards.
+- **On-ride photo, take two:** a flash camera straight ahead of the train at face height, looking back into the riders' faces. A real flash light at the lens lights them up; the photo has flash falloff and an orange date stamp, but no comic filter.
+- **Boarding:** each rider walks to their own car and hops in with a plop; the dispatch bell rings and the train leaves only when the last one is seated.
+- **Bigger coaster:** taller hills, drops, helixes, loops and Mega Loops; smaller cars and riders; the camera sits closer. The ride is a little slower again, the chain lift clacks, and the lens widens a touch in the fast dips.
+- **Track:** rounder, smoother rails with less clay wobble. The piece into the station already leans into the station's turn, and the piece out of it leans back out.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
@@ -205,7 +213,7 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - *(Built in v0.12.)* **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
 - **Guest thought feed** (RCT nod): little quotes pop up ("This looks too intense for me", "I want to go on something more thrilling").
 - **Special pieces:** Launch (speed boost), Water Splash (soaks the front row), Tunnel (passes under your own track), Brake Run (cancels nausea).
-- **Daily seed challenge**, since runs are already seeded; later a leaderboard.
+- **Daily seed challenge**, since runs are already seeded; a leaderboard per seed (the highscore board is built in v0.15).
 - **Chiptune park music** that layers up with combos, and fireworks when you beat the target by a lot.
 - **Meta-progression:** unlock new pieces, riders, station styles and starting tools across runs.
 

@@ -196,6 +196,9 @@ export const MATS = {
   cloth: toon({ rim: 0.2, side: DoubleSide, lump: 0.006 }),
   /** Guests: small, so they wander less and keep their faces. */
   figure: toon({ rim: 0.35, lump: 0.0035, bump: 0.6 }),
+  /** Track: sculpted clay, but smoothed out so rails run clean and round. */
+  rail: toon({ gloss: 1, rim: 0.45, lump: 0.0035, bump: 0.45 }),
+  steel: toon({ rim: 0.3, lump: 0.004, bump: 0.6 }),
   /** Flat ground: prints and mottling, but no wander. */
   ground: toon({ rim: 0.15, lump: 0, bump: 1.2 }),
 };

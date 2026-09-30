@@ -33,8 +33,8 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
   const [rail, spine] = railColor(cell.tier, cell.station);
   const ups = pts.map((p) => p.up);
   const rights = pts.map((p) => p.right);
-  for (const side of [-1, 1]) gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.right, side * RAIL_GAP)), rights, ups, RAIL_R, rail, 7);
-  gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.up, -SPINE_DROP)), rights, ups, 0.028, spine, 7);
+  for (const side of [-1, 1]) gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.right, side * RAIL_GAP)), rights, ups, RAIL_R, rail, 12);
+  gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.up, -SPINE_DROP)), rights, ups, 0.03, spine, 10);
   // Ties: little C-brackets from each rail to the spine, evenly spaced along the arc.
   const tieCol = cell.station ? '#4a4a5c' : style.tie;
   forEvery(pts, 0.062, (q) => {

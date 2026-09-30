@@ -147,6 +147,9 @@ export class RideAnim {
   private hRef: number;
   private park: number;
   private lastT = 0;
+  private seated: boolean[] = [];
+  private rolling = false;
+  private clack = 0;
 
   constructor(
     private r: Renderer,
@@ -154,6 +157,8 @@ export class RideAnim {
     private result: DayResult,
     private show: ScoreShow,
     private startAt: number,
+    /** Game time each rider is seated (they walk up and hop in one by one). */
+    private boardAt: number[] = [],
   ) {
     this.path = r.path;
     const n = Math.max(1, result.tickets.length);
@@ -184,20 +189,33 @@ export class RideAnim {
 
   update(now: number, dt: number): void {
     if (now < this.startAt) return;
+    if (!this.rolling) {
+      this.rolling = true;
+      sfx.bell();
+    }
     if (!this.doneAt) {
       // Speed from the train's height: slow over the tops, fast in the dips.
       let h = 0;
       for (let i = 0; i < this.cars; i++) h += this.path.sample(this.carS(i)).p.y;
       h /= this.cars;
       const lead = this.path.sample(this.carS(0));
-      let v = 0.75 + 1.7 * Math.sqrt(Math.max(0, this.hRef - h));
-      if (lead.lift) v = Math.min(v, 0.62);
+      let v = 0.6 + 1.4 * Math.sqrt(Math.max(0, this.hRef - h));
+      if (lead.lift) {
+        v = Math.min(v, 0.52);
+        // The chain clacks under the train on the way up.
+        this.clack += this.v * dt;
+        if (this.clack > 0.09) {
+          this.clack = 0;
+          sfx.clack();
+        }
+      }
       v *= Math.min(1, 0.2 + ((now - this.startAt) / 1000) * 1.4);
       v = Math.min(v, 0.3 + this.route.toTurn(this.d) * 2.4);
       this.v += (v - this.v) * Math.min(1, dt * 6);
       this.d += this.v * dt;
       // The on-ride camera fires as the train rolls into the wildest piece.
-      if (!this.photoTaken && this.isTopPick(lead.cell) && lead.up.y > 0.6) this.snap();
+      // Snap on the level run just before it, while everyone's still facing the camera.
+      if (!this.photoTaken && lead.up.y > 0.92 && this.nearTopPick(this.carS(0))) this.snap();
       this.checkMoment(now, lead.p.y, lead.up.y, lead.cell);
       // No wild piece (or it was missed)? The camera fires partway round instead.
       if (!this.photoTaken && this.d > this.route.total * (this.momentPicks.size ? 0.8 : 0.45)) this.snap();
@@ -216,30 +234,34 @@ export class RideAnim {
     while (this.finale.length && this.finale[0].at <= now) this.finale.shift()!.fn();
   }
 
-  /** The top pick: the wildest piece (the first of the highest tier). */
-  private isTopPick(cell: number): boolean {
-    let best = -1;
-    for (const c of this.momentPicks) if (best < 0 || this.path.cells[c].tier > this.path.cells[best].tier || (this.path.cells[c].tier === this.path.cells[best].tier && c < best)) best = c;
-    return cell === best;
+  /** Within a short run before the top pick's first sample. */
+  private nearTopPick(s: number): boolean {
+    const best = this.topPick();
+    if (best < 0) return false;
+    const start = this.path.ranges[best][0];
+    return s > start - 0.45 && s < start + 0.05;
   }
 
-  /** The track-mounted camera: ahead of the lead car, looking back at the faces. */
+  /** The top pick: the wildest piece (the first of the highest tier). */
+  private topPick(): number {
+    let best = -1;
+    for (const c of this.momentPicks) if (best < 0 || this.path.cells[c].tier > this.path.cells[best].tier || (this.path.cells[c].tier === this.path.cells[best].tier && c < best)) best = c;
+    return best;
+  }
+
+  /** The track-mounted camera: just ahead of the lead car, looking back into the faces. */
   private snap(): void {
     this.photoTaken = true;
     this.r.requestPhoto(() => {
-      const dir = this.route.dirAt(this.d);
+      // In the lead car's own frame: riders face along the track tangent, so the camera sits
+      // out in front of the first face, a touch above it, and looks back down the train.
       const lead = this.path.sample(this.carS(0));
-      const mid = this.path.sample(this.carS(Math.min(this.cars - 1, 1.3)));
-      // Level with the world, ahead of the train and a little above, looking back at the faces.
-      const fwd = lead.t.clone().multiplyScalar(dir).setY(0);
-      if (fwd.lengthSq() < 1e-4) fwd.set(0, 0, 1);
-      fwd.normalize();
-      const side = new Vector3(-fwd.z, 0, fwd.x).multiplyScalar(0.22);
-      return {
-        eye: lead.p.clone().addScaledVector(fwd, 0.72).add(side).setY(lead.p.y + 0.42),
-        look: mid.p.clone().setY(mid.p.y + 0.18),
-        up: new Vector3(0, 1, 0),
-      };
+      const k = Math.min(this.cars - 1, 2);
+      const h0 = this.heads[0];
+      const back = this.heads[k].clone().add(this.heads[Math.min(this.cars - 1, 1)]).multiplyScalar(0.5);
+      const eye = h0.clone().addScaledVector(lead.t, 0.72).addScaledVector(lead.up, 0.2);
+      const look = h0.clone().lerp(back, 0.5).addScaledVector(lead.up, -0.05);
+      return { eye, look, up: lead.up.clone() };
     });
   }
 
@@ -448,6 +470,12 @@ export class RideAnim {
     if (PIECES[tier].inversion && Math.random() < 0.3) this.r.hat(this.heads[i], SHIRTS[(v.rider.look.shirt + 3) % SHIRTS.length]);
   }
 
+  /** How fast the train is going, 0 (crawling) to 1 (flat out), for the camera to feel it. */
+  rush(): number {
+    if (this.doneAt) return 0;
+    return Math.max(0, Math.min(1, (this.v - 0.9) / 1.4));
+  }
+
   /** The middle of the train, for the camera to lean toward. */
   focus(): Vector3 | null {
     if (this.doneAt || this.r.gameNow < this.startAt) return null;
@@ -461,8 +489,12 @@ export class RideAnim {
   draw(now: number): void {
     const dt = Math.min(0.05, (now - (this.lastT || now)) / 1000);
     this.lastT = now;
-    const aboard = !this.doneAt && now > this.startAt - 150;
     for (let i = 0; i < this.cars; i++) {
+      const aboard = !this.doneAt && now >= (this.boardAt[i] ?? this.startAt - 150);
+      if (aboard && !this.seated[i]) {
+        this.seated[i] = true;
+        sfx.board();
+      }
       this.scream[i] = Math.max(0, this.scream[i] - dt);
       const v = this.result.tickets[i];
       const s = this.carS(i);

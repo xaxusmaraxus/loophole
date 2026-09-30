@@ -3,6 +3,8 @@ import { canConnect, trackLength } from '../puzzle/board';
 import { BOSSES, KINDS, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
 import { drawPortrait3D } from '../render3d/portrait';
 import { photoStore } from './photo';
+import { lastRecord, playerName, recordLocal } from './scores';
+import { setShareText, shareLinks } from './share';
 import { ATTRACTIONS, ATTRACTION_SLOTS, type Effect } from '../run/attractions';
 import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, PARKS, PARK_BOSS, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
@@ -334,6 +336,35 @@ export class Hud {
       .join('');
     const pukes = r.tickets.reduce((a, t) => a + t.pukes * riderWorth(t.rider), 0);
     const photo = photoStore.card ?? photoStore.url;
+    if (!recorded.has(r)) {
+      recorded.add(r);
+      recordLocal({ name: playerName(), score: r.total, park: g.cfg.park.name, day: g.dayNum, pukes, at: Date.now() });
+    }
+    const green = r.tickets.filter((t) => t.pukes > 0).length;
+    setShareText(
+      `My coaster made ${green} of ${r.tickets.length} riders puke${pukes > green ? ` (${pukes} times)` : ''} and sold ${r.total.toLocaleString()} tickets in Loophole 🎢🤢 Can you build a nastier ride?`,
+    );
+    const rec = lastRecord?.entry.score === r.total ? lastRecord : null;
+    const best = rec?.personalBest
+      ? '<p class="pb">New personal best!</p>'
+      : rec && rec.rank > 0
+        ? `<p class="pb soft">#${rec.rank} on this device</p>`
+        : '';
+    const share = `
+        <div class="share" aria-label="Share this ride">
+          <button type="button" class="primary-soft" data-action="share">Share</button>
+          ${shareLinks()
+            .map((l) => `<a class="share-btn ${l.id}" href="${l.href}" target="_blank" rel="noopener noreferrer">${l.label}</a>`)
+            .join('')}
+          <button type="button" class="share-btn copy" data-action="copy-share">Copy</button>
+          ${photo ? '<button type="button" class="share-btn save" data-action="save-photo">Save photo</button>' : ''}
+        </div>
+        <form class="post-score" data-form="post-score">
+          ${best}
+          <label><span>Your name</span><input name="name" maxlength="18" autocomplete="nickname" placeholder="Coaster tycoon" value="${escapeAttr(playerName())}"></label>
+          <button type="submit" class="ghost-dark">Post to highscores</button>
+          <span class="post-note" aria-live="polite"></span>
+        </form>`;
     const times = r.passed ? Math.floor(r.total / Math.max(1, r.target)) : 0;
     const headline = r.passed
       ? g.cfg.boss
@@ -358,7 +389,8 @@ export class Hud {
               : 'The crowd loved it.'
             : `The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
         }</p>
-        ${photo ? `<figure class="photo-card"><img src="${photo}" alt="On-ride photo of the riders"></figure><button type="button" class="ghost-dark save-photo" data-action="save-photo">Save the photo</button>` : ''}
+        ${photo ? `<figure class="photo-card"><img src="${photo}" alt="On-ride photo of the riders"></figure>` : ''}
+        ${share}
         <details class="breakdown"><summary>Breakdown</summary>
           <ul class="tally">${steps}<li class="tally-row rating"><span>Every puke pays</span><strong>${r.score.rating.toLocaleString()}</strong></li></ul>
           ${riders ? `<ul class="report">${riders}</ul>` : ''}
@@ -424,4 +456,11 @@ export class Hud {
         }
     svg.innerHTML = lines.join('');
   }
+}
+
+/** Results already put on this device's highscores. */
+const recorded = new WeakSet<object>();
+
+function escapeAttr(v: string): string {
+  return v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }

@@ -6,6 +6,9 @@ import { Renderer } from './render/renderer';
 import type { ToolId } from './run/run';
 import { Hud } from './ui/hud';
 import { savePhoto } from './ui/photo';
+import { lastRecord, nameLocal, postScore, setPlayerName } from './ui/scores';
+import { copyShare, shareNative } from './ui/share';
+import { openScores } from './ui/scoreboard';
 
 const game = new Game();
 const canvas = document.getElementById('park') as HTMLCanvasElement;
@@ -107,6 +110,16 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
   if (!btn) return;
   const action = btn.dataset.action;
+  if (action === 'share') {
+    void shareNative().then((note) => {
+      if (note) btn.textContent = note;
+    });
+    return;
+  }
+  if (action === 'copy-share') {
+    void copyShare().then((ok) => (btn.textContent = ok ? 'Copied!' : 'Copy failed'));
+    return;
+  }
   if (action === 'save-photo') {
     void savePhoto().then((note) => {
       if (note) btn.textContent = note;
@@ -130,6 +143,32 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
   });
   requestAnimationFrame(() => document.querySelector<HTMLElement>('#overlay [autofocus], #overlay button')?.focus());
 });
+
+document.getElementById('overlay')!.addEventListener('submit', (e) => {
+  const form = (e.target as HTMLElement).closest<HTMLFormElement>('[data-form="post-score"]');
+  if (!form) return;
+  e.preventDefault();
+  const name = String(new FormData(form).get('name') ?? '');
+  setPlayerName(name);
+  const note = form.querySelector<HTMLElement>('.post-note')!;
+  const rec = lastRecord;
+  if (!rec) return;
+  rec.entry.name = name.trim() || 'Anonymous';
+  nameLocal(rec.entry.at, rec.entry.name);
+  note.textContent = 'Posting…';
+  void postScore(rec.entry).then((res) => {
+    note.textContent =
+      res === 'posted'
+        ? 'On the board!'
+        : res === 'kept'
+          ? 'Your best on the board is higher.'
+          : res === 'denied'
+            ? 'Kept on this device (the shared board is read-only for you).'
+            : 'Kept on this device.';
+  });
+});
+
+document.getElementById('scores')!.addEventListener('click', () => openScores());
 
 window.addEventListener('resize', () => renderer.fit());
 

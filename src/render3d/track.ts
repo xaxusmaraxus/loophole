@@ -29,6 +29,9 @@ export interface StationLayout {
   x1: number;
 }
 
+/** How far the pieces next to the station already lean into its turns. */
+const STATION_LEAN = 0.3;
+
 export function stationLayout(stationX: number, n: number): StationLayout {
   const rc = 0.2;
   const zU = n + 0.42;
@@ -123,20 +126,20 @@ function teardrop(R: number, Ry: number, pinch: number): (th: number) => [number
 function elemFor(tier: number, turn: number): Elem {
   switch (tier) {
     case 1:
-      return (t) => ({ s: t, dh: 0.15 * Math.sin(Math.PI * t) ** 2 });
+      return (t) => ({ s: t, dh: 0.18 * Math.sin(Math.PI * t) ** 2 });
     case 2:
-      return (t) => ({ s: t, dh: 0.46 * Math.sin(Math.PI * t) ** 2 });
+      return (t) => ({ s: t, dh: 0.56 * Math.sin(Math.PI * t) ** 2 });
     case 3: {
-      const top = 0.95;
+      const top = 1.2;
       return (t) => {
         if (t < 0.46) return { s: t, dh: top * smooth(0.02, 0.44, t), lift: t > 0.04 && t < 0.4 };
         const u = (t - 0.46) / 0.54;
-        return { s: t, dh: top * (1 - smooth(0, 0.62, u)) - 0.16 * Math.sin(Math.PI * u) ** 2 };
+        return { s: t, dh: top * (1 - smooth(0, 0.62, u)) - 0.2 * Math.sin(Math.PI * u) ** 2 };
       };
     }
     case 4: {
-      const r = 0.3;
-      const climb = 0.44;
+      const r = 0.33;
+      const climb = 0.56;
       const side = turn || 1;
       return (t) => {
         if (t < 0.18) return { s: (0.5 * t) / 0.18 };
@@ -160,14 +163,14 @@ function elemFor(tier: number, turn: number): Elem {
       };
     }
     case 5:
-      return loopElem(teardrop(0.32, 0.5, 0.22), 0.2, 0.8, 0.18);
+      return loopElem(teardrop(0.36, 0.64, 0.22), 0.2, 0.8, 0.18);
     case 6: {
-      const hr = 0.12;
+      const hr = 0.14;
       return (t) => {
         if (t < 0.1 || t > 0.9) return { s: t };
         const u = (t - 0.1) / 0.8;
         const ph = Math.PI * 2 * (u * u * u * (u * (u * 6 - 15) + 10));
-        const hump = 0.4 * Math.sin(Math.PI * u) ** 2;
+        const hump = 0.5 * Math.sin(Math.PI * u) ** 2;
         return {
           s: t,
           dh: hump + hr - hr * Math.cos(ph),
@@ -178,13 +181,13 @@ function elemFor(tier: number, turn: number): Elem {
       };
     }
     case 7:
-      return loopElem(teardrop(0.48, 0.92, 0.32), 0.12, 0.88, 0.26);
+      return loopElem(teardrop(0.5, 1.15, 0.32), 0.12, 0.88, 0.26);
     default:
       return (t) => ({ s: t });
   }
 }
 
-const SAMPLES = [8, 12, 16, 26, 72, 64, 60, 100];
+const SAMPLES = [10, 16, 20, 34, 80, 72, 70, 112];
 
 export class TrackPath {
   cells: ChainCell[];
@@ -331,6 +334,9 @@ export class TrackPath {
     const elem = elemFor(c.tier, turnSide);
     const N = SAMPLES[c.tier];
     const Y = new Vector3(0, 1, 0);
+    // Into st1 the station turns toward +x; out of st0 it comes from -x.
+    const stationLean =
+      ni >= 0 && this.cells[ni].station ? { into: true, dx: 1 } : pi >= 0 && this.cells[pi].station ? { into: false, dx: -1 } : null;
     const out = [];
     for (let k = 0; k <= N; k++) {
       const e = elem(k / N);
@@ -345,6 +351,11 @@ export class TrackPath {
       // Plain corners bank into the turn.
       let bank: Vector3 | null = null;
       if (!straight && K && c.tier <= 3) bank = K.clone().sub(p).setY(0).normalize().multiplyScalar(0.42 * Math.sin(Math.PI * e.s));
+      // The piece into (or out of) the station already leans toward the station's turn.
+      if (stationLean && !e.up) {
+        const k = STATION_LEAN * (stationLean.into ? smooth(0.15, 1, e.s) : 1 - smooth(0, 0.85, e.s));
+        bank = (bank ?? new Vector3()).add(new Vector3(stationLean.dx * k, 0, 0));
+      }
       out.push({ p: pos, up, lift: !!e.lift, elem: !!e.elem, ang: e.ang ?? -1, bank });
     }
     return out;
@@ -364,29 +375,37 @@ export class TrackPath {
     const j0 = first ? i + 1 : i;
     const hTop1 = this.edgeHeight(j1, -1);
     const hTop0 = this.edgeHeight(j0, 1);
-    type S = { p: Vector3; park?: boolean };
+    // b: bank toward a turn's centre (cx, cz) by k, so the train leans into the station's turns.
+    type S = { p: Vector3; park?: boolean; b?: { cx: number; cz: number; k: number } };
     const pts: S[] = [];
     const H = STATION_H;
     const ramp = (h: number, k: number) => H + (h - H) * (1 - smooth(0, 1, k));
-    const line = (ax: number, az: number, bx: number, bz: number, steps: number, h0?: number) => {
+    type Bank = { cx: number; cz: number; k0: number; k1: number };
+    const line = (ax: number, az: number, bx: number, bz: number, steps: number, h0?: number, bank?: Bank) => {
       for (let k = 1; k <= steps; k++) {
         const t = k / steps;
-        pts.push({ p: new Vector3(ax + (bx - ax) * t, h0 === undefined ? H : ramp(h0, t), az + (bz - az) * t) });
+        const b = bank ? { cx: bank.cx, cz: bank.cz, k: bank.k0 + (bank.k1 - bank.k0) * smooth(0, 1, t) } : undefined;
+        pts.push({ p: new Vector3(ax + (bx - ax) * t, h0 === undefined ? H : ramp(h0, t), az + (bz - az) * t), b });
       }
     };
-    const arc = (cx: number, cz: number, r: number, a0: number, a1: number, steps: number) => {
-      for (let k = 1; k <= steps; k++) {
-        const a = a0 + (a1 - a0) * (k / steps);
-        pts.push({ p: new Vector3(cx + Math.cos(a) * r, H, cz + Math.sin(a) * r) });
+    const arc = (cx: number, cz: number, r: number, a0: number, a1: number, steps: number, k = 0.5, soft = false) => {
+      for (let j = 1; j <= steps; j++) {
+        const u = j / steps;
+        const a = a0 + (a1 - a0) * u;
+        pts.push({ p: new Vector3(cx + Math.cos(a) * r, H, cz + Math.sin(a) * r), b: { cx, cz, k: soft ? k * Math.sin(Math.PI * u) : k } });
       }
     };
+    const BK = 0.55;
     // Down from the blue end, onto the upper lane heading right.
     pts.push({ p: new Vector3(x1, hTop1, n) });
-    line(x1, n, x1, zU - rc, 5, hTop1);
-    arc(x1 + rc, zU - rc, rc, Math.PI, Math.PI / 2, 6);
-    line(x1 + rc, zU, xR, zU, Math.max(2, Math.round((xR - x1 - rc) * 8)));
+    // The drop into the station already leans into the turn.
+    line(x1, n, x1, zU - rc, 5, hTop1, { cx: x1 + rc, cz: zU - rc, k0: STATION_LEAN, k1: BK });
+    arc(x1 + rc, zU - rc, rc, Math.PI, Math.PI / 2, 6, BK);
+    const out1 = Math.min(0.3, (xR - x1 - rc) * 0.5);
+    line(x1 + rc, zU, x1 + rc + out1, zU, 3, undefined, { cx: x1 + rc, cz: zU - rc, k0: BK, k1: 0 });
+    line(x1 + rc + out1, zU, xR, zU, Math.max(2, Math.round((xR - x1 - rc - out1) * 8)));
     // Round the right end and back along the lower lane.
-    arc(xR, zU + R, R, -Math.PI / 2, Math.PI / 2, 12);
+    arc(xR, zU + R, R, -Math.PI / 2, Math.PI / 2, 12, 0.4, true);
     const mid = (xL + xR) / 2;
     line(xR, zD, mid, zD, Math.max(2, Math.round((xR - mid) * 8)));
     const split = pts.length - 1;
@@ -394,17 +413,27 @@ export class TrackPath {
     pts[pts.length - 1].park = true;
     line(xL + 0.12, zD, xL, zD, 1);
     // Round the left end, along the upper lane, and up into the red end.
-    arc(xL, zU + R, R, Math.PI / 2, (3 * Math.PI) / 2, 12);
-    line(xL, zU, x0 - rc, zU, Math.max(2, Math.round((x0 - rc - xL) * 8)));
-    arc(x0 - rc, zU - rc, rc, Math.PI / 2, 0, 6);
+    arc(xL, zU + R, R, Math.PI / 2, (3 * Math.PI) / 2, 12, 0.4, true);
+    const in0 = Math.min(0.3, (x0 - rc - xL) * 0.5);
+    line(xL, zU, x0 - rc - in0, zU, Math.max(2, Math.round((x0 - rc - in0 - xL) * 8)));
+    line(x0 - rc - in0, zU, x0 - rc, zU, 3, undefined, { cx: x0 - rc, cz: zU - rc, k0: 0, k1: BK });
+    arc(x0 - rc, zU - rc, rc, Math.PI / 2, 0, 6, BK);
     for (let k = 1; k <= 5; k++) {
       const t = k / 5;
-      pts.push({ p: new Vector3(x0, ramp(hTop0, 1 - t), zU - rc + (n - (zU - rc)) * t) });
+      pts.push({ p: new Vector3(x0, ramp(hTop0, 1 - t), zU - rc + (n - (zU - rc)) * t), b: { cx: x0 - rc, cz: zU - rc, k: BK * (1 - smooth(0, 1, t)) + STATION_LEAN * smooth(0, 1, t) } });
     }
     const part = first ? pts.slice(0, split + 1) : pts.slice(split);
     void hE;
     void hX;
-    return part.map(({ p, park }) => ({ p, up: null, lift: false, elem: false, ang: -1, bank: null, park: !!park }));
+    return part.map(({ p, park, b }) => ({
+      p,
+      up: null,
+      lift: false,
+      elem: false,
+      ang: -1,
+      bank: b && b.k > 0.001 ? new Vector3(b.cx - p.x, 0, b.cz - p.z).normalize().multiplyScalar(b.k) : null,
+      park: !!park,
+    }));
   }
 
   /** Height where a station cell meets its neighbour up in the board (dir -1: previous, 1: next). */

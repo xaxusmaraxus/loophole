@@ -371,6 +371,8 @@ export interface Parts {
   detail?: Geo;
   figure?: Geo;
   ground?: Geo;
+  rail?: Geo;
+  steel?: Geo;
 }
 
 export type Flora = 'meadow' | 'boardwalk' | 'hollow' | 'finale';
