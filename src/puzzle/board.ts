@@ -4,9 +4,10 @@ import { MAX_TIER } from './pieces';
 // Two separate actions:
 //  - Swipe: 2048 rules. Loose tiles slide and merge, fresh merges chain.
 //  - Build: turn the tile next to one of the two track ends into track.
-// The track grows from both sides of the station. When the two ends meet,
-// the circuit can open as a full ride; before that, as a half-price shuttle.
-// Laid track is a wall that loose tiles can't pass.
+// The station is a two-cell platform just below the board. The red end (0)
+// climbs in from its left cell, the blue end (1) from its right cell. When the
+// two ends meet, the circuit can open as a full ride; before that, as a
+// half-price shuttle. Laid track is a wall that loose tiles can't pass.
 
 export type Dir = 'up' | 'down' | 'left' | 'right';
 export const DIRS: readonly Dir[] = ['up', 'down', 'left', 'right'];
@@ -34,6 +35,7 @@ export interface Board {
   /** Tile tier per cell; 0 = empty. */
   tiles: number[];
   obstacles: (ObstacleKind | null)[];
+  /** Left platform cell, just below the board: { x, y: size }. The right cell is x + 1. */
   station: Pt;
   /** Track grown out of each side of the station, in build order. */
   ends: [TrackCell[], TrackCell[]];
@@ -42,8 +44,8 @@ export interface Board {
   soft: boolean[];
 }
 
-/** Track cells needed before the circuit may close (smallest loop is 2x2). */
-export const MIN_LOOP = 3;
+/** Track cells needed before the circuit may close (smallest ride is a U: up, across, down). */
+export const MIN_LOOP = 2;
 
 export function idx(b: Board, x: number, y: number): number {
   return y * b.size + x;
@@ -76,13 +78,21 @@ export function trackLength(b: Board): number {
 export function isWall(b: Board, x: number, y: number): boolean {
   if (!inBounds(b, x, y)) return true;
   if (b.obstacles[idx(b, x, y)]) return true;
-  if (b.station.x === x && b.station.y === y) return true;
   return !!trackAt(b, x, y);
+}
+
+/** The platform cell each end starts from. */
+export function stationPoint(b: Board, end: End): Pt {
+  return { x: b.station.x + end, y: b.station.y };
+}
+
+export function isStation(b: Board, p: Pt): boolean {
+  return p.y === b.station.y && (p.x === b.station.x || p.x === b.station.x + 1);
 }
 
 export function head(b: Board, end: End): Pt {
   const e = b.ends[end];
-  return e.length ? e[e.length - 1] : b.station;
+  return e.length ? e[e.length - 1] : stationPoint(b, end);
 }
 
 export function step(p: Pt, dir: Dir): Pt {
@@ -137,15 +147,17 @@ export interface RideStop extends Pt {
   station: boolean;
 }
 
-/** The order the train visits cells, from station back to station. */
+/** The order the train visits cells, from the platform back to the platform. */
 export function rideOrder(b: Board, kind: 'circuit' | 'shuttle'): RideStop[] {
-  const st: RideStop = { ...b.station, tier: 0, station: true };
+  const st = (end: End): RideStop => ({ ...stationPoint(b, end), tier: 0, station: true });
   const cells = (e: TrackCell[]) => e.map((c) => ({ ...c, station: false }));
   const [a, c] = [cells(b.ends[0]), cells(b.ends[1])];
-  if (kind === 'circuit') return [st, ...a, ...[...c].reverse(), st];
-  // Shuttle: out along each end and back again.
-  const out: RideStop[] = [st];
-  for (const e of [a, c]) if (e.length) out.push(...e, ...[...e].reverse().slice(1), st);
+  if (kind === 'circuit') return [st(0), ...a, ...[...c].reverse(), st(1)];
+  // Shuttle: out along each end and back again, crossing the platform in between.
+  const out: RideStop[] = [st(0)];
+  if (a.length) out.push(...a, ...[...a].reverse().slice(1), st(0));
+  out.push(st(1));
+  if (c.length) out.push(...c, ...[...c].reverse().slice(1), st(1));
   return out;
 }
 
@@ -163,7 +175,7 @@ export function trackLinks(b: Board): Map<string, Pt[]> {
       links.set(key(u), l);
     }
   };
-  for (const e of b.ends) e.forEach((c, i) => link(i === 0 ? b.station : e[i - 1], c));
+  b.ends.forEach((e, end) => e.forEach((c, i) => link(i === 0 ? stationPoint(b, end as End) : e[i - 1], c)));
   if (b.opened === 'circuit') link(head(b, 0), head(b, 1));
   return links;
 }
@@ -328,6 +340,8 @@ export interface SwipeResult {
 export interface SwipeOptions {
   hillChance: number;
   spawns: number;
+  /** False on Blackout days: merges don't chain. */
+  chains?: boolean;
 }
 
 /** Applies a swipe in place. Returns null if nothing would move (like 2048). */
@@ -337,7 +351,7 @@ export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeRe
   if (!s.moved) return null;
   b.tiles = s.tiles;
   const slid = [...b.tiles];
-  const chain = resolveChains(b, s.merges);
+  const chain = opts.chains === false ? { waves: [], frames: [] } : resolveChains(b, s.merges);
   const sunk = sink(b);
   const spawned: TrackCell[] = [];
   for (let k = 0; k < opts.spawns; k++) {

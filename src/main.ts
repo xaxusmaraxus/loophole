@@ -78,6 +78,12 @@ document.getElementById('tools')!.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tool]');
   if (btn) act(() => game.useTool(btn.dataset.tool as ToolId));
 });
+document.getElementById('attractions')!.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+  if (!btn) return;
+  if (btn.dataset.attrSell) act(() => game.sellAttraction(Number(btn.dataset.attrSell)));
+  else if (btn.dataset.attrMove) act(() => game.moveAttraction(Number(btn.dataset.attrMove), Number(btn.dataset.by) as -1 | 1));
+});
 document.getElementById('switchEnd')!.addEventListener('click', () => act(() => game.selectEnd()));
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
 document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));
@@ -89,7 +95,9 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
   act(() => {
     if (action === 'continue') game.continueFromResults();
     else if (action === 'reward') game.chooseReward(Number(btn.dataset.index));
-    else if (action === 'begin') game.beginDay();
+    else if (action === 'begin') game.beginPark();
+    else if (action === 'node') game.chooseNode(Number(btn.dataset.col), Number(btn.dataset.node));
+    else if (action === 'skip') game.skipReward();
     else if (action === 'buy') game.buy(Number(btn.dataset.index));
     else if (action === 'leave') game.leaveShop();
     else if (action === 'newrun') game.newRun();

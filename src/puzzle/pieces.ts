@@ -9,7 +9,7 @@ export interface Piece {
 
 export const PIECES: readonly Piece[] = [
   { name: 'Flat', thrill: 0, nausea: 0, inversion: false },
-  { name: 'Bump', thrill: 1, nausea: 0, inversion: false },
+  { name: 'Bump', thrill: 1, nausea: 1, inversion: false },
   { name: 'Hill', thrill: 2, nausea: 1, inversion: false },
   { name: 'Drop', thrill: 4, nausea: 2, inversion: false },
   { name: 'Helix', thrill: 6, nausea: 3, inversion: false },
@@ -32,8 +32,12 @@ export interface RideStats {
   topTier: number;
   /** Distinct piece types used (Flat doesn't count). */
   variety: number;
-  /** The headline rating: every rider pays this as their ticket. */
-  excitement: number;
+  /** How many pieces of each tier the track has. */
+  tierCounts: number[];
+  /** Base excitement (Balatro's chips): thrill + length. */
+  chips: number;
+  /** Base multiplier: 1, +0.5 per distinct piece type past the first. */
+  mult: number;
 }
 
 export interface StatMods {
@@ -41,27 +45,31 @@ export interface StatMods {
   flatThrill: number;
 }
 
-/**
- * Excitement rewards everything wild: each cell of length, all the thrill,
- * and +10% for every distinct piece type past the first.
- */
-export function rideStats(path: readonly { tier: number }[], mods: StatMods, shuttle = false): RideStats {
+export function rideStats(path: readonly { tier: number }[], mods: StatMods): RideStats {
   let thrill = 0;
   let nausea = 0;
   let inversions = 0;
   let topTier = 0;
-  const kinds = new Set<number>();
+  const tierCounts = new Array<number>(PIECES.length).fill(0);
   for (const { tier } of path) {
     const p = PIECES[tier];
     thrill += p.thrill + (tier === 0 ? mods.flatThrill : 0);
     nausea += p.nausea;
     if (p.inversion) inversions++;
-    if (tier > 0) kinds.add(tier);
+    tierCounts[tier]++;
     topTier = Math.max(topTier, tier);
   }
   thrill = Math.round(thrill * mods.thrillMult);
-  const variety = kinds.size;
-  const raw = (thrill + path.length) * (1 + 0.1 * Math.max(0, variety - 1));
-  const excitement = Math.round(raw * (shuttle ? 0.5 : 1));
-  return { length: path.length, thrill, nausea, inversions, topTier, variety, excitement };
+  const variety = tierCounts.filter((n, t) => t > 0 && n > 0).length;
+  return {
+    length: path.length,
+    thrill,
+    nausea,
+    inversions,
+    topTier,
+    variety,
+    tierCounts,
+    chips: thrill + path.length,
+    mult: 1 + 0.5 * Math.max(0, variety - 1),
+  };
 }

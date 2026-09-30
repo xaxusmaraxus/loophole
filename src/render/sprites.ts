@@ -133,6 +133,15 @@ function drawFace(ctx: Ctx, look: Look, x: number, y: number, pose: PersonPose):
 
 /** Standing person, feet at (fx, fy). About 7x11 (kids 7x9). */
 export function drawPerson(ctx: Ctx, look: Look, fx: number, fy: number, pose: PersonPose = {}): void {
+  if (look.big) {
+    // Bosses: the same sprite at twice the size.
+    ctx.save();
+    ctx.translate(Math.round(fx), Math.round(fy));
+    ctx.scale(2, 2);
+    drawPerson(ctx, { ...look, big: false }, 0, 0, pose);
+    ctx.restore();
+    return;
+  }
   const h = look.small ? 9 : 11;
   const x = Math.round(fx - 3);
   const y = Math.round(fy - h);
@@ -170,7 +179,7 @@ export function drawSeated(ctx: Ctx, look: Look, x: number, y: number, pose: Per
 export function drawPortrait(canvas: HTMLCanvasElement, look: Look): void {
   const ctx = canvas.getContext('2d')!;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  drawPerson(ctx, { ...look, accessory: look.accessory === 'balloon' ? 'none' : look.accessory }, 5, canvas.height - 1);
+  drawPerson(ctx, { ...look, big: false, accessory: look.accessory === 'balloon' ? 'none' : look.accessory }, 5, canvas.height - 1);
 }
 
 export function drawCar(ctx: Ctx, x: number, y: number, ramp: Ramp = PAL.car): void {
@@ -253,17 +262,21 @@ export function drawStand(ctx: Ctx, x: number, y: number): void {
   px(ctx, x + 1, y + 5, 14, 1, '#b83344');
 }
 
-/** The station: a platform with a striped canopy. x,y = cell top-left. */
+/** The station: a two-cell platform with a striped canopy. x,y = top-left of the left cell. */
 export function drawStation(ctx: Ctx, x: number, y: number): void {
-  px(ctx, x + 1, y + 14, 15, 2, PAL.shadow);
-  px(ctx, x, y + 4, 16, 10, PAL.rock[1]);
-  px(ctx, x, y + 11, 16, 3, PAL.rock[2]);
-  px(ctx, x, y + 4, 16, 1, PAL.rock[0]);
+  const w = 32;
+  px(ctx, x + 1, y + 14, w - 1, 2, PAL.shadow);
+  px(ctx, x, y + 4, w, 10, PAL.rock[1]);
+  px(ctx, x, y + 11, w, 3, PAL.rock[2]);
+  px(ctx, x, y + 4, w, 1, PAL.rock[0]);
+  // Yellow safety line along the platform edge.
+  for (let i = 0; i < w; i += 4) px(ctx, x + i, y + 12, 2, 1, PAL.gold);
   // Posts and canopy.
   px(ctx, x + 1, y - 2, 1, 8, PAL.ink);
-  px(ctx, x + 14, y - 2, 1, 8, PAL.ink);
-  for (let i = 0; i < 8; i++) px(ctx, x + i * 2, y - 5, 2, 4, i % 2 ? PAL.white : PAL.red);
-  px(ctx, x, y - 2, 16, 1, '#b83344');
-  px(ctx, x + 5, y - 8, 6, 3, PAL.gold);
-  px(ctx, x + 6, y - 7, 4, 1, PAL.ink);
+  px(ctx, x + w - 2, y - 2, 1, 8, PAL.ink);
+  px(ctx, x + 15, y - 2, 1, 8, PAL.ink);
+  for (let i = 0; i < w / 2; i++) px(ctx, x + i * 2, y - 5, 2, 4, i % 2 ? PAL.white : PAL.red);
+  px(ctx, x, y - 2, w, 1, '#b83344');
+  px(ctx, x + 11, y - 9, 10, 4, PAL.gold);
+  px(ctx, x + 12, y - 8, 8, 2, PAL.ink);
 }

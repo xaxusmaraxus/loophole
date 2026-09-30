@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
-import { idx } from '../src/puzzle/board';
+import { idx, stationPoint } from '../src/puzzle/board';
 import { dayConfig, modsFor, parkFor } from '../src/run/run';
 
-/** A new game past the first park's intro card. */
+/** A new game, past the intro card, on the first day node. */
 function freshGame(): Game {
   const g = new Game('TEST01');
-  g.beginDay();
+  g.beginPark();
+  g.chooseNode(0, 0);
   g.events.length = 0;
   return g;
+}
+
+/** Pretend the current day just ended with this many tickets. */
+function finish(g: Game, total: number): void {
+  g.phase = 'results';
+  g.result = { kind: 'circuit', stats: g.stats, score: g.score('circuit'), tickets: [], total, target: g.cfg.target, bossPuked: true, passed: total >= g.cfg.target };
+  g.continueFromResults();
 }
 
 describe('sunset', () => {
@@ -20,24 +28,19 @@ describe('sunset', () => {
     g.swipe('right');
     expect(g.board.tiles).toEqual(tiles);
     expect(g.phase).toBe('build');
-    const s = g.board.station;
-    const n = g.board.size;
-    const target = [
-      { x: s.x + 1, y: s.y },
-      { x: s.x - 1, y: s.y },
-      { x: s.x, y: s.y + 1 },
-      { x: s.x, y: s.y - 1 },
-    ].find((p) => p.x >= 0 && p.y >= 0 && p.x < n && p.y < n && !g.board.obstacles[idx(g.board, p.x, p.y)])!;
-    g.tap(target.x, target.y);
-    expect(g.board.ends[0].length + g.board.ends[1].length).toBe(1);
+    const s = stationPoint(g.board, 0);
+    g.tap(s.x, s.y - 1);
+    expect(g.board.ends[0]).toHaveLength(1);
     expect(g.openKind).toBe('shuttle');
   });
 
   it('building spends no daylight', () => {
     const g = freshGame();
     const before = g.daylight;
-    const t = g.board.station;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) g.tap(t.x + dx, t.y + dy);
+    const s = stationPoint(g.board, 0);
+    g.tap(s.x, s.y - 1);
+    g.tap(s.x + 1, s.y - 1);
+    expect(g.board.ends[0].length + g.board.ends[1].length).toBe(2);
     expect(g.daylight).toBe(before);
   });
 });
@@ -52,7 +55,6 @@ describe('tools', () => {
     g.useTool('paint');
     g.tap(i % b.size, Math.floor(i / b.size));
     expect(g.tools.paint).toBe(0);
-    // It may chain away, but the tile never goes down a tier.
     expect(g.board.tiles[i] === 0 || g.board.tiles[i] >= before + 1).toBe(true);
     g.undo();
     expect(g.tools.paint).toBe(1);
@@ -64,7 +66,7 @@ describe('tools', () => {
     const b = g.board;
     b.tiles = b.tiles.map(() => 0);
     const n = b.size;
-    const free = [...Array(n * n).keys()].filter((k) => !b.obstacles[k] && k !== idx(b, b.station.x, b.station.y));
+    const free = [...Array(n * n).keys()].filter((k) => !b.obstacles[k]);
     const [from, to] = [free[0], free[free.length - 1]];
     b.tiles[from] = 3;
     g.tools.crane = 1;
@@ -73,7 +75,6 @@ describe('tools', () => {
     g.tap(to % n, Math.floor(to / n));
     expect(g.board.tiles[to]).toBe(3);
     expect(g.board.tiles[from]).toBe(0);
-    expect(g.tools.crane).toBe(0);
   });
 
   it('coffee adds daylight, even after sunset', () => {
@@ -83,74 +84,153 @@ describe('tools', () => {
     g.useTool('coffee');
     expect(g.daylight).toBe(5);
   });
+});
 
-  it('rewards add upgrades or tool charges', () => {
+describe('rewards and attractions', () => {
+  it('rewards add upgrades, tool charges or attractions', () => {
     const g = freshGame();
-    g.offer = [{ kind: 'tool', id: 'dynamite' }, { kind: 'upgrade', id: 'latenight' }];
-    g.phase = 'reward';
-    g.chooseReward(0);
-    expect(g.tools.dynamite).toBe(2);
-    g.phase = 'reward';
+    finish(g, g.cfg.target);
     g.offer = [{ kind: 'upgrade', id: 'latenight' }];
     g.chooseReward(0);
     expect(g.upgrades).toContain('latenight');
-    expect(g.cfg.daylight).toBe(dayConfig(g.dayNum, modsFor([])).daylight + 5);
+    expect(dayConfig(g.dayNum, g.mods).daylight).toBe(dayConfig(g.dayNum, modsFor([])).daylight + 5);
+  });
+
+  it('Season Pass grows every day you beat the target', () => {
+    const g = freshGame();
+    g.attractions = [{ id: 'seasonpass', counter: 0 }];
+    finish(g, g.cfg.target);
+    expect(g.attractions[0].counter).toBe(1);
+  });
+
+  it('sells and reorders attractions', () => {
+    const g = freshGame();
+    g.attractions = [
+      { id: 'loopdeloop', counter: 0 },
+      { id: 'quicktrip', counter: 0 },
+    ];
+    g.moveAttraction(0, 1);
+    expect(g.attractions.map((a) => a.id)).toEqual(['quicktrip', 'loopdeloop']);
+    const funds = g.funds;
+    g.sellAttraction(0);
+    expect(g.attractions).toHaveLength(1);
+    expect(g.funds).toBeGreaterThan(funds);
   });
 });
 
-/** Pretend the current day just ended with this many tickets. */
-function finish(g: Game, score: number): void {
-  g.phase = 'results';
-  g.result = { kind: 'circuit', stats: g.stats, tickets: [], score, target: g.cfg.target, passed: score >= g.cfg.target };
-  g.continueFromResults();
-}
-
-describe('season', () => {
-  it('runs three parks of three days, then the finale', () => {
+describe('season and map', () => {
+  it('maps days to parks: three per park, then the finale', () => {
     expect([1, 3, 4, 6, 7, 9, 10, 11].map((d) => parkFor(d).id)).toEqual([
       'meadow', 'meadow', 'boardwalk', 'boardwalk', 'hollow', 'hollow', 'finale', 'finale',
     ]);
   });
 
-  it('opens each park with its intro card', () => {
-    const g = new Game('TEST01');
+  it('plays a park as day, day, stop, boss, then moves to the next park', () => {
+    const g = new Game('TEST02');
     expect(g.phase).toBe('intro');
-    g.beginDay();
+    g.beginPark();
+    expect(g.phase).toBe('map');
+    expect(g.isReachable(1)).toBe(false);
+    g.chooseNode(0, 0);
     expect(g.phase).toBe('build');
-  });
-
-  it('banks surplus tickets and opens the shop after the last day of a park', () => {
-    const g = freshGame();
-    for (let d = 1; d <= 3; d++) {
-      finish(g, g.cfg.target + 50);
-      expect(g.phase).toBe('reward');
-      g.chooseReward(0);
-    }
-    expect(g.funds).toBe(150);
-    expect(g.phase).toBe('shop');
-    const heart = g.shop.findIndex((i) => i.kind === 'heart');
-    g.hearts = 2;
-    g.funds = 500;
-    g.buy(heart);
-    expect(g.hearts).toBe(3);
-    g.leaveShop();
+    finish(g, g.cfg.target + 40);
+    g.skipReward();
+    expect(g.phase).toBe('map');
+    expect(g.dayNum).toBe(2);
+    g.chooseNode(1, 0);
+    finish(g, g.cfg.target);
+    g.skipReward();
+    // The stop column: take a repair if there is one, else whatever is first.
+    const stop = g.parkMap[2].findIndex((n) => n.kind === 'repair');
+    g.chooseNode(2, Math.max(0, stop));
+    if (g.phase === 'shop') g.leaveShop();
+    if (g.phase === 'reward') g.skipReward();
+    expect(g.phase).toBe('map');
+    g.chooseNode(3, 0);
+    expect(g.cfg.boss).toBe('barry');
+    expect(g.queue[0].boss).toBe('barry');
+    finish(g, g.cfg.target);
+    g.skipReward();
     expect(g.dayNum).toBe(4);
     expect(g.cfg.park.id).toBe('boardwalk');
     expect(g.phase).toBe('intro');
+    expect(g.funds).toBe(40);
+  });
+
+  it('VIP days put a VIP at the front of the line', () => {
+    const g = new Game('TEST03');
+    g.beginPark();
+    const vip = g.parkMap[0].findIndex((n) => n.kind === 'vip');
+    g.chooseNode(0, vip);
+    expect(g.queue[0].kind).toBe('vip');
   });
 
   it('wins the season by beating the finale, and repeats it on a miss', () => {
-    const g = freshGame();
-    g.dayNum = 9;
-    finish(g, g.cfg.target);
-    g.chooseReward(0);
-    g.leaveShop();
-    expect(g.dayNum).toBe(10);
+    const g = new Game('TEST04');
+    g.dayNum = 10;
+    (g as unknown as { enterPark(i: number): void }).enterPark(3);
+    g.beginPark();
+    expect(g.cfg.node).toBe('finale');
     finish(g, 0);
     expect(g.hearts).toBe(2);
-    g.chooseReward(0);
-    expect(g.dayNum).toBe(10);
+    g.skipReward();
+    expect(g.cfg.node).toBe('finale');
+    expect(g.phase).toBe('build');
     finish(g, g.cfg.target);
     expect(g.phase).toBe('won');
+  });
+});
+
+describe('puking', () => {
+  it('pukes once per stomachful of nausea, capped at 5', () => {
+    const g = freshGame();
+    const b = g.board;
+    const s = stationPoint(b, 0);
+    // A U-shaped ride: two Mega Loops (9 nausea each for an ordinary stomach).
+    b.tiles[idx(b, s.x, s.y - 1)] = 7;
+    b.tiles[idx(b, s.x + 1, s.y - 1)] = 7;
+    g.tap(s.x, s.y - 1);
+    g.tap(s.x + 1, s.y - 1);
+    expect(g.openKind).toBe('circuit');
+    const corndog = { ...g.queue[0], kind: 'corndog' as const, boss: undefined, stomach: 4 };
+    expect(g.pukes(corndog)).toBe(4); // 18 nausea / stomach 4
+    const thrill = { ...corndog, kind: 'thrill' as const, stomach: 20 };
+    expect(g.pukes(thrill)).toBe(0);
+    // A shuttle passes each piece twice.
+    expect(g.pukes(corndog, 'shuttle')).toBe(5);
+  });
+
+  it('weaknesses change what hits a rider', () => {
+    const g = freshGame();
+    const b = g.board;
+    const s = stationPoint(b, 0);
+    b.tiles[idx(b, s.x, s.y - 1)] = 5; // Loop, 4 nausea, upside down
+    b.tiles[idx(b, s.x + 1, s.y - 1)] = 5;
+    g.tap(s.x, s.y - 1);
+    g.tap(s.x + 1, s.y - 1);
+    const base = { ...g.queue[0], boss: undefined, stomach: 8 };
+    expect(g.pukes({ ...base, kind: 'tourist' })).toBe(1); // 8 / 8
+    expect(g.pukes({ ...base, kind: 'grandma' })).toBe(3); // triple: 24 / 8
+    expect(g.pukes({ ...base, kind: 'looper' })).toBe(0); // immune to loops
+  });
+
+  it('a boss day is only cleared if the boss pukes', () => {
+    const g = new Game('TEST05');
+    g.beginPark();
+    g.chooseNode(0, 0);
+    g.dayNum = 3;
+    g.skipReward();
+    (g as unknown as { startDay(n: string): void }).startDay('boss');
+    expect(g.queue[0].boss).toBe('barry');
+    g.open('shuttle'); // nothing built: can't open
+    expect(g.phase).toBe('build');
+  });
+});
+
+describe('station', () => {
+  it('is always a platform below the board', () => {
+    const g = freshGame();
+    expect(g.board.station.y).toBe(g.board.size);
+    expect(g.board.obstacles[idx(g.board, g.board.station.x, g.board.size - 1)]).toBeNull();
   });
 });

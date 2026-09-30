@@ -1,4 +1,5 @@
 import type { DayResult } from '../game';
+import { MAX_PUKES, type Rider } from '../riders/riders';
 import type { RideStop } from '../puzzle/board';
 import { PIECES } from '../puzzle/pieces';
 import { PAL, SHIRTS } from '../render/palette';
@@ -31,16 +32,16 @@ export class RideAnim {
   private carCell: number[];
   private nausea: number[];
   private sick: boolean[];
+  /** Pukes so far this ride, per car. */
+  private puked: number[];
   private scream: number[];
   private doneAt = 0;
-  /** Cells each rider has been through; a shuttle passes each twice but it only counts once. */
-  private seen: Set<string>[];
 
   constructor(
     private r: Renderer,
     private stops: RideStop[],
     private result: DayResult,
-    private toleranceBonus: number,
+    private sickness: { nausea(r: Rider, tier: number): number; stomach(r: Rider): number },
     private startAt: number,
   ) {
     this.buildPath();
@@ -49,7 +50,7 @@ export class RideAnim {
     this.nausea = new Array(n).fill(0);
     this.sick = new Array(n).fill(false);
     this.scream = new Array(n).fill(0);
-    this.seen = Array.from({ length: n }, () => new Set<string>());
+    this.puked = new Array(n).fill(0);
   }
 
   private get cars(): number {
@@ -127,18 +128,17 @@ export class RideAnim {
 
   private enterCell(i: number, p: RidePoint): void {
     const v = this.result.tickets[i];
-    const stop = this.stops[p.cell];
-    const tier = stop.tier;
+    const tier = this.stops[p.cell].tier;
     const piece = PIECES[tier];
     if (!v) return;
-    const key = `${stop.x},${stop.y}`;
-    if (!this.seen[i].has(key)) {
-      this.seen[i].add(key);
-      this.nausea[i] += piece.nausea;
-    }
-    if (!this.sick[i] && this.nausea[i] > v.rider.tolerance + this.toleranceBonus) {
+    // Every pass counts: a shuttle hits each piece twice.
+    this.nausea[i] += this.sickness.nausea(v.rider, tier);
+    const due = Math.min(MAX_PUKES, Math.floor(this.nausea[i] / Math.max(2, this.sickness.stomach(v.rider))));
+    if (due > this.puked[i]) {
+      this.puked[i] = due;
       this.sick[i] = true;
-      this.r.word('BLEH', p.x, p.y - 16, PAL.sick);
+      this.r.puke(p.x, p.y - 4);
+      this.r.word(due > 1 ? `BLEH X${due}` : 'BLEH', p.x, p.y - 16, PAL.sick);
       sfx.sick();
       return;
     }
@@ -155,23 +155,19 @@ export class RideAnim {
   private disembark(): void {
     const sc = this.r.center(this.stops[0]);
     const o = { x: sc.x < this.r.W / 2 ? -1 : 1, y: sc.y < this.r.H / 2 ? -1 : 1 };
-    this.result.tickets.forEach(({ rider, verdict, paid }, i) => {
+    this.result.tickets.forEach(({ rider, pukes, paid }, i) => {
       const angle = (i / Math.max(1, this.result.tickets.length)) * 1.2 - 0.6;
       const tx = sc.x + o.x * 30 + Math.sin(angle) * 40;
       const ty = sc.y + o.y * 28 + Math.cos(angle) * 10;
-      this.r.addWalker({ look: rider.look, x: sc.x, y: sc.y, tx, ty, speed: 30, sick: verdict === 'sick', mood: verdict, delay: i * 120 });
+      this.r.addWalker({ look: rider.look, x: sc.x, y: sc.y, tx, ty, speed: 30, sick: pukes > 0, mood: pukes > 0 ? 'sick' : 'meh', delay: i * 120 });
       setTimeout(() => {
-        if (verdict === 'happy') {
+        if (pukes > 0) {
           sfx.happy(i);
-          this.r.heart(tx, ty - 16);
-          this.r.word(`+${paid}`, tx, ty - 22, PAL.gold);
-        } else if (verdict === 'sick') {
-          sfx.sick();
           this.r.puke(tx + 3, ty - 6);
-          this.r.word(`BLEH +${paid}`, tx, ty - 22, PAL.sick);
+          this.r.word(`+${paid}`, tx, ty - 22, PAL.gold);
         } else {
           sfx.meh();
-          this.r.word(`+${paid}`, tx, ty - 22, PAL.white);
+          this.r.word('MEH', tx, ty - 22, PAL.white);
         }
       }, 700 + i * 120);
     });

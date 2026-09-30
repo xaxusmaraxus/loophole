@@ -115,6 +115,18 @@ After each day you pick 1 of 3 rewards. There's always at least one of each kind
 - **Park funds:** tickets beyond each day's target. Spend them in the **shop** at the end of each park on tools (40–70), an upgrade (140) or a heart repair (160).
 - Targets (bot-calibrated; the bot's daily median is about 250–340, and 520 in the finale): 230, 260, 300 · 320, 360, 400 · 400, 450, 500 · 700.
 
+## Puke economy, map and escalation (v0.7)
+**The goal is to make riders puke.** The more they puke, the more you score.
+- Nausea builds piece by piece as the train runs. A rider pukes each time their total passes another **stomach**, up to 5 times. Riders who keep it down pay nothing.
+- **Every puke pays excitement × multiplier** (Balatro's chips × mult). Excitement = thrill + length; multiplier = 1, +0.5 per piece type past the first.
+- **Riders are stomach puzzles:** Tourist (8), Just Ate (4), Grandma (inversions ×3), Kid (Drops ×2), Thrill Seeker (15+), Loop Lover (immune to loops, everything else ×2), Coaster Nerd (only Helix+ counts, ×3), Influencer and Ghost (puke worth ×2), VIP (×5).
+- **Shuttle:** passes each piece twice (double nausea) but pays half.
+- **Attractions** (the jokers): 5 slots; they apply left to right and can be reordered or sold. 15 of them, including Splash Zone (+1 mult per puker), Season Pass (grows every cleared day), Corn Dog Cart (stomachs −2) and Tilt Table (Helixes +3 nausea).
+- **Bosses are riders.** Each park ends with one: Big Barry (stomach 24), Iron-Gut Ivy (20, only Drops and inversions, ×2), Dr. Vertigo (26, Corkscrews and Mega Loops ×3, everything else ×0.5), and the Mayor at the Grand Opening (40). **The boss must puke to clear the day**, and their pukes are worth 8–12×.
+- **Station:** a two-cell platform below the board. Red leaves from its left cell, blue from its right. The smallest ride is a U.
+- **Route map per park:** Day or VIP → Day, Storm or VIP → Shop, Repair or Treasure → Boss. Then the next park.
+- **Targets** start at 1,000 and grow ×1.35 per day, with the finale at ×1.5. Shop prices and funds scale with them. A random-ish bot reaches day 8 at the median and almost never wins (it doesn't build for bosses), so human playtesting decides the final numbers.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

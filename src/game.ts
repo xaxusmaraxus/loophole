@@ -3,43 +3,49 @@ import {
   type Board,
   type Dir,
   type End,
+  type Pt,
   type SwipeResult,
   type TrackCell,
   build,
   buildTargets,
   canConnect,
   canShuttle,
-  type Pt,
   cloneBoard,
   head,
   idx,
   isWall,
   resolveChains,
+  rideOrder,
   step,
   swipe,
   trackCells,
 } from './puzzle/board';
 import { MAX_TIER, type RideStats, rideStats } from './puzzle/pieces';
-import { type Rider, type Verdict, evaluate, makeRider } from './riders/riders';
+import { type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
+import { ATTRACTION_SLOTS, type OwnedAttraction, type Score, scoreRide } from './run/attractions';
 import {
   type DayConfig,
   type Mods,
-  FINALE_DAY,
+  NODE_INFO,
+  type NodeKind,
+  type ParkMap,
   type Reward,
+  SEASON_ORDER,
   type ShopItem,
+  priceScale,
   TOOLS,
   type ToolId,
   type UpgradeId,
   dayConfig,
   generateBoard,
-  isFirstDayOfPark,
-  isLastDayOfPark,
+  generateParkMap,
   modsFor,
   rewardOffer,
+  sellValue,
   shopStock,
 } from './run/run';
 
-export type Phase = 'intro' | 'build' | 'ride' | 'results' | 'reward' | 'shop' | 'over' | 'won';
+export type Phase = 'intro' | 'map' | 'build' | 'ride' | 'results' | 'reward' | 'shop' | 'over' | 'won';
 export type RideKind = 'circuit' | 'shuttle';
 
 /** Why a rider joined the queue. */
@@ -58,16 +64,20 @@ export type GameEvent =
 
 export interface RiderTicket {
   rider: Rider;
-  verdict: Verdict;
+  pukes: number;
   paid: number;
 }
 
 export interface DayResult {
   kind: RideKind;
   stats: RideStats;
+  /** Excitement × multiplier, with each attraction's step, for the report. */
+  score: Score;
   tickets: RiderTicket[];
-  score: number;
+  total: number;
   target: number;
+  /** The boss (if any) puked at least once. */
+  bossPuked: boolean;
   passed: boolean;
 }
 
@@ -78,6 +88,7 @@ interface Snapshot {
   actions: number;
   buzz: number;
   bestCombo: number;
+  chainLinks: number;
   selected: End;
   tools: Record<ToolId, number>;
   rngState: number;
@@ -89,10 +100,10 @@ const BEST_KEY = 'loophole.bestScore';
 /** A walk-in rider arrives every this many swipes. */
 const WALKIN_EVERY = 5;
 /**
- * The standing ride draws a crowd over time: each swipe adds excitement / BUZZ_PER
+ * The standing ride draws a crowd over time: each swipe adds (base excitement / BUZZ_PER)
  * to a meter, and every full point brings a rider. Building early pays off in riders.
  */
-const BUZZ_PER = 80;
+const BUZZ_PER = 40;
 
 export class Game {
   seed = '';
@@ -101,6 +112,7 @@ export class Game {
   hearts = HEARTS;
   runScore = 0;
   upgrades: UpgradeId[] = [];
+  attractions: OwnedAttraction[] = [];
   /** Tool charges carried through the run. */
   tools: Record<ToolId, number> = emptyTools();
   /** A tool waiting for its target tap (the crane remembers its first pick). */
@@ -112,17 +124,29 @@ export class Game {
   daylight = 0;
   actions = 0;
   bestCombo = 0;
+  /** Chain links set off today (Chain Gang counts these). */
+  chainLinks = 0;
   /** The track end that keyboard builds extend. */
   selected: End = 0;
   undos = 0;
-  phase: Phase = 'build';
+  phase: Phase = 'intro';
   result: DayResult | null = null;
   offer: Reward[] = [];
   /** Park funds: tickets sold beyond each day's target, spent in the shop. */
   funds = 0;
   shop: ShopItem[] = [];
+  /** Index into SEASON_ORDER. */
+  parkIndex = 0;
+  parkMap: ParkMap = [];
+  /** Where you are on the current park's map (null before the first node). */
+  mapPos: { col: number; node: number } | null = null;
+  /** Nodes already visited in this park, in order. */
+  visited: { col: number; node: number }[] = [];
+  /** A one-line message for the map screen (e.g. what a repair stop did). */
+  notice: string | null = null;
   best = loadBest();
   events: GameEvent[] = [];
+  private rewardFrom: 'day' | 'treasure' = 'day';
   private buzz = 0;
   private nextId = 1;
   private history: Snapshot[] = [];
@@ -138,34 +162,102 @@ export class Game {
     this.hearts = HEARTS;
     this.runScore = 0;
     this.upgrades = [];
+    this.attractions = [];
     this.funds = 0;
     this.tools = { ...emptyTools(), paint: 1 };
     this.mods = modsFor([]);
-    this.startDay();
+    this.enterPark(0);
   }
 
-  private startDay(): void {
-    this.cfg = dayConfig(this.dayNum, this.mods);
+  // ---- Season and map ------------------------------------------------------
+
+  get node(): NodeKind {
+    return this.cfg.node;
+  }
+
+  /** Nodes on the map you may pick next. */
+  isReachable(col: number): boolean {
+    return this.phase === 'map' && col === (this.mapPos?.col ?? -1) + 1;
+  }
+
+  private enterPark(index: number): void {
+    this.parkIndex = index;
+    this.parkMap = generateParkMap(SEASON_ORDER[index], this.rng);
+    this.mapPos = null;
+    this.visited = [];
+    this.notice = null;
+    // Show the new park behind its intro card.
+    this.startDay(this.parkMap[0][0].kind);
+    this.phase = 'intro';
+  }
+
+  /** Dismiss the park intro card and go to the map (the finale starts right away). */
+  beginPark(): void {
+    if (this.phase !== 'intro') return;
+    if (SEASON_ORDER[this.parkIndex] === 'finale') {
+      this.mapPos = { col: 0, node: 0 };
+      this.startDay('finale');
+    } else this.phase = 'map';
+  }
+
+  chooseNode(col: number, node: number): void {
+    const n = this.parkMap[col]?.[node];
+    if (!n || !this.isReachable(col)) return;
+    this.mapPos = { col, node };
+    this.visited.push({ col, node });
+    this.notice = null;
+    if (NODE_INFO[n.kind].isDay) {
+      this.startDay(n.kind);
+      return;
+    }
+    if (n.kind === 'shop') {
+      this.shop = shopStock(this.rng, this.dayNum, this.attractions.map((a) => a.id));
+      this.phase = 'shop';
+    } else if (n.kind === 'repair') {
+      if (this.hearts < HEARTS) {
+        this.hearts++;
+        this.notice = 'The mechanics patched things up: +1 heart.';
+      } else {
+        const bonus = Math.round((100 * priceScale(this.dayNum)) / 10) * 10;
+        this.funds += bonus;
+        this.notice = `Hearts were already full, so the repair crew handed over ${bonus} in funds.`;
+      }
+      this.advance();
+    } else if (n.kind === 'treasure') {
+      this.offer = rewardOffer(this.rng, this.attractions.map((a) => a.id), this.slotsFree, true);
+      this.rewardFrom = 'treasure';
+      this.phase = 'reward';
+    }
+  }
+
+  /** After a node is done: on to the next column, or the next park. */
+  private advance(): void {
+    const lastCol = this.parkMap.length - 1;
+    if ((this.mapPos?.col ?? -1) >= lastCol) this.enterPark(this.parkIndex + 1);
+    else this.phase = 'map';
+  }
+
+  // ---- A day at the park -----------------------------------------------------
+
+  private startDay(node: NodeKind): void {
+    this.cfg = dayConfig(this.dayNum, this.mods, node);
     this.board = generateBoard(this.cfg, this.rng);
     this.queue = [];
     for (let i = 0; i < this.cfg.startRiders; i++) this.queue.push(this.newRider());
+    if (node === 'vip') this.queue.unshift(makeVip(this.rng, this.dayNum, this.nextId++));
+    if (this.cfg.boss) this.queue.unshift(makeBoss(this.rng, this.cfg.boss, this.nextId++));
     this.daylight = this.cfg.daylight;
     this.actions = 0;
     this.buzz = 0;
     this.bestCombo = 0;
+    this.chainLinks = 0;
     this.selected = 0;
     this.aiming = null;
     this.undos = this.mods.undos;
     this.history = [];
     this.result = null;
-    // A new park opens with its intro card; the board is already visible behind it.
-    this.phase = isFirstDayOfPark(this.dayNum) ? 'intro' : 'build';
+    this.phase = 'build';
     this.events.push({ type: 'day' });
-  }
-
-  /** Dismiss the park intro card. */
-  beginDay(): void {
-    if (this.phase === 'intro') this.phase = 'build';
   }
 
   private newRider(): Rider {
@@ -177,6 +269,37 @@ export class Game {
     return rideStats(trackCells(this.board), this.mods);
   }
 
+  get slotsFree(): boolean {
+    return this.attractions.length < ATTRACTION_SLOTS;
+  }
+
+  private has(id: string): boolean {
+    return this.attractions.some((a) => a.id === id);
+  }
+
+  /** How much nausea it takes to make this rider puke once, after upgrades and attractions. */
+  stomach(r: Rider): number {
+    return r.stomach + this.mods.stomachDelta - (this.has('corndogcart') ? 2 : 0);
+  }
+
+  /** Nausea one piece gives this rider, including attraction bonuses. */
+  nausea(r: Rider, tier: number): number {
+    return pieceNausea(r, tier) + (tier === 4 && this.has('tilttable') ? 3 : 0);
+  }
+
+  /** How many times this rider would puke if the ride opened now as `kind`. A shuttle passes each piece twice. */
+  pukes(r: Rider, kind: RideKind = this.openKind ?? 'circuit'): number {
+    const stops = rideOrder(this.board, kind).filter((s) => !s.station);
+    return pukesFor(stops.reduce((a, s) => a + this.nausea(r, s.tier), 0), this.stomach(r));
+  }
+
+  /** Excitement × multiplier if the ride opened now as `kind`. */
+  score(kind: RideKind): Score {
+    const pukers = this.queue.filter((r) => this.pukes(r, kind) > 0).length;
+    const ctx = { stats: this.stats, riders: this.queue.length, pukers, chainLinks: this.chainLinks, daylightLeft: Math.max(0, this.daylight) };
+    return scoreRide(ctx, this.attractions, kind === 'shuttle');
+  }
+
   /** What opening right now would be: a circuit if the ends meet, else a shuttle. */
   get openKind(): RideKind | null {
     if (this.phase !== 'build') return null;
@@ -184,24 +307,15 @@ export class Game {
     return canShuttle(this.board) ? 'shuttle' : null;
   }
 
-  statsFor(kind: RideKind): RideStats {
-    return rideStats(trackCells(this.board), this.mods, kind === 'shuttle');
-  }
-
-  predict(r: Rider): Verdict {
-    return evaluate(r, this.stats, this.mods.toleranceBonus);
-  }
-
-  ticket(verdict: Verdict, excitement: number): number {
-    if (verdict === 'happy') return excitement * this.mods.tipMult;
-    if (verdict === 'sick') return Math.round(excitement / 2);
-    return excitement;
+  /** Every puke pays the rating, times the rider's worth (VIPs, influencers, ghosts, bosses). */
+  points(r: Rider, pukes: number, rating: number): number {
+    return pukes * rating * riderWorth(r);
   }
 
   /** Tickets if the ride opened now as `kind`. */
   projected(kind: RideKind): number {
-    const s = this.statsFor(kind);
-    return this.queue.reduce((a, r) => a + this.ticket(evaluate(r, this.stats, this.mods.toleranceBonus), s.excitement), 0);
+    const rating = this.score(kind).rating;
+    return this.queue.reduce((a, r) => a + this.points(r, this.pukes(r, kind), rating), 0);
   }
 
   private snapshot(): void {
@@ -212,6 +326,7 @@ export class Game {
       actions: this.actions,
       buzz: this.buzz,
       bestCombo: this.bestCombo,
+      chainLinks: this.chainLinks,
       selected: this.selected,
       tools: { ...this.tools },
       rngState: this.rng.state,
@@ -228,7 +343,10 @@ export class Game {
       return;
     }
     this.snapshot();
-    const result = swipe(this.board, dir, this.rng, { hillChance: this.mods.hillChance, spawns: this.mods.spawns });
+    const result = swipe(this.board, dir, this.rng, {
+      hillChance: this.mods.hillChance,
+      spawns: this.mods.spawns,
+    });
     if (!result) {
       // Nothing moved, so nothing changed: drop the snapshot, spend no daylight.
       this.history.pop();
@@ -236,6 +354,7 @@ export class Game {
       return;
     }
     this.bestCombo = Math.max(this.bestCombo, result.mergeCount);
+    this.chainLinks += result.chain.waves.length;
     this.events.push({ type: 'swipe', result });
     // Chain reactions draw a crowd: one new rider per link.
     for (let i = 0; i < result.chain.waves.length; i++) this.arrive('chain');
@@ -290,7 +409,7 @@ export class Game {
       this.settle(before, [], [{ x, y }]);
       return;
     }
-    // Crane: first tap picks a cell, second tap swaps it with another.
+    // Crane: first tap picks a tile, second tap moves it (swapping with whatever is there).
     if (isWall(b, x, y)) return fail();
     if (!aim.first) {
       if (!b.tiles[i]) return fail();
@@ -334,6 +453,7 @@ export class Game {
     const chain = resolveChains(b, seeds);
     const mergeCount = chain.waves.reduce((a, w) => a + w.length, 0);
     this.bestCombo = Math.max(this.bestCombo, mergeCount);
+    this.chainLinks += chain.waves.length;
     this.events.push({ type: 'swipe', result: { dir: 'up', slides, merges: [], slid, chain, spawned: [], sunk: [], mergeCount } });
     for (let w = 0; w < chain.waves.length; w++) this.arrive('chain');
   }
@@ -386,7 +506,7 @@ export class Game {
     this.actions++;
     this.daylight--;
     if (this.actions % WALKIN_EVERY === 0) this.arrive('walkin');
-    this.buzz += this.stats.excitement / BUZZ_PER;
+    this.buzz += this.stats.chips / BUZZ_PER;
     while (this.buzz >= 1) {
       this.buzz -= 1;
       this.arrive('buzz');
@@ -399,8 +519,9 @@ export class Game {
     if (kind === 'circuit' && !canConnect(this.board)) return;
     if (kind === 'shuttle' && !canShuttle(this.board)) return;
     this.aiming = null;
+    const score = this.score(kind);
     this.board.opened = kind;
-    this.finishDay(kind);
+    this.finishDay(kind, score);
   }
 
   undo(): void {
@@ -412,6 +533,7 @@ export class Game {
     this.actions = s.actions;
     this.buzz = s.buzz;
     this.bestCombo = s.bestCombo;
+    this.chainLinks = s.chainLinks;
     this.selected = s.selected;
     this.tools = s.tools;
     this.aiming = null;
@@ -421,14 +543,16 @@ export class Game {
     this.events.push({ type: 'undo' });
   }
 
-  private finishDay(kind: RideKind): void {
-    const stats = this.statsFor(kind);
+  private finishDay(kind: RideKind, score: Score): void {
+    const stats = this.stats;
     const tickets: RiderTicket[] = this.queue.map((rider) => {
-      const verdict = evaluate(rider, this.stats, this.mods.toleranceBonus);
-      return { rider, verdict, paid: this.ticket(verdict, stats.excitement) };
+      const pukes = this.pukes(rider, kind);
+      return { rider, pukes, paid: this.points(rider, pukes, score.rating) };
     });
-    const score = tickets.reduce((a, t) => a + t.paid, 0);
-    this.result = { kind, stats, tickets, score, target: this.cfg.target, passed: score >= this.cfg.target };
+    const total = tickets.reduce((a, t) => a + t.paid, 0);
+    const boss = tickets.find((t) => t.rider.boss);
+    const bossPuked = !boss || boss.pukes > 0;
+    this.result = { kind, stats, score, tickets, total, target: this.cfg.target, bossPuked, passed: total >= this.cfg.target && bossPuked };
     // The ride plays out on the board first; the renderer calls rideDone() after.
     this.phase = 'ride';
     this.events.push({ type: 'open', kind });
@@ -442,10 +566,12 @@ export class Game {
   continueFromResults(): void {
     if (this.phase !== 'results' || !this.result) return;
     const r = this.result;
-    this.runScore += r.score;
-    if (r.passed) this.funds += r.score - r.target;
-    else this.hearts--;
-    if (this.hearts <= 0 || (r.passed && this.dayNum === FINALE_DAY)) {
+    this.runScore += r.total;
+    if (r.passed) {
+      this.funds += r.total - r.target;
+      for (const a of this.attractions) if (a.id === 'seasonpass') a.counter++;
+    } else this.hearts--;
+    if (this.hearts <= 0 || (r.passed && this.cfg.node === 'finale')) {
       this.phase = this.hearts <= 0 ? 'over' : 'won';
       if (this.runScore > this.best) {
         this.best = this.runScore;
@@ -453,7 +579,8 @@ export class Game {
       }
       return;
     }
-    this.offer = rewardOffer(this.rng);
+    this.offer = rewardOffer(this.rng, this.attractions.map((a) => a.id), this.slotsFree, this.cfg.node === 'storm');
+    this.rewardFrom = 'day';
     this.phase = 'reward';
   }
 
@@ -463,36 +590,55 @@ export class Game {
     if (r.kind === 'upgrade') {
       this.upgrades.push(r.id);
       this.mods = modsFor(this.upgrades);
-    } else this.tools[r.id] += TOOLS[r.id].charges;
-    if (isLastDayOfPark(this.dayNum)) {
-      this.shop = shopStock(this.rng);
-      this.phase = 'shop';
-      return;
-    }
-    this.nextDay();
+    } else if (r.kind === 'tool') this.tools[r.id] += TOOLS[r.id].charges;
+    else if (this.slotsFree) this.attractions.push({ id: r.id, counter: 0 });
+    this.afterReward();
+  }
+
+  /** Skip the reward (e.g. when attraction slots are full). */
+  skipReward(): void {
+    if (this.phase === 'reward') this.afterReward();
+  }
+
+  private afterReward(): void {
+    if (this.rewardFrom === 'treasure') return this.advance();
+    // A missed finale runs again the next day; otherwise the day is done.
+    if (this.cfg.node === 'finale') return this.startDay('finale');
+    this.dayNum++;
+    this.advance();
   }
 
   buy(i: number): void {
     const item = this.shop[i];
     if (this.phase !== 'shop' || !item || item.sold || this.funds < item.price) return;
-    if (item.kind === 'heart' && this.hearts >= 3) return;
+    if (item.kind === 'heart' && this.hearts >= HEARTS) return;
+    if (item.kind === 'attraction' && !this.slotsFree) return;
     this.funds -= item.price;
     item.sold = true;
     if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
     else if (item.kind === 'upgrade') {
       this.upgrades.push(item.id);
       this.mods = modsFor(this.upgrades);
-    } else this.hearts++;
+    } else if (item.kind === 'attraction') this.attractions.push({ id: item.id, counter: 0 });
+    else this.hearts++;
   }
 
   leaveShop(): void {
-    if (this.phase === 'shop') this.nextDay();
+    if (this.phase === 'shop') this.advance();
   }
 
-  /** The finale repeats until it's won (or the hearts run out). */
-  private nextDay(): void {
-    if (this.dayNum < FINALE_DAY) this.dayNum++;
-    this.startDay();
+  /** Sell an attraction to free its slot. */
+  sellAttraction(i: number): void {
+    if (!this.attractions[i] || this.phase === 'ride') return;
+    this.attractions.splice(i, 1);
+    this.funds += sellValue(this.dayNum);
+  }
+
+  /** Reorder attractions: they score left to right. */
+  moveAttraction(i: number, by: -1 | 1): void {
+    const j = i + by;
+    if (!this.attractions[i] || !this.attractions[j] || this.phase === 'ride') return;
+    [this.attractions[i], this.attractions[j]] = [this.attractions[j], this.attractions[i]];
   }
 }
 

@@ -27,6 +27,8 @@
 
       <main class="stage">
         <section class="park" aria-label="Park">
+          <ul id="attractions" class="attractions" aria-label="Attractions (they score left to right)"></ul>
+          <p id="dayBanner" class="day-banner" hidden></p>
           <div class="daylight" aria-live="off">
             <div class="daylight-track"><span id="daylightBar"></span></div>
             <span id="daylightLeft" class="daylight-left"></span>
@@ -55,9 +57,8 @@
           <section class="panel">
             <h2>Today's ride</h2>
             <div class="excitement">
-              <span class="label">Excitement</span>
-              <strong id="statExcitement">0</strong>
-              <span class="hint-inline">Every rider pays this. Meet their wish and they pay double.</span>
+              <div class="chipmult big"><span class="chips" id="statChips">0</span><span class="times">×</span><span class="mult" id="statMult">0</span></div>
+              <p class="hint-inline">Excitement × multiplier = <strong id="statRating">0</strong> tickets for every puke.</p>
             </div>
             <dl class="stats">
               <div><dt>Length</dt><dd id="statLength">0</dd></div>
@@ -72,7 +73,7 @@
 
           <section class="panel">
             <h2>In line <span id="queueCount" class="count">0</span></h2>
-            <p class="hint">The ride you have standing draws a crowd with every swipe, so build early. Chain reactions draw one rider per link.</p>
+            <p class="hint">Each rider pukes every time the ride's nausea passes their stomach (up to 5 times). The ride you have standing draws a crowd with every swipe, and chain reactions draw one rider per link.</p>
             <ul id="queue" class="queue"></ul>
           </section>
 
@@ -84,7 +85,10 @@
               <li><strong>Tap a highlighted cell</strong> to build: the tile there becomes that piece of track. Track grows from both sides of the station (the red and blue pennants).</li>
               <li>When the pennants meet, <strong>open the full circuit</strong>. Or cash out any time as a shuttle for half.</li>
               <li>Every swipe uses daylight; building is free. After sunset you can't swipe, but you can keep building and open the ride whenever you're ready.</li>
-              <li>A <strong>season</strong> is three parks of three days, then the Grand Opening. Each park adds a twist. Tickets beyond the target become park funds for the shop at the end of each park.</li>
+              <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
+              <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line. A shuttle hits every piece twice but pays half.</li>
+              <li><strong>Attractions</strong> (up to 5) add excitement or multiplier, or multiply it, left to right. Targets climb fast, so build combos.</li>
+              <li>Each park ends with a <strong>boss</strong>: a huge or seasoned rider with a massive stomach. Make them puke to clear the park.</li>
               <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
             </ol>
             <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>

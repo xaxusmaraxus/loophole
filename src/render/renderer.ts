@@ -11,9 +11,10 @@ import {
   buildTargets,
   canConnect,
   head,
+  isStation,
   isWall,
+  stationPoint,
   rideOrder,
-  samePt,
   trackAt,
   trackCells,
   trackLinks,
@@ -140,7 +141,7 @@ export class Renderer {
     this.fogged.clear();
     const b = this.board;
     if (!this.game.cfg.park.fog || this.game.phase === 'ride' || this.game.phase === 'results') return;
-    const seen = [b.station, ...trackCells(b)];
+    const seen = [stationPoint(b, 0), stationPoint(b, 1), ...trackCells(b)];
     for (let y = 0; y < b.size; y++)
       for (let x = 0; x < b.size; x++)
         if (!seen.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) <= 2)) this.fogged.add(idx(b, x, y));
@@ -152,47 +153,34 @@ export class Renderer {
     else drawCrate(this.ctx, tier, x, y, flash);
   }
 
-  private outward(): Pt {
-    const { station: s, size: n } = this.board;
-    if (s.y === 0) return { x: 0, y: -1 };
-    if (s.y === n - 1) return { x: 0, y: 1 };
-    if (s.x === 0) return { x: -1, y: 0 };
-    return { x: 1, y: 0 };
+  /** Middle of the two-cell platform below the board. */
+  stationCenter(): Pt {
+    const c = this.center(this.board.station);
+    return { x: c.x + 8, y: c.y };
   }
 
-  /** Feet position of the i-th rider in the queue. */
+  /** Feet position of the i-th rider in the queue: a line below the platform, wrapping to a second row. */
   slot(i: number): Pt {
-    const o = this.outward();
-    const sc = this.center(this.board.station);
-    const vertical = o.y !== 0;
-    const spacing = vertical ? 10 : 21;
-    const along = vertical ? sc.x : sc.y;
-    const limit = vertical ? this.W : this.H - FRONT;
-    const dir = limit - along > along ? 1 : -1;
-    // Leave headroom for the rider's head and thought bubble at the top edge.
-    const room = dir > 0 ? limit - along - 6 : along - (vertical ? 8 : 26);
+    const sc = this.stationCenter();
+    const spacing = 10;
+    const dir = this.W - sc.x > sc.x ? 1 : -1;
+    const room = dir > 0 ? this.W - sc.x - 8 : sc.x - 8;
     const perRow = Math.max(1, Math.floor(room / spacing) + 1);
     const row = i < perRow ? 0 : 1;
     const k = row ? i - perRow : i;
-    const depth = 17 + row * 14;
-    return vertical
-      ? { x: sc.x + dir * k * spacing, y: sc.y + 4 + o.y * depth }
-      : { x: sc.x + o.x * (depth - 3 + row * -3), y: sc.y + 4 + dir * k * spacing };
+    return { x: sc.x + dir * k * spacing - (row ? dir * 5 : 0), y: sc.y + 21 + row * 12 };
   }
 
   private sideDir(): Pt {
-    const o = this.outward();
-    const s = this.slot(1);
-    const s0 = this.slot(0);
-    return o.y !== 0 ? { x: Math.sign(s.x - s0.x) || 1, y: 0 } : { x: 0, y: Math.sign(s.y - s0.y) || 1 };
+    return { x: Math.sign(this.slot(1).x - this.slot(0).x) || 1, y: 0 };
   }
 
   // ---- Setup -----------------------------------------------------------------
 
   private setupDay(): void {
     const n = this.board.size;
-    const o = this.outward();
-    this.margin = { l: o.x < 0 ? 2 : 1, t: o.y < 0 ? 2 : 1, r: o.x > 0 ? 2 : 1, b: o.y > 0 ? 2 : 1 };
+    // The platform takes the first row below the board; the queue stands below it.
+    this.margin = { l: 1, t: 1, r: 1, b: 3 };
     this.W = (n + this.margin.l + this.margin.r) * C;
     this.H = (n + this.margin.t + this.margin.b) * C + FRONT;
     this.canvas.width = this.W;
@@ -216,7 +204,9 @@ export class Renderer {
   fit(): void {
     const area = this.canvas.closest('.park') ?? this.canvas.parentElement!;
     const availW = area.clientWidth;
-    const reserved = document.fullscreenElement ? 200 : 250;
+    // Leave room for the controls below and the attraction strip and banner above.
+    const above = ['attractions', 'dayBanner'].reduce((h, id) => h + (document.getElementById(id)?.offsetHeight ?? 0), 0);
+    const reserved = (document.fullscreenElement ? 200 : 250) + above;
     const availH = Math.max(260, window.innerHeight - reserved);
     // Fractional scales are fine: the canvas is upscaled with nearest-neighbor.
     this.scale = Math.max(1, Math.min(availW / this.W, availH / this.H));
@@ -344,13 +334,13 @@ export class Renderer {
           this.startRide();
           break;
         case 'dark': {
-          const sc = this.center(this.board.station);
+          const sc = this.stationCenter();
           this.word('SUNSET', sc.x, sc.y - 24, PAL.gold);
           sfx.meh();
           break;
         }
         case 'tool': {
-          const at = e.at ? this.center(e.at) : this.center(this.board.station);
+          const at = e.at ? this.center(e.at) : this.stationCenter();
           if (e.tool === 'dynamite') {
             this.burst(at.x, at.y - 4, 22, [PAL.gold, PAL.red, PAL.rock[1]]);
             this.word('BOOM', at.x, at.y - 18, PAL.gold);
@@ -386,7 +376,7 @@ export class Renderer {
 
   private startRide(): void {
     const result = this.game.result!;
-    const sc = this.center(this.board.station);
+    const sc = this.stationCenter();
     if (!result.kind) return;
     // Riders walk onto the platform, then the train leaves.
     this.game.queue.forEach((r, i) => {
@@ -395,7 +385,7 @@ export class Renderer {
       this.walkers.push({ look: r.look, x: p.x, y: p.y, tx: sc.x, ty: sc.y, speed: 45, delay: i * 70 });
     });
     this.riderPos.clear();
-    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.game.mods.toleranceBonus, this.now + 900);
+    this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.game, this.now + 900);
   }
 
   // ---- Effects ---------------------------------------------------------------
@@ -524,11 +514,6 @@ export class Renderer {
       for (let x = 0; x < b.size; x++) {
         const cx = this.cellX(x);
         const cy = this.cellY(y);
-        if (b.station.x === x && b.station.y === y) {
-          drawStation(ctx, cx, cy);
-          this.drawStationTrack();
-          continue;
-        }
         const ob = b.obstacles[idx(b, x, y)];
         if (ob === 'tree') drawTree(ctx, cx, cy, dayKey + x * 7 + y * 13);
         else if (ob === 'rock') drawRock(ctx, cx, cy, dayKey + x + y * 5);
@@ -539,6 +524,9 @@ export class Renderer {
         const tier = b.tiles[idx(b, x, y)];
         if (tier && !anim) this.crate(tier, cx, cy, { x, y }, this.flashAt(idx(b, x, y)));
       }
+    // The platform sits in front of the board's bottom edge.
+    drawStation(ctx, this.cellX(b.station.x), this.cellY(b.station.y));
+    this.drawStationTrack();
   }
 
   private animLength(m: MoveResult): number {
@@ -672,7 +660,7 @@ export class Renderer {
 
   private deckAt(p: Pt): number {
     const b = this.board;
-    if (samePt(p, b.station)) return STATION_DECK;
+    if (isStation(b, p)) return STATION_DECK;
     const c = trackAt(b, p.x, p.y);
     return c ? DECK[c.tier] : 0;
   }
@@ -687,8 +675,16 @@ export class Renderer {
 
   private drawStationTrack(): void {
     const b = this.board;
-    const sc = this.center(b.station);
-    for (const q of this.linksOf(b.station)) this.halfSegment(sc, STATION_DECK, this.dirBetween(b.station, q), (STATION_DECK + this.deckAt(q)) / 2, 0);
+    const [a, c] = [stationPoint(b, 0), stationPoint(b, 1)];
+    const [ca, cc] = [this.center(a), this.center(c)];
+    // Platform rails between the two cells, then each side's link up into the park.
+    this.halfSegment(ca, STATION_DECK, { x: 1, y: 0 }, STATION_DECK, 0);
+    this.halfSegment(cc, STATION_DECK, { x: -1, y: 0 }, STATION_DECK, 0);
+    for (const [p, cp] of [
+      [a, ca],
+      [c, cc],
+    ] as const)
+      for (const q of this.linksOf(p)) this.halfSegment(cp, STATION_DECK, this.dirBetween(p, q), (STATION_DECK + this.deckAt(q)) / 2, 0);
   }
 
   private drawTrackCell(cell: TrackCell): void {
@@ -846,8 +842,8 @@ export class Renderer {
       const stepFrame = p.moving ? 1 + (Math.floor(this.now / 120) % 2) : 0;
       drawPerson(this.ctx, r.look, p.x, p.y, { step: stepFrame });
       if (this.game.phase === 'build' && !p.moving) {
-        const mood = this.game.predict(r);
-        const top = p.y - (r.look.small ? 9 : 11) - 2;
+        const mood = this.game.pukes(r) > 0 ? 'sick' : 'meh';
+        const top = p.y - (r.look.big ? 22 : r.look.small ? 9 : 11) - 2;
         drawBubble(this.ctx, mood, p.x, top);
       }
     }
@@ -874,7 +870,7 @@ export class Renderer {
         w.y += (dy / dist) * s;
       }
       drawPerson(ctx, w.look, w.x, w.y, { step: 1 + (Math.floor(this.now / 120) % 2), sick: w.sick });
-      if (w.mood) drawBubble(ctx, w.mood, w.x, w.y - (w.look.small ? 9 : 11) - 2);
+      if (w.mood) drawBubble(ctx, w.mood, w.x, w.y - (w.look.big ? 22 : w.look.small ? 9 : 11) - 2);
     }
     this.walkers = this.walkers.filter(
       (w) => !(w.x === w.tx && w.y === w.ty) && w.x > -20 && w.y > -20 && w.x < this.W + 20 && w.y < this.H + 20,

@@ -1,11 +1,13 @@
 import type { Rng } from '../core/rng';
 import { type Board, type ObstacleKind, idx, isWall } from '../puzzle/board';
+import type { BossId } from '../riders/riders';
+import { ATTRACTIONS, type AttractionId } from './attractions';
 
 // Rewards between days come in two kinds:
 //  - Upgrades: permanent, stackable boosts to the park's stats.
 //  - Tools: charges you keep in a toolbar and spend whenever you like.
 
-export type UpgradeId = 'latenight' | 'lumber' | 'hype' | 'barfbags' | 'billboard' | 'landscaper' | 'scenic' | 'tipjar' | 'wrench';
+export type UpgradeId = 'latenight' | 'lumber' | 'hype' | 'fries' | 'billboard' | 'landscaper' | 'scenic' | 'wrench';
 export type ToolId = 'coffee' | 'paint' | 'crane' | 'dynamite' | 'megaphone';
 
 export interface UpgradeDef {
@@ -17,11 +19,10 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   latenight: { name: 'Late Closing', desc: '+5 swipes of daylight every day.' },
   lumber: { name: 'Better Lumber', desc: 'New tiles are Hills 15% more often.' },
   hype: { name: 'Hype Guy', desc: '+25% thrill on every ride.' },
-  barfbags: { name: 'Barf Bags', desc: 'Riders stomach 3 more nausea.' },
+  fries: { name: 'Greasy Fries', desc: 'Every rider’s stomach is 1 smaller.' },
   billboard: { name: 'Billboard', desc: '+2 riders waiting each morning.' },
   landscaper: { name: 'Landscaper', desc: '2 fewer obstacles in each park.' },
   scenic: { name: 'Scenic Route', desc: 'Flat track is worth +1 thrill.' },
-  tipjar: { name: 'Tip Jar', desc: 'Riders whose wish you meet tip one more ticket-price.' },
   wrench: { name: 'Toolbox', desc: '+1 undo every day.' },
 };
 
@@ -42,19 +43,19 @@ export const TOOLS: Record<ToolId, ToolDef> = {
   megaphone: { name: 'Megaphone', desc: 'Call 3 more riders into line right now.', aim: null, charges: 1 },
 };
 
-export type Reward = { kind: 'upgrade'; id: UpgradeId } | { kind: 'tool'; id: ToolId };
+export type Reward = { kind: 'upgrade'; id: UpgradeId } | { kind: 'tool'; id: ToolId } | { kind: 'attraction'; id: AttractionId };
 
 export interface Mods {
   thrillMult: number;
   flatThrill: number;
-  toleranceBonus: number;
+  /** Added to every rider's stomach (negative = easier to make puke). */
+  stomachDelta: number;
   hillChance: number;
   undos: number;
   obstacleDelta: number;
   spawns: number;
   daylightBonus: number;
   extraRiders: number;
-  tipMult: number;
 }
 
 export function modsFor(upgrades: readonly UpgradeId[]): Mods {
@@ -62,22 +63,43 @@ export function modsFor(upgrades: readonly UpgradeId[]): Mods {
   return {
     thrillMult: 1 + 0.25 * n('hype'),
     flatThrill: n('scenic'),
-    toleranceBonus: 3 * n('barfbags'),
+    stomachDelta: -n('fries'),
     hillChance: Math.min(0.7, 0.1 + 0.15 * n('lumber')),
     undos: 1 + n('wrench'),
     obstacleDelta: -2 * n('landscaper'),
     spawns: 1,
     daylightBonus: 5 * n('latenight'),
     extraRiders: 2 * n('billboard'),
-    tipMult: 2 + n('tipjar'),
   };
 }
 
-/** Three choices: at least one upgrade and one tool. */
-export function rewardOffer(rng: Rng): Reward[] {
+/** Attractions not yet owned, rares less often. */
+export function attractionPicks(rng: Rng, owned: readonly AttractionId[], n: number): AttractionId[] {
+  const pool = (Object.keys(ATTRACTIONS) as AttractionId[]).filter((a) => !owned.includes(a));
+  const weighted = pool.flatMap((a) => (ATTRACTIONS[a].rarity === 'rare' ? [a] : [a, a, a]));
+  const out: AttractionId[] = [];
+  while (out.length < n && weighted.length) {
+    const a = rng.pick(weighted);
+    if (!out.includes(a)) out.push(a);
+    for (let i = weighted.length - 1; i >= 0; i--) if (weighted[i] === a) weighted.splice(i, 1);
+  }
+  return out;
+}
+
+/**
+ * Three choices after a day. Normally one upgrade, one tool and one attraction
+ * (a second tool if the attraction slots are full). `allAttractions` is for
+ * storm days and treasure stops.
+ */
+export function rewardOffer(rng: Rng, owned: readonly AttractionId[], slotsFree: boolean, allAttractions = false): Reward[] {
+  if (allAttractions && slotsFree) {
+    const picks = attractionPicks(rng, owned, 3).map((id): Reward => ({ kind: 'attraction', id }));
+    if (picks.length) return picks;
+  }
   const ups = rng.shuffle(Object.keys(UPGRADES) as UpgradeId[]);
   const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]);
-  const third: Reward = rng.chance(0.5) ? { kind: 'upgrade', id: ups[1] } : { kind: 'tool', id: tools[1] };
+  const attraction = slotsFree ? attractionPicks(rng, owned, 1)[0] : undefined;
+  const third: Reward = attraction ? { kind: 'attraction', id: attraction } : { kind: 'tool', id: tools[1] };
   return rng.shuffle<Reward>([{ kind: 'upgrade', id: ups[0] }, { kind: 'tool', id: tools[0] }, third]);
 }
 
@@ -148,24 +170,52 @@ export function parkFor(day: number): ParkDef {
   return PARKS[SEASON_ORDER[Math.min(Math.floor((day - 1) / DAYS_PER_PARK), SEASON_ORDER.length - 1)]];
 }
 
-/** 1-based day within the current park (the finale is always 1). */
-export function dayInPark(day: number): number {
-  return day >= FINALE_DAY ? 1 : ((day - 1) % DAYS_PER_PARK) + 1;
+// ---- Route map --------------------------------------------------------------
+// Each park is a small map, played left to right: two day columns, a stop
+// (shop, repair or treasure), then the park's boss day. The finale is one node.
+
+export type NodeKind = 'day' | 'vip' | 'storm' | 'shop' | 'repair' | 'treasure' | 'boss' | 'finale';
+
+export const NODE_INFO: Record<NodeKind, { name: string; desc: string; isDay: boolean }> = {
+  day: { name: 'Day', desc: 'A regular day at the park.', isDay: true },
+  vip: { name: 'VIP day', desc: 'A VIP joins the line. Every time they puke, it pays 5×.', isDay: true },
+  storm: { name: 'Storm', desc: '8 fewer swipes. Afterwards, every reward choice is an attraction.', isDay: true },
+  shop: { name: 'Shop', desc: 'Spend park funds on tools, upgrades and attractions.', isDay: false },
+  repair: { name: 'Repair', desc: 'Win back a heart. At full hearts, +100 park funds instead.', isDay: false },
+  treasure: { name: 'Treasure', desc: 'Pick a free attraction.', isDay: false },
+  boss: { name: 'Boss day', desc: 'A tough customer is in line. Make them puke to clear the park.', isDay: true },
+  finale: { name: 'Grand Opening', desc: 'Make the Mayor puke and hit the target to win the season.', isDay: true },
+};
+
+/** The tough customer waiting at the end of each park. */
+export const PARK_BOSS: Record<ParkId, BossId> = { meadow: 'barry', boardwalk: 'ivy', hollow: 'vertigo', finale: 'mayor' };
+
+export interface MapNode {
+  kind: NodeKind;
 }
 
-export function isFirstDayOfPark(day: number): boolean {
-  return day <= FINALE_DAY && dayInPark(day) === 1;
-}
+/** Columns of nodes; any node can be reached from any node in the column before. */
+export type ParkMap = MapNode[][];
 
-export function isLastDayOfPark(day: number): boolean {
-  return day < FINALE_DAY && dayInPark(day) === DAYS_PER_PARK;
+export function generateParkMap(park: ParkId, rng: Rng): ParkMap {
+  if (park === 'finale') return [[{ kind: 'finale' }]];
+  const pick = (kinds: NodeKind[], n: number) => rng.shuffle([...kinds]).slice(0, n).map((kind) => ({ kind }));
+  return [
+    [{ kind: 'day' }, { kind: 'vip' }],
+    pick(['day', 'storm', 'vip'], rng.range(2, 3)),
+    pick(['shop', 'repair', 'treasure'], 2),
+    [{ kind: 'boss' }],
+  ];
 }
 
 export interface DayConfig {
   day: number;
   park: ParkDef;
+  node: NodeKind;
+  boss: BossId | null;
   size: number;
   obstacles: number;
+  soft: number;
   /** Tickets to sell today. */
   target: number;
   /** Swipes before sunset. Building is free. */
@@ -174,19 +224,35 @@ export interface DayConfig {
   maxQueue: number;
 }
 
-// Calibrated against a simple bot (see docs/concepts.md); a player should beat these.
-const TARGETS = [230, 260, 300, 320, 360, 400, 400, 450, 500, 700];
+/**
+ * Targets climb fast on purpose (Balatro-style): by the second park you need
+ * attractions that multiply each other to keep up. Day 1 sits near what a simple
+ * bot scores with no attractions at all.
+ */
+export const BASE_TARGET = 1000;
+export const TARGET_GROWTH = 1.35;
 
-export function dayConfig(day: number, mods: Mods): DayConfig {
+/** Funds, prices and payouts scale with the targets. */
+export function priceScale(day: number): number {
+  return (BASE_TARGET / 300) * TARGET_GROWTH ** (day - 1);
+}
+
+export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day'): DayConfig {
   const park = parkFor(day);
-  const d = dayInPark(day);
+  const d = Math.min(DAYS_PER_PARK, ((day - 1) % DAYS_PER_PARK) + 1);
+  const boss = node === 'boss' || node === 'finale' ? PARK_BOSS[park.id] : null;
+  let target = BASE_TARGET * TARGET_GROWTH ** (day - 1);
+  if (node === 'finale') target *= 1.5;
   return {
     day,
     park,
+    node,
+    boss,
     size: park.size,
     obstacles: Math.max(0, (park.id === 'meadow' ? d : 2 + d) + (park.id === 'finale' ? 2 : 0) + mods.obstacleDelta),
-    target: TARGETS[Math.min(day, TARGETS.length) - 1],
-    daylight: 32 + park.size * 2 + (park.id === 'finale' ? 8 : 0) + mods.daylightBonus,
+    soft: park.soft,
+    target: Math.round(target / 10) * 10,
+    daylight: 32 + park.size * 2 + (park.id === 'finale' ? 8 : 0) - (node === 'storm' ? 8 : 0) + mods.daylightBonus,
     startRiders: 3 + mods.extraRiders + (park.id === 'finale' ? 3 : 0),
     maxQueue: park.id === 'finale' ? 12 : 10,
   };
@@ -197,16 +263,26 @@ export function dayConfig(day: number, mods: Mods): DayConfig {
 export type ShopItem =
   | { kind: 'tool'; id: ToolId; price: number; sold: boolean }
   | { kind: 'upgrade'; id: UpgradeId; price: number; sold: boolean }
+  | { kind: 'attraction'; id: AttractionId; price: number; sold: boolean }
   | { kind: 'heart'; price: number; sold: boolean };
 
-export function shopStock(rng: Rng): ShopItem[] {
-  const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]).slice(0, 3);
+/** Prices scale with the season, like the targets do. */
+export function shopStock(rng: Rng, day: number, owned: readonly AttractionId[]): ShopItem[] {
+  const price = (base: number) => Math.round((base * priceScale(day)) / 10) * 10;
+  const tools = rng.shuffle(Object.keys(TOOLS) as ToolId[]).slice(0, 2);
   const up = rng.pick(Object.keys(UPGRADES) as UpgradeId[]);
+  const attractions = attractionPicks(rng, owned, 2);
   return [
-    ...tools.map((id): ShopItem => ({ kind: 'tool', id, price: 40 + rng.int(4) * 10, sold: false })),
-    { kind: 'upgrade', id: up, price: 140, sold: false },
-    { kind: 'heart', price: 160, sold: false },
+    ...attractions.map((id): ShopItem => ({ kind: 'attraction', id, price: price(ATTRACTIONS[id].rarity === 'rare' ? 260 : 170), sold: false })),
+    ...tools.map((id): ShopItem => ({ kind: 'tool', id, price: price(60 + rng.int(4) * 10), sold: false })),
+    { kind: 'upgrade', id: up, price: price(180), sold: false },
+    { kind: 'heart', price: price(220), sold: false },
   ];
+}
+
+/** Selling an attraction refunds a share of what it would cost. */
+export function sellValue(day: number): number {
+  return Math.round((60 * priceScale(day)) / 10) * 10;
 }
 
 const OBSTACLES: ObstacleKind[] = ['tree', 'tree', 'tree', 'rock', 'pond', 'stand'];
@@ -215,10 +291,8 @@ const OBSTACLES: ObstacleKind[] = ['tree', 'tree', 'tree', 'rock', 'pond', 'stan
 export function generateBoard(cfg: DayConfig, rng: Rng): Board {
   const n = cfg.size;
   for (let attempt = 0; ; attempt++) {
-    const side = rng.int(4);
-    const along = rng.range(1, n - 2);
-    const station =
-      side === 0 ? { x: along, y: 0 } : side === 1 ? { x: n - 1, y: along } : side === 2 ? { x: along, y: n - 1 } : { x: 0, y: along };
+    // The station platform sits just below the board, two cells wide.
+    const station = { x: rng.range(0, n - 2), y: n };
     const b: Board = {
       size: n,
       tiles: new Array(n * n).fill(0),
@@ -228,8 +302,8 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
       opened: null,
       soft: new Array(n * n).fill(false),
     };
-    // Keep a 3x3 area around the station clear so a first loop is always possible.
-    const nearStation = (x: number, y: number) => Math.abs(x - station.x) <= 1 && Math.abs(y - station.y) <= 1;
+    // Keep the two rows above the platform clear so a first loop is always possible.
+    const nearStation = (x: number, y: number) => y >= n - 2 && x >= station.x - 1 && x <= station.x + 2;
     let placed = 0;
     for (let tries = 0; placed < cfg.obstacles && tries < 200; tries++) {
       const x = rng.int(n);
@@ -239,7 +313,7 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
       placed++;
     }
     if (!allFreeConnected(b) && attempt < 30) continue;
-    placeSoft(b, cfg.park.soft, rng);
+    placeSoft(b, cfg.soft, rng);
     for (let y = 0; y < n; y++)
       for (let x = 0; x < n; x++) {
         if (isWall(b, x, y) || !rng.chance(0.55)) continue;
@@ -274,7 +348,7 @@ function placeSoft(b: Board, share: number, rng: Rng): void {
 function allFreeConnected(b: Board): boolean {
   const n = b.size;
   const free: number[] = [];
-  for (let i = 0; i < n * n; i++) if (!b.obstacles[i] && !(i === idx(b, b.station.x, b.station.y))) free.push(i);
+  for (let i = 0; i < n * n; i++) if (!b.obstacles[i]) free.push(i);
   if (!free.length) return false;
   const seen = new Set([free[0]]);
   const stack = [free[0]];
