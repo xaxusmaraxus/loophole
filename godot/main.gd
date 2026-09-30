@@ -73,6 +73,10 @@ func _ready() -> void:
 	var args := OS.get_cmdline_user_args()
 	if "--plate" in args:
 		_use_plate(args[args.find("--plate") + 1])
+		# The plate is painted for the phone camera at 9:16; open straight into it.
+		get_window().size = Vector2i(720, 1280)
+		get_window().move_to_center()
+		_set_camera(6)
 	if "--plate-source" in args:
 		shooting = true
 		_render_plate_source()
