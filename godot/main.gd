@@ -32,7 +32,7 @@ var cam_mode := 0
 var shooting := false
 
 var track_path: Path3D
-var cars: Array[PathFollow3D] = []
+var cars: Array[Node3D] = []
 var train_progress := 0.0
 
 ## Puzzle plot: tier per cell (0 = empty), and which cells hold track.
@@ -77,6 +77,10 @@ func _ready() -> void:
 		get_window().size = Vector2i(720, 1280)
 		get_window().move_to_center()
 		_set_camera(6)
+	if "--ride-check" in args:
+		_ride_check()
+		get_tree().quit()
+		return
 	if "--plate-source" in args:
 		shooting = true
 		_render_plate_source()
@@ -219,20 +223,40 @@ func _painted_material(src: Material, width: float, ink := 0.0, crate := Vector3
 ## res://shots/frames/, for a GIF of the painted plate in motion.
 func _render_frames(count: int) -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://shots/frames"))
-	get_window().size = Vector2i(720, 1280)
+	var args := OS.get_cmdline_user_args()
+	var cam_i := int(args[args.find("--frames-cam") + 1]) if "--frames-cam" in args else 6
+	get_window().size = Vector2i(720, 1280) if cam_i == 6 else Vector2i(1280, 720)
 	_set_time(false)
-	_set_camera(6)
-	for i in 6:
+	if cam_i < CAMERAS:
+		_set_camera(cam_i)
+	_place_train(0.0)
+	for i in 10:
 		await get_tree().process_frame
 	var start := Time.get_ticks_msec()
 	for i in count:
 		var target := start + int(i * 1000.0 / 15.0)
 		while Time.get_ticks_msec() < target:
 			await get_tree().process_frame
-		_place_train(9.0 + i * 1.6 / 15.0)
+		_advance_train(1.0 / 15.0)
+		if cam_i == 7:
+			_chase_camera()
 		await get_tree().process_frame
 		get_viewport().get_texture().get_image().save_png("res://shots/frames/%03d.png" % i)
 	print("saved %d frames" % count)
+
+
+## Chase view for checking the ride: behind and above the lead car, looking at it.
+func _chase_camera() -> void:
+	var f := _frame_at(train_progress - CAR_GAP)
+	var p: Vector3 = f[0]
+	var fwd: Vector3 = f[1]
+	var flat := Vector3(fwd.x, 0, fwd.z)
+	flat = flat.normalized() if flat.length() > 0.2 else Vector3.FORWARD
+	cam.projection = Camera3D.PROJECTION_PERSPECTIVE
+	cam.fov = 50.0
+	var want := p - flat * 1.6 + Vector3.UP * 1.1 + flat.cross(Vector3.UP) * 0.6
+	cam.position = want if cam.position.distance_to(want) > 3.0 else cam.position.lerp(want, 0.25)
+	cam.look_at(p, Vector3.UP)
 
 
 ## Render the phone view without the moving parts, as the source for painting a plate.
@@ -784,20 +808,25 @@ func _build_coaster() -> void:
 				var r := (0.55 if tier == 5 else 0.75) * ELEMENT_SCALE
 				var start := base - fwd * 0.35 * ELEMENT_SCALE
 				pts.append(start)
+				var zone_from := pts.size() - 1
 				for k in range(1, 12):
 					var a := TAU * k / 12.0
 					pts.append(start + Vector3(0, r, 0) + fwd * sin(a) * r - Vector3(0, cos(a) * r, 0) + right * (k / 12.0 - 0.5) * 0.24)
 				pts.append(start + fwd * 0.4 * ELEMENT_SCALE + right * 0.12)
+				inversion_zones.append([pts[zone_from], pts[pts.size() - 1]])
+				loop_r_max = maxf(loop_r_max, r)
 			4:
-				# Helix: one rising turn around the cell center.
-				for k in 8:
+				# Helix: a rising turn and a quarter, so it leaves heading right (toward the
+				# next cell) instead of doubling back.
+				for k in 11:
 					var a := TAU * k / 8.0
-					pts.append(base + (fwd * sin(a) + right * (1.0 - cos(a))) * 0.3 * ELEMENT_SCALE + Vector3(0, k * 0.08, 0))
+					pts.append(base + (fwd * sin(a) + right * (1.0 - cos(a))) * 0.3 * ELEMENT_SCALE + Vector3(0, k * 0.05, 0))
 			6:
-				# Corkscrew: a roll along the direction of travel.
-				for k in 7:
-					var a := TAU * k / 6.0
-					pts.append(base + fwd * (-0.35 + 0.7 * k / 6.0) + (right * sin(a) + Vector3(0, 1.0 - cos(a), 0)) * 0.22 * ELEMENT_SCALE)
+				# Corkscrew: one roll along the direction of travel, stretched over the cell.
+				for k in 9:
+					var a := TAU * k / 8.0
+					pts.append(base + fwd * (-0.45 + 0.9 * k / 8.0) + (right * sin(a) + Vector3(0, 1.0 - cos(a), 0)) * 0.26)
+				inversion_zones.append([pts[pts.size() - 9], pts[pts.size() - 1]])
 			_:
 				pts.append(base)
 		prev = pts[pts.size() - 1]
@@ -809,28 +838,175 @@ func _build_coaster() -> void:
 	curve.bake_interval = 0.04
 	curve.up_vector_enabled = true
 	var n := pts.size()
-	for i in n:
+	# Handles along the neighbors' direction, but no longer than a third of the shorter
+	# neighboring segment, so closely spaced points (loops, helix) can't overshoot into knots.
+	for i in n + 1:
+		var p := pts[i % n]
 		var a := pts[(i - 1 + n) % n]
 		var b := pts[(i + 1) % n]
-		var h := (b - a) * 0.22
-		curve.add_point(pts[i], -h, h)
-	curve.add_point(pts[0], -(pts[1] - pts[n - 1]) * 0.2, (pts[1] - pts[n - 1]) * 0.2)
+		var h := (b - a).normalized() * minf(p.distance_to(a), p.distance_to(b)) * 0.36
+		curve.add_point(p, -h, h)
 	track_path = Path3D.new()
 	track_path.curve = curve
 	add_child(track_path)
+	_build_frames(curve)
 	_build_track_mesh(curve)
 	_build_train()
 
 
-func _frame(curve: Curve3D, o: float) -> Array:
-	var total := curve.get_baked_length()
-	var p := curve.sample_baked(fmod(o, total), true)
-	var q := curve.sample_baked(fmod(o + 0.03, total), true)
-	var fwd := (q - p).normalized()
-	var up := curve.sample_baked_up_vector(fmod(o, total), true)
+# ---- Track frames and ride physics ---------------------------------------------
+# One smooth frame (position, forward, up) every FRAME_STEP along the track, shared by
+# the track mesh and the cars, so the cars always sit exactly on the rails. The up
+# vector is carried along without twisting (parallel transport), so it follows the
+# rails through loops and corkscrews instead of flipping, and eases back to level
+# wherever the track isn't upside down (so hills and helixes stay flat, not banked).
+
+const FRAME_STEP := 0.02
+var frame_pos: PackedVector3Array = []
+var frame_fwd: PackedVector3Array = []
+var frame_up: PackedVector3Array = []
+var track_length := 0.0
+
+
+func _build_frames(curve: Curve3D) -> void:
+	# Sample densely, smooth out any remaining corners, then resample at even spacing.
+	var raw_len := curve.get_baked_length()
+	var m := int(raw_len / 0.02)
+	var raw := PackedVector3Array()
+	raw.resize(m)
+	for i in m:
+		raw[i] = curve.sample_baked(i * raw_len / m, true)
+	# ~10 cm of smoothing: rounds off hairpins where the helix and corkscrew hand over to
+	# the next cell, barely changes the 0.8 m loops.
+	for it in 60:
+		var nxt := raw.duplicate()
+		for i in m:
+			nxt[i] = (raw[(i - 1 + m) % m] + raw[i] * 2.0 + raw[(i + 1) % m]) * 0.25
+		raw = nxt
+	var cum := PackedFloat32Array()
+	cum.resize(m + 1)
+	cum[0] = 0.0
+	for i in m:
+		cum[i + 1] = cum[i] + raw[i].distance_to(raw[(i + 1) % m])
+	track_length = cum[m]
+	var n := int(track_length / FRAME_STEP)
+	frame_pos.resize(n)
+	frame_fwd.resize(n)
+	frame_up.resize(n)
+	var k := 0
+	for i in n:
+		var d := i * track_length / n
+		while cum[k + 1] < d:
+			k += 1
+		var w := (d - cum[k]) / maxf(cum[k + 1] - cum[k], 1e-6)
+		frame_pos[i] = raw[k].lerp(raw[(k + 1) % m], w)
+	for i in n:
+		frame_fwd[i] = (frame_pos[(i + 1) % n] - frame_pos[(i - 1 + n) % n]).normalized()
+	# Heights for the ride physics.
+	ride_h_max = -INF
+	for p in frame_pos:
+		ride_h_max = maxf(ride_h_max, p.y)
+	# Curvature vector (toward the center of the turn), smoothed over ~20 cm.
+	var kappa := PackedVector3Array()
+	kappa.resize(n)
+	var hs := 5
+	for i in n:
+		var a := frame_pos[(i - hs + n) % n]
+		var b := frame_pos[i]
+		var c := frame_pos[(i + hs) % n]
+		kappa[i] = (a + c - b * 2.0) / pow(hs * FRAME_STEP, 2)
+	for it in 6:
+		var nxt := kappa.duplicate()
+		for i in n:
+			nxt[i] = (kappa[(i - 1 + n) % n] + kappa[i] * 2.0 + kappa[(i + 1) % n]) * 0.25
+		kappa = nxt
+	# The ride's minimum speed: enough that even the widest loop still presses the riders
+	# into their seats at its top (v²/r ≥ 2g, measured at the highest point to be safe).
+	ride_v_min = sqrt(2.0 * RIDE_G * loop_r_max)
+	# Each inversion element as a range of frames, found in order along the track.
+	inversion_ranges.clear()
+	var from := 0
+	for z in inversion_zones:
+		var i0 := _nearest_frame(z[0], from)
+		var i1 := _nearest_frame(z[1], i0)
+		inversion_ranges.append([i0, i1])
+		from = i1
+	# The car's up is the force the riders feel: centripetal acceleration plus gravity
+	# (heartline). Flat track: straight up. Loops: toward the center, so the car is upside
+	# down at the top. Helixes bank, corkscrews roll. Low-passed along the track (carried
+	# forward without twisting), twice around so the seam at the station closes up.
+	var up := Vector3.UP
+	for lap in 2:
+		for i in n:
+			var t := frame_fwd[i]
+			var prev := frame_fwd[(i - 1 + n) % n]
+			if prev.cross(t).length() > 1e-6:
+				up = Quaternion(prev, t) * up
+			up = (up - t * up.dot(t)).normalized()
+			var v2 := _speed_sq_at(frame_pos[i].y)
+			var felt := kappa[i] * v2 + Vector3.UP * RIDE_G
+			felt -= t * felt.dot(t)
+			var level := Vector3.UP - t * t.y
+			var steer := true
+			if not _in_inversion_zone(i):
+				# Outside loops and corkscrews: bank into turns, but never flip over a crest
+				# (the riders get airtime instead). On near-vertical track, just carry on.
+				if level.length() > 0.25:
+					level = level.normalized()
+					var lift := felt.dot(level)
+					var lateral := (felt - level * lift).length()
+					# Bank at most 65° (like a real helix), however tight the turn.
+					felt += level * (maxf(maxf(lift, RIDE_G * 0.8), lateral / tan(deg_to_rad(MAX_BANK))) - lift)
+				else:
+					steer = false
+			if steer and felt.length() > 0.3 * RIDE_G:
+				up = up.slerp(felt.normalized(), 0.08).normalized()
+			frame_up[i] = up
+
+
+func _in_inversion_zone(i: int) -> bool:
+	for r in inversion_ranges:
+		if i >= r[0] and i <= r[1]:
+			return true
+	return false
+
+
+## Index of the frame closest to p, searching forward from `from` (at most one lap).
+func _nearest_frame(p: Vector3, from: int) -> int:
+	var n := frame_pos.size()
+	var best := from
+	var best_d := INF
+	for k in n:
+		var i := (from + k) % n
+		var d := frame_pos[i].distance_squared_to(p)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+## Speed² from energy: v² = v_min² + 2g·(h_max − h).
+func _speed_sq_at(h: float) -> float:
+	return ride_v_min * ride_v_min + 2.0 * RIDE_G * maxf(ride_h_max - h, 0.0)
+
+
+## [position, forward, up, right] at distance `o` along the track (wraps around).
+func _frame_at(o: float) -> Array:
+	var n := frame_pos.size()
+	var f := fposmod(o, track_length) / FRAME_STEP
+	var i := int(f) % n
+	var j := (i + 1) % n
+	var w := f - floorf(f)
+	var p := frame_pos[i].lerp(frame_pos[j], w)
+	var fwd := frame_fwd[i].slerp(frame_fwd[j], w).normalized()
+	var up := frame_up[i].slerp(frame_up[j], w)
+	up = (up - fwd * up.dot(fwd)).normalized()
 	var right := fwd.cross(up).normalized()
-	up = right.cross(fwd).normalized()
 	return [p, fwd, up, right]
+
+
+func _frame(_curve: Curve3D, o: float) -> Array:
+	return _frame_at(o)
 
 
 func _tube(st: SurfaceTool, rings: Array, col: Color) -> void:
@@ -886,13 +1062,21 @@ func _build_track_mesh(curve: Curve3D) -> void:
 				var d := right * cos(a) + up * sin(a)
 				ring.append(c + d * 0.05)
 				var t := d.dot(up)
-				cols.append(RAIL_MID.lerp(RAIL_TOP, pow(maxf(t, 0.0), 3.0)) if t > 0.0 else RAIL_MID.lerp(RAIL_UNDER, -t))
+				# Painted rail: a narrow bright highlight on top, dark underneath, and slow
+				# lighter/darker patches along the length like brush strokes.
+				var stroke := 1.0 + 0.09 * noise.get_noise_1d(o * 40.0 + s * 17.0)
+				var col := RAIL_MID.lerp(RAIL_TOP, pow(maxf(t, 0.0), 6.0)) if t > 0.0 else RAIL_MID.lerp(RAIL_UNDER, -t)
+				cols.append(Color(col.r * stroke, col.g * stroke, col.b * stroke))
 			rails[s].append(ring)
 			rail_cols[s].append(cols)
-		if i % 4 == 0:
-			_oriented_box(st, p - up * 0.005, right * 0.2, up * 0.024, fwd * 0.03, jitter(Color("#7e5638"), 0.06))
+		if i % 3 == 0:
+			# Wooden tie with a lighter, sunlit top plank.
+			var tie := jitter(Color("#7a5236"), 0.06)
+			_oriented_box(st, p - up * 0.01, right * 0.2, up * 0.02, fwd * 0.028, tie)
+			_oriented_box(st, p + up * 0.012, right * 0.19, up * 0.004, fwd * 0.024, tie.lightened(0.28))
 		var height := p.y - PLOT_TOP
-		if up.y > 0.7 and height > 0.3 and o - last_support > 0.45:
+		var fi := int(o / FRAME_STEP)
+		if up.y > 0.8 and height > 0.3 and o - last_support > 0.9 and not _in_inversion_zone(fi) and not _track_below(p):
 			supports.append([p - up * 0.03, right])
 			last_support = o
 		o += step
@@ -913,9 +1097,17 @@ func _build_track_mesh(curve: Curve3D) -> void:
 
 
 const RAIL_MID := Color("#d23a2c")
-const RAIL_TOP := Color("#ff8f74")
+const RAIL_TOP := Color("#ffc2a8")
 const RAIL_UNDER := Color("#6e1d17")
 const WOOD := Color("#9a6a3e")
+
+
+## True if another part of the track passes under p (a support there would pierce it).
+func _track_below(p: Vector3) -> bool:
+	for q in frame_pos:
+		if q.y < p.y - 0.2 and Vector2(q.x - p.x, q.z - p.z).length() < 0.3:
+			return true
+	return false
 
 
 ## Two wooden posts from the track down to the plot, with a cap beam and X-bracing.
@@ -956,30 +1148,111 @@ func _tube_colored(st: SurfaceTool, rings: Array, cols: Array) -> void:
 				st.set_color(v[1])
 				st.add_vertex(v[0])
 
+const CAR_GAP := 0.34
+## Height of the car's floor above the track centerline (the rails' top).
+const CAR_RIDE := 0.09
+## Ride physics: the train leaves the station with enough energy to clear the highest
+## point at ride_v_min (set from the tightest inversion), then trades height for speed.
+const RIDE_G := 1.5
+const MAX_BANK := 65.0
+const RIDE_V_STATION := 0.5
+const RIDE_RAMP := 0.9
+var ride_h_max := 0.0
+var ride_v_min := 1.0
+## [first point, last point] of each loop and corkscrew: the only places the car may turn
+## upside down. Mapped to frame ranges along the track in _build_frames.
+var inversion_zones: Array = []
+var inversion_ranges: Array = []
+var loop_r_max := 0.3
+
+
 func _build_train() -> void:
 	var shirts := [Color("#f0584e"), Color("#45a8e0"), Color("#ffd23f"), Color("#72c457"), Color("#9d6ef0"), Color("#ff8fb8")]
+	var train := Node3D.new()
+	add_child(train)
 	for k in 4:
-		var pf := PathFollow3D.new()
-		pf.rotation_mode = PathFollow3D.ROTATION_ORIENTED
-		pf.use_model_front = false
-		pf.loop = true
-		track_path.add_child(pf)
 		var car := Node3D.new()
-		pf.add_child(car)
+		train.add_child(car)
 		if not model("coaster_car", car, Vector3.ZERO):
-			box(Vector3(0.26, 0.1, 0.3), Color("#e34a3c"), Vector3(0, 0.1, 0), car)
-			box(Vector3(0.27, 0.03, 0.31), Color("#ffd23f"), Vector3(0, 0.07, 0), car)
+			box(Vector3(0.26, 0.1, 0.3), Color("#e34a3c"), Vector3(0, 0.05, 0), car)
+			box(Vector3(0.27, 0.03, 0.31), Color("#ffd23f"), Vector3(0, 0.02, 0), car)
 		for side in [-0.06, 0.06]:
-			sphere(0.045, Color("#f2c9a5"), Vector3(side, 0.21, 0), Vector3.ONE, car)
-			sphere(0.03, shirts[rng.randi() % shirts.size()], Vector3(side, 0.16, 0), Vector3(1.4, 1.0, 1.0), car)
-		cars.append(pf)
+			sphere(0.045, Color("#f2c9a5"), Vector3(side, 0.16, 0), Vector3.ONE, car)
+			sphere(0.03, shirts[rng.randi() % shirts.size()], Vector3(side, 0.11, 0), Vector3(1.4, 1.0, 1.0), car)
+		cars.append(car)
 	_place_train(9.0)
 
 
 func _place_train(progress: float) -> void:
-	train_progress = progress
+	train_progress = fposmod(progress, track_length)
 	for k in cars.size():
-		cars[k].progress = progress - k * 0.34
+		var f := _frame_at(train_progress - k * CAR_GAP)
+		var fwd: Vector3 = f[1]
+		var up: Vector3 = f[2]
+		var right: Vector3 = f[3]
+		cars[k].global_transform = Transform3D(Basis(right, up, -fwd), f[0] + up * CAR_RIDE)
+
+
+## Train speed at the current spot: energy for the ride, easing out of and into the station.
+func _ride_speed() -> float:
+	var mid := _frame_at(train_progress - CAR_GAP * (cars.size() - 1) * 0.5)
+	var v := sqrt(_speed_sq_at(mid[0].y))
+	var from_start := train_progress
+	var to_end := track_length - train_progress
+	var ramp := clampf(minf(from_start, to_end) / RIDE_RAMP, 0.0, 1.0)
+	return lerpf(RIDE_V_STATION, v, smoothstep(0.0, 1.0, ramp))
+
+
+## Prints how smooth the ride frames are and the speed over one lap (for tests).
+func _ride_check() -> void:
+	var n := frame_up.size()
+	var worst := 0.0
+	var worst_at := 0.0
+	var worst_fwd := 0.0
+	for i in n:
+		var a := rad_to_deg(frame_up[i].angle_to(frame_up[(i + 1) % n]))
+		if a > worst:
+			worst = a
+			worst_at = i * FRAME_STEP
+		worst_fwd = maxf(worst_fwd, rad_to_deg(frame_fwd[i].angle_to(frame_fwd[(i + 1) % n])))
+	var inverted := 0
+	for u in frame_up:
+		if u.y < 0.0:
+			inverted += 1
+	train_progress = 0.0
+	var t := 0.0
+	var vmin := INF
+	var vmax := 0.0
+	var laps := 0.0
+	while t < 120.0 and laps < 1.0:
+		var v := _ride_speed()
+		vmin = minf(vmin, v)
+		vmax = maxf(vmax, v)
+		var before := train_progress
+		_advance_train(1.0 / 60.0)
+		laps += fposmod(train_progress - before, track_length) / track_length
+		t += 1.0 / 60.0
+	for i in n:
+		var d := rad_to_deg(frame_fwd[i].angle_to(frame_fwd[(i + 1) % n]))
+		if d > 8.0:
+			print("  kink %.1f deg at %.2f m, pos %s" % [d, i * FRAME_STEP, frame_pos[i]])
+	var run_start := -1
+	for i in n + 1:
+		var inv := i < n and frame_up[i].y < 0.0
+		if inv and run_start < 0:
+			run_start = i
+		elif not inv and run_start >= 0:
+			print("  inverted %.2f..%.2f m (%s .. %s)" % [run_start * FRAME_STEP, i * FRAME_STEP, frame_pos[run_start].snapped(Vector3.ONE * 0.1), frame_pos[i - 1].snapped(Vector3.ONE * 0.1)])
+			run_start = -1
+	print("ride check: length %.2f m, %d frames, max up turn %.2f deg/step at %.2f m, max forward turn %.2f deg/step, %d%% inverted" % [track_length, n, worst, worst_at, worst_fwd, inverted * 100 / n])
+	print("ride check: lap %.1f s, speed %.2f..%.2f m/s" % [t, vmin, vmax])
+
+
+func _advance_train(delta: float) -> void:
+	# Small substeps so speed changes smoothly through dips and over crests.
+	var steps := 4
+	for i in steps:
+		_place_train(train_progress + _ride_speed() * delta / steps)
 
 
 # ---- Station, trees, props, guests ------------------------------------------
@@ -1235,7 +1508,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if shooting or cars.is_empty():
 		return
-	_place_train(train_progress + delta * 1.6)
+	_advance_train(delta)
 
 
 func _render_shots() -> void:
@@ -1243,6 +1516,10 @@ func _render_shots() -> void:
 	# macOS applies window resizes a few frames late; let the first one settle.
 	for i in 10:
 		await get_tree().process_frame
+	if "--frames" in OS.get_cmdline_user_args():
+		await _render_frames(int(OS.get_cmdline_user_args()[OS.get_cmdline_user_args().find("--frames") + 1]))
+		get_tree().quit()
+		return
 	var shots := [
 		["01_overview_day", 0, false, 9.0],
 		["02_overview_sunset", 0, true, 9.0],
@@ -1264,8 +1541,6 @@ func _render_shots() -> void:
 			for i in 20:
 				await get_tree().process_frame
 			shots = [["12_phone_plate_after_swipe", 6, false, 9.0, Vector2i(720, 1280)]]
-		if "--frames" in OS.get_cmdline_user_args():
-			await _render_frames(int(OS.get_cmdline_user_args()[OS.get_cmdline_user_args().find("--frames") + 1]))
 	for s in shots:
 		var size: Vector2i = s[4] if s.size() > 4 else Vector2i(1600, 1000)
 		if get_window().size != size:
