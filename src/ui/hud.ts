@@ -39,6 +39,7 @@ export class Hud {
 
     $<HTMLButtonElement>('undo').disabled = g.phase !== 'build' || g.undos === 0;
     $('undoCount').textContent = String(g.undos);
+    $('bestCombo').textContent = g.bestCombo >= 2 ? `x${g.bestCombo}` : 'none yet';
     $('perks').textContent = g.perks.length ? g.perks.map((p) => PERKS[p].name).join(', ') : 'None yet';
 
     this.renderQueue();

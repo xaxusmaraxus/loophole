@@ -4,13 +4,15 @@ import {
   DELTA,
   type Dir,
   type Pt,
-  type SlideMove,
+  type ChainStep,
+  type MoveResult,
   idx,
   layKind,
   step,
 } from '../puzzle/board';
 import type { Rider } from '../riders/riders';
 import { RideAnim } from '../ride/ride';
+import { sfx } from '../core/sfx';
 import { drawText, textWidth } from './font';
 import { C, DECK, STATION_DECK } from './metrics';
 import { PAL, TIER_RAMPS } from './palette';
@@ -28,9 +30,9 @@ import {
   px,
 } from './sprites';
 
-const M = 2;
 const FRONT = 8;
 const SLIDE_MS = 100;
+const WAVE_MS = 170;
 
 interface Particle {
   x: number;
@@ -72,7 +74,12 @@ export class Renderer {
   scale = 1;
   onRideDone: () => void = () => {};
   private terrain: HTMLCanvasElement = document.createElement('canvas');
-  private tileAnim: { start: number; slides: SlideMove[] } | null = null;
+  private tileAnim: { start: number; move: MoveResult; fired: number } | null = null;
+  private combo: { value: number; bumped: number; until: number } | null = null;
+  private shake = { until: 0, mag: 0 };
+  private comboEl = document.getElementById('combo');
+  /** Plaza margins in cells; the station's side is deeper to fit the queue. */
+  private margin = { l: 1, t: 1, r: 1, b: 1 };
   private flashes = new Map<number, number>();
   private particles: Particle[] = [];
   private words: Word[] = [];
@@ -94,11 +101,11 @@ export class Renderer {
   // ---- Geometry --------------------------------------------------------------
 
   cellX(x: number): number {
-    return (M + x) * C;
+    return (this.margin.l + x) * C;
   }
 
   cellY(y: number): number {
-    return (M + y) * C;
+    return (this.margin.t + y) * C;
   }
 
   center(p: Pt): Pt {
@@ -126,7 +133,8 @@ export class Renderer {
     const along = vertical ? sc.x : sc.y;
     const limit = vertical ? this.W : this.H - FRONT;
     const dir = limit - along > along ? 1 : -1;
-    const room = dir > 0 ? limit - along - 6 : along - 10;
+    // Leave headroom for the rider's head and thought bubble at the top edge.
+    const room = dir > 0 ? limit - along - 6 : along - (vertical ? 8 : 26);
     const perRow = Math.max(1, Math.floor(room / spacing) + 1);
     const row = i < perRow ? 0 : 1;
     const k = row ? i - perRow : i;
@@ -147,12 +155,15 @@ export class Renderer {
 
   private setupDay(): void {
     const n = this.board.size;
-    this.W = (n + M * 2) * C;
-    this.H = this.W + FRONT;
+    const o = this.outward();
+    this.margin = { l: o.x < 0 ? 2 : 1, t: o.y < 0 ? 2 : 1, r: o.x > 0 ? 2 : 1, b: o.y > 0 ? 2 : 1 };
+    this.W = (n + this.margin.l + this.margin.r) * C;
+    this.H = (n + this.margin.t + this.margin.b) * C + FRONT;
     this.canvas.width = this.W;
     this.canvas.height = this.H;
     this.buildTerrain();
     this.tileAnim = null;
+    this.combo = null;
     this.ride = null;
     this.stuckUntil = 0;
     this.walkers = [];
@@ -170,8 +181,10 @@ export class Renderer {
   fit(): void {
     const area = this.canvas.closest('.park') ?? this.canvas.parentElement!;
     const availW = area.clientWidth;
-    const availH = Math.max(240, window.innerHeight - 140);
-    this.scale = Math.max(1, Math.floor(Math.min(availW / this.W, availH / this.H)));
+    const reserved = document.fullscreenElement ? 150 : 190;
+    const availH = Math.max(260, window.innerHeight - reserved);
+    // Fractional scales are fine: the canvas is upscaled with nearest-neighbor.
+    this.scale = Math.max(1, Math.min(availW / this.W, availH / this.H));
     this.canvas.style.width = `${this.W * this.scale}px`;
     this.canvas.style.height = `${this.H * this.scale}px`;
   }
@@ -238,20 +251,23 @@ export class Renderer {
         case 'move': {
           const r = e.result;
           if (r.kind === 'lay' && r.laid) {
-            this.tileAnim = { start: this.now, slides: r.slides };
-            for (const m of r.merges) this.flashes.set(idx(this.board, m.x, m.y), this.now + SLIDE_MS + 160);
-            if (r.spawned) this.flashes.set(idx(this.board, r.spawned.x, r.spawned.y), this.now + SLIDE_MS + 120);
+            this.tileAnim = { start: this.now, move: r, fired: -1 };
+            this.combo = null;
             const c = this.center(r.laid);
             this.dust(c.x, c.y, 6, PAL.plaza[2]);
-            for (const m of r.merges) {
-              const mc = this.center(m);
-              this.dust(mc.x, mc.y - 4, 5, TIER_RAMPS[m.tier][0]);
-            }
-          }
+            sfx.lay();
+          } else if (r.kind === 'close') sfx.open();
           break;
         }
         case 'blocked':
           this.blocked = { at: step(this.headPos(), e.dir), t: this.now };
+          sfx.blocked();
+          break;
+        case 'hype':
+          for (const r of this.game.queue) {
+            const p = this.riderPos.get(r.id);
+            if (p) this.word(`+${e.amount}`, p.x, p.y - 22, PAL.grass[0]);
+          }
           break;
         case 'leave': {
           const p = this.riderPos.get(e.rider.id) ?? this.slot(0);
@@ -318,6 +334,14 @@ export class Renderer {
     }
   }
 
+  burst(x: number, y: number, n: number, ramp: readonly string[]): void {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
+      const v = 30 + Math.random() * 30;
+      this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.7 - 15, g: 60, life: 0, max: 0.5 + Math.random() * 0.3, color: ramp[i % 3], size: i % 4 === 0 ? 2 : 1 });
+    }
+  }
+
   puke(x: number, y: number): void {
     for (let i = 0; i < 8; i++)
       this.particles.push({ x, y, vx: (Math.random() - 0.5) * 30, vy: -20 - Math.random() * 20, g: 120, life: 0, max: 0.7, color: i % 2 ? PAL.sick : '#6fae2e', size: 1 });
@@ -332,7 +356,9 @@ export class Renderer {
   }
 
   word(text: string, x: number, y: number, color: string): void {
-    this.words.push({ text, x: x - textWidth(text) / 2, y, life: 0, max: 1.1, color });
+    const w = textWidth(text);
+    const cx = Math.max(2, Math.min(this.W - w - 2, x - w / 2));
+    this.words.push({ text, x: cx, y: Math.max(8, y), life: 0, max: 1.1, color });
   }
 
   addWalker(w: Walker): void {
@@ -347,6 +373,14 @@ export class Renderer {
     this.handleEvents();
     const ctx = this.ctx;
     ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = PAL.plaza[1];
+    ctx.fillRect(0, 0, this.W, this.H);
+    ctx.save();
+    if (now < this.shake.until) {
+      const m = this.shake.mag;
+      ctx.translate(Math.round((Math.random() - 0.5) * 2 * m), Math.round((Math.random() - 0.5) * 2 * m));
+    }
+    this.fireTileEffects();
     ctx.drawImage(this.terrain, 0, 0);
 
     const behind = (y: number) => y < this.cellY(0) + 4;
@@ -370,6 +404,8 @@ export class Renderer {
       this.onRideDone();
     }
     this.drawParticles(dt);
+    this.drawCombo();
+    ctx.restore();
   }
 
   private drawTrackShadows(): void {
@@ -383,8 +419,7 @@ export class Renderer {
   private drawRows(): void {
     const b = this.board;
     const ctx = this.ctx;
-    const anim = this.tileAnim && this.now - this.tileAnim.start < SLIDE_MS;
-    if (this.tileAnim && !anim) this.tileAnim = null;
+    const anim = this.tileAnim !== null;
     const dayKey = this.game.dayNum * 131 + this.game.seed.charCodeAt(1);
     for (let y = 0; y < b.size; y++)
       for (let x = 0; x < b.size; x++) {
@@ -403,22 +438,129 @@ export class Renderer {
         const ti = b.path.findIndex((c) => c.x === x && c.y === y);
         if (ti >= 0) this.drawTrackCell(ti);
         const tier = b.tiles[idx(b, x, y)];
-        if (tier && !anim) {
-          const until = this.flashes.get(idx(b, x, y)) ?? 0;
-          drawCrate(ctx, tier, cx, cy, until > this.now ? Math.min(1, (until - this.now) / 160) : 0);
-        }
+        if (tier && !anim) drawCrate(ctx, tier, cx, cy, this.flashAt(idx(b, x, y)));
       }
   }
 
+  private animLength(m: MoveResult): number {
+    return SLIDE_MS + m.chain.waves.length * WAVE_MS;
+  }
+
+  /** Slide, then each chain wave in turn: the grabbed tile flies into the merged one. */
   private drawSlidingTiles(): void {
-    if (!this.tileAnim) return;
-    const t = Math.min(1, (this.now - this.tileAnim.start) / SLIDE_MS);
-    const e = 1 - (1 - t) * (1 - t);
-    for (const s of this.tileAnim.slides) {
-      const x = this.cellX(s.from.x) + (this.cellX(s.to.x) - this.cellX(s.from.x)) * e;
-      const y = this.cellY(s.from.y) + (this.cellY(s.to.y) - this.cellY(s.from.y)) * e;
-      drawCrate(this.ctx, s.tier, x, y);
+    const a = this.tileAnim;
+    if (!a) return;
+    const el = this.now - a.start;
+    const m = a.move;
+    const b = this.board;
+    if (el >= this.animLength(m)) {
+      this.tileAnim = null;
+      return;
     }
+    const ease = (t: number) => 1 - (1 - t) * (1 - t);
+    if (el < SLIDE_MS) {
+      const e = ease(el / SLIDE_MS);
+      for (const s of m.slides) {
+        const x = this.cellX(s.from.x) + (this.cellX(s.to.x) - this.cellX(s.from.x)) * e;
+        const y = this.cellY(s.from.y) + (this.cellY(s.to.y) - this.cellY(s.from.y)) * e;
+        drawCrate(this.ctx, s.tier, x, y);
+      }
+      return;
+    }
+    const k = Math.floor((el - SLIDE_MS) / WAVE_MS);
+    const e = ease(((el - SLIDE_MS) % WAVE_MS) / (WAVE_MS * 0.6));
+    const base = k === 0 ? m.slid : m.chain.frames[k - 1];
+    const wave: ChainStep[] = m.chain.waves[k] ?? [];
+    const busy = new Set(wave.flatMap((w) => [idx(b, w.from.x, w.from.y), idx(b, w.to.x, w.to.y)]));
+    for (let y = 0; y < b.size; y++)
+      for (let x = 0; x < b.size; x++) {
+        const i = idx(b, x, y);
+        if (base[i] && !busy.has(i)) drawCrate(this.ctx, base[i], this.cellX(x), this.cellY(y), this.flashAt(i));
+      }
+    for (const w of wave) {
+      drawCrate(this.ctx, w.tier - 1, this.cellX(w.to.x), this.cellY(w.to.y));
+      const t = Math.min(1, e);
+      const x = this.cellX(w.from.x) + (this.cellX(w.to.x) - this.cellX(w.from.x)) * t;
+      const y = this.cellY(w.from.y) + (this.cellY(w.to.y) - this.cellY(w.from.y)) * t - Math.sin(t * Math.PI) * 5;
+      drawCrate(this.ctx, w.tier - 1, x, y);
+    }
+  }
+
+  private flashAt(i: number): number {
+    const until = this.flashes.get(i) ?? 0;
+    return until > this.now ? Math.min(1, (until - this.now) / 160) : 0;
+  }
+
+  /** Fires sounds, bursts and the combo counter as the animation reaches each stage. */
+  private fireTileEffects(): void {
+    const a = this.tileAnim;
+    if (!a) return;
+    const m = a.move;
+    const el = this.now - a.start;
+    const stage = el < SLIDE_MS ? -1 : Math.min(m.chain.waves.length, Math.floor((el - SLIDE_MS) / WAVE_MS) + 1);
+    while (a.fired < stage) {
+      a.fired++;
+      const b = this.board;
+      if (a.fired === 0) {
+        // Slide merges land.
+        m.merges.forEach((mg, i) => {
+          this.flashes.set(idx(b, mg.x, mg.y), this.now + 160);
+          const c = this.center(mg);
+          this.dust(c.x, c.y - 4, 6, TIER_RAMPS[mg.tier][0]);
+          sfx.merge(i + 1);
+        });
+        if (m.merges.length) this.bumpCombo(m.merges.length);
+        if (!m.chain.waves.length) this.finishMove(m);
+      } else {
+        // Chain wave lands: bigger each link.
+        const wave = m.chain.waves[a.fired - 1];
+        const link = a.fired;
+        for (const w of wave) {
+          this.flashes.set(idx(b, w.to.x, w.to.y), this.now + 200);
+          const c = this.center(w.to);
+          this.burst(c.x, c.y - 4, 8 + link * 4, TIER_RAMPS[w.tier]);
+        }
+        this.word(`CHAIN ${link + 1}`, this.center(wave[0].to).x, this.center(wave[0].to).y - 18, PAL.gold);
+        this.shake = { until: this.now + 140 + link * 40, mag: Math.min(3, link) };
+        sfx.chain(m.merges.length + link);
+        this.bumpCombo((this.combo?.value ?? m.merges.length) + wave.length);
+        if (a.fired === m.chain.waves.length) this.finishMove(m);
+      }
+    }
+  }
+
+  private finishMove(m: MoveResult): void {
+    for (const s of m.spawned) this.flashes.set(idx(this.board, s.x, s.y), this.now + 140);
+    if (m.chain.waves.length) sfx.hype();
+  }
+
+  private bumpCombo(value: number): void {
+    if (value < 2) return;
+    this.combo = { value, bumped: this.now, until: this.now + 900 + value * 120 };
+    const el = this.comboEl;
+    if (!el) return;
+    el.textContent = `${value >= 6 ? 'Mega' : 'Combo'} ×${value}`;
+    el.dataset.level = value >= 6 ? 'mega' : value >= 4 ? 'big' : 'small';
+    el.classList.remove('pop');
+    void el.offsetWidth; // restart the pop animation
+    el.classList.add('pop');
+  }
+
+  /** The combo counter is page text over the canvas, so it stays crisp at any size. */
+  private drawCombo(): void {
+    const el = this.comboEl;
+    if (!el) return;
+    const c = this.combo;
+    const visible = !!c && this.now < c.until;
+    el.classList.toggle('show', visible);
+    if (!c || !visible) return;
+    const cx = this.cellX(0) + (this.board.size * C) / 2;
+    const cy = this.cellY(0) + (this.board.size * C) / 2;
+    el.style.left = `${cx * this.scale}px`;
+    el.style.top = `${cy * this.scale}px`;
+    // Size to the board so the counter never spills outside the park.
+    const k = c.value >= 6 ? 0.17 : c.value >= 4 ? 0.15 : 0.13;
+    el.style.fontSize = `${Math.round(this.board.size * C * this.scale * k)}px`;
   }
 
   // ---- Track -----------------------------------------------------------------

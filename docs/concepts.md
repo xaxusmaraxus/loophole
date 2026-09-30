@@ -65,6 +65,13 @@ Layer in physics: the lift hill gives the train energy, and each element spends 
 - **Min loop:** 3 pieces before the station accepts the train.
 - **Dead end** = the day fails and costs a heart.
 
+## Cascades (v0.2)
+The v0.1 board drained: the track eats a tile each swipe and only one spawned, so merges rarely snowballed. Now:
+- **Chain reactions:** after the slide, every freshly merged tile grabs one matching orthogonal neighbor and merges again. The result can grab again in the next wave, and so on. Waves resolve one at a time, on screen.
+- **Two spawns per swipe** keep the board under pressure. In random play about 1 in 3 swipes chains, and 1 in 4 merges 3+ tiles.
+- **Payoff inside the puzzle:** each chain link gives every rider in line +1 patience (up to their max). Cascades buy time for a longer, riskier ride.
+- **Juice escalates with each link:** rising pentatonic pitch, bigger bursts, screen shake, a pop-up COMBO / MEGA counter.
+
 ## Art direction
 A modern take on the cozy RCT2 theme-park look, without copying it:
 - Square grid in a 3/4 top-down view instead of isometric, so swipe directions stay readable.

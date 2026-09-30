@@ -1,4 +1,5 @@
 import './style.css';
+import { sfx } from './core/sfx';
 import { Game } from './game';
 import type { Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
@@ -73,6 +74,29 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
 });
 
 window.addEventListener('resize', () => renderer.fit());
+
+const soundBtn = document.getElementById('sound') as HTMLButtonElement;
+const syncSound = () => {
+  soundBtn.textContent = sfx.isMuted() ? 'Sound off' : 'Sound on';
+  soundBtn.setAttribute('aria-pressed', String(!sfx.isMuted()));
+};
+soundBtn.addEventListener('click', () => {
+  sfx.setMuted(!sfx.isMuted());
+  syncSound();
+});
+syncSound();
+
+const fsBtn = document.getElementById('fullscreen') as HTMLButtonElement;
+const app = document.querySelector<HTMLElement>('.app')!;
+if (!document.fullscreenEnabled) fsBtn.hidden = true;
+fsBtn.addEventListener('click', () => {
+  const req = document.fullscreenElement ? document.exitFullscreen() : app.requestFullscreen();
+  req?.catch(() => (fsBtn.hidden = true));
+});
+document.addEventListener('fullscreenchange', () => {
+  fsBtn.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen';
+  requestAnimationFrame(() => renderer.fit());
+});
 
 function frame(t: number): void {
   renderer.frame(t);

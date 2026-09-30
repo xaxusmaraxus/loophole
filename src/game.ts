@@ -30,6 +30,7 @@ export type GameEvent =
   | { type: 'arrive'; rider: Rider }
   | { type: 'close' }
   | { type: 'stuck' }
+  | { type: 'hype'; amount: number }
   | { type: 'undo' };
 
 export interface DayResult {
@@ -45,6 +46,7 @@ interface Snapshot {
   board: Board;
   queue: Rider[];
   swipes: number;
+  bestCombo: number;
   rngState: number;
   nextId: number;
 }
@@ -64,6 +66,7 @@ export class Game {
   board!: Board;
   queue: Rider[] = [];
   swipes = 0;
+  bestCombo = 0;
   undos = 0;
   phase: Phase = 'build';
   result: DayResult | null = null;
@@ -94,6 +97,7 @@ export class Game {
     this.queue = [];
     for (let i = 0; i < this.cfg.startRiders; i++) this.queue.push(this.newRider());
     this.swipes = 0;
+    this.bestCombo = 0;
     this.undos = this.mods.undos;
     this.history = [];
     this.result = null;
@@ -123,16 +127,24 @@ export class Game {
       board: cloneBoard(this.board),
       queue: this.queue.map((r) => ({ ...r })),
       swipes: this.swipes,
+      bestCombo: this.bestCombo,
       rngState: this.rng.state,
       nextId: this.nextId,
     });
-    const result = applyMove(this.board, dir, this.rng, this.mods.hillChance)!;
+    const result = applyMove(this.board, dir, this.rng, { hillChance: this.mods.hillChance, spawns: this.mods.spawns })!;
     this.events.push({ type: 'move', result });
     if (result.kind === 'close') {
       this.finishDay(false);
       return;
     }
     this.swipes++;
+    this.bestCombo = Math.max(this.bestCombo, result.mergeCount);
+    // Chain reactions entertain the queue: each link buys everyone a swipe.
+    const hype = result.chain.waves.length;
+    if (hype) {
+      for (const r of this.queue) r.patience = Math.min(r.maxPatience, r.patience + hype);
+      this.events.push({ type: 'hype', amount: hype });
+    }
     for (const r of [...this.queue]) {
       r.patience--;
       if (r.patience <= 0) {
@@ -154,6 +166,7 @@ export class Game {
     this.board = s.board;
     this.queue = s.queue;
     this.swipes = s.swipes;
+    this.bestCombo = s.bestCombo;
     this.rng.state = s.rngState;
     this.nextId = s.nextId;
     this.undos--;

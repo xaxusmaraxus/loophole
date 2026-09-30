@@ -23,14 +23,26 @@ const GLYPHS: Record<string, string[]> = {
   Y: ['#.#', '#.#', '.#.', '.#.', '.#.'],
   '!': ['.#.', '.#.', '.#.', '...', '.#.'],
   '?': ['##.', '..#', '.#.', '...', '.#.'],
+  X: ['#.#', '#.#', '.#.', '#.#', '#.#'],
+  '+': ['...', '.#.', '###', '.#.', '...'],
+  '0': ['###', '#.#', '#.#', '#.#', '###'],
+  '1': ['.#.', '##.', '.#.', '.#.', '###'],
+  '2': ['##.', '..#', '.#.', '#..', '###'],
+  '3': ['##.', '..#', '.#.', '..#', '##.'],
+  '4': ['#.#', '#.#', '###', '..#', '..#'],
+  '5': ['###', '#..', '##.', '..#', '##.'],
+  '6': ['.##', '#..', '###', '#.#', '###'],
+  '7': ['###', '..#', '.#.', '.#.', '.#.'],
+  '8': ['###', '#.#', '###', '#.#', '###'],
+  '9': ['###', '#.#', '###', '..#', '##.'],
   ' ': ['...', '...', '...', '...', '...'],
 };
 
-export function textWidth(text: string): number {
-  return text.length * 4 - 1;
+export function textWidth(text: string, scale = 1): number {
+  return (text.length * 4 - 1) * scale;
 }
 
-export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, outline: string): void {
+export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, outline: string, s = 1): void {
   x = Math.round(x);
   y = Math.round(y);
   const plot = (ox: number, oy: number, c: string) => {
@@ -38,9 +50,9 @@ export function drawText(ctx: CanvasRenderingContext2D, text: string, x: number,
     for (let i = 0; i < text.length; i++) {
       const g = GLYPHS[text[i].toUpperCase()] ?? GLYPHS['?'];
       for (let r = 0; r < 5; r++)
-        for (let col = 0; col < 3; col++) if (g[r][col] === '#') ctx.fillRect(x + ox + i * 4 + col, y + oy + r, 1, 1);
+        for (let col = 0; col < 3; col++) if (g[r][col] === '#') ctx.fillRect(x + ox + (i * 4 + col) * s, y + oy + r * s, s, s);
     }
   };
-  for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) plot(ox, oy, outline);
+  for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1], [1, 1]]) plot(ox * Math.max(1, s - 1), oy * Math.max(1, s - 1), outline);
   plot(0, 0, color);
 }

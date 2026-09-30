@@ -17,15 +17,21 @@
           <span id="hearts" class="hearts"></span>
           <span id="quota" class="chip quota"></span>
         </div>
-        <button id="newRun" class="ghost" type="button">New run</button>
+        <div class="tools">
+          <button id="sound" class="ghost" type="button" aria-pressed="true">Sound on</button>
+          <button id="fullscreen" class="ghost" type="button">Full screen</button>
+          <button id="newRun" class="ghost" type="button">New run</button>
+        </div>
       </header>
 
       <main class="stage">
         <section class="park" aria-label="Park">
           <div class="canvas-wrap" id="canvasWrap">
             <canvas id="park" aria-label="The park grid. Swipe or use arrow keys to lay track."></canvas>
+            <div class="combo" id="combo" aria-hidden="true"></div>
             <div class="overlay" id="overlay" hidden></div>
           </div>
+          <div class="below">
           <p id="station" class="station" aria-live="polite"></p>
           <div class="controls">
             <div class="pad" role="group" aria-label="Lay track">
@@ -35,6 +41,7 @@
               <button type="button" data-dir="right" class="right" aria-label="Right">→</button>
             </div>
             <button id="undo" type="button" class="undo">Undo <span id="undoCount" class="count">1</span></button>
+          </div>
           </div>
         </section>
 
@@ -47,6 +54,7 @@
               <div><dt>Nausea</dt><dd id="statNausea">0</dd></div>
               <div><dt>Upside down</dt><dd id="statInversions">0</dd></div>
             </dl>
+            <p class="perk-line"><span class="label">Best combo today</span> <span id="bestCombo">none yet</span></p>
             <p class="perk-line"><span class="label">Perks</span> <span id="perks">None yet</span></p>
           </section>
 
@@ -61,6 +69,7 @@
             <ol>
               <li>Every swipe does two things: the <strong>track grows one cell</strong> in that direction and swallows the tile it lands on, then all loose tiles <strong>slide and merge</strong> like 2048.</li>
               <li>Two equal pieces merge into a bigger one: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
+              <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again. Every chain link gives the whole queue +1 patience.</li>
               <li>Laid track is a wall. Tiles trapped behind it are gone for good.</li>
               <li>Swipe back into the station to open the ride. Riders lose patience every swipe, so don't dawdle.</li>
             </ol>

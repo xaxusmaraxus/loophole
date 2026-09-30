@@ -36,6 +36,7 @@ export interface Mods {
   arrivalEvery: number;
   undos: number;
   obstacleDelta: number;
+  spawns: number;
 }
 
 export function modsFor(perks: readonly PerkId[]): Mods {
@@ -49,6 +50,7 @@ export function modsFor(perks: readonly PerkId[]): Mods {
     arrivalEvery: n('fastpass') ? 2 : 3,
     undos: 1 + n('wrench'),
     obstacleDelta: -2 * n('dynamite'),
+    spawns: 2,
   };
 }
 
@@ -107,7 +109,7 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
     if (!allFreeConnected(b) && attempt < 30) continue;
     for (let y = 0; y < n; y++)
       for (let x = 0; x < n; x++) {
-        if (isWall(b, x, y) || !rng.chance(0.45)) continue;
+        if (isWall(b, x, y) || !rng.chance(0.55)) continue;
         const roll = rng.next();
         b.tiles[idx(b, x, y)] = roll < 0.7 ? 1 : roll < 0.95 || cfg.day < 3 ? 2 : 3;
       }

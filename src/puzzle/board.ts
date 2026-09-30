@@ -175,22 +175,84 @@ export function spawnTile(b: Board, rng: Rng, hillChance: number): TrackCell | u
   return { ...c, tier };
 }
 
+export interface ChainStep {
+  from: Pt;
+  to: Pt;
+  /** Tier of the merged tile at `to`. */
+  tier: number;
+}
+
+export interface ChainResult {
+  /** Each wave is one link of the chain; waves resolve one after another. */
+  waves: ChainStep[][];
+  /** Tile state after each wave. */
+  frames: number[][];
+}
+
+/**
+ * Cascades: a freshly merged tile grabs a matching orthogonal neighbor and
+ * merges again. The result can grab again in the next wave, and so on.
+ */
+export function resolveChains(b: Board, seeds: readonly Pt[]): ChainResult {
+  const waves: ChainStep[][] = [];
+  const frames: number[][] = [];
+  let frontier: Pt[] = seeds.map((s) => ({ x: s.x, y: s.y }));
+  while (frontier.length) {
+    const wave: ChainStep[] = [];
+    const next: Pt[] = [];
+    const used = new Set<number>();
+    for (const c of frontier) {
+      const ci = idx(b, c.x, c.y);
+      const t = b.tiles[ci];
+      if (!t || t >= MAX_TIER || used.has(ci)) continue;
+      for (const d of DIRS) {
+        const n = step(c, d);
+        if (isWall(b, n.x, n.y)) continue;
+        const ni = idx(b, n.x, n.y);
+        if (used.has(ni) || b.tiles[ni] !== t) continue;
+        b.tiles[ci] = t + 1;
+        b.tiles[ni] = 0;
+        used.add(ci);
+        used.add(ni);
+        wave.push({ from: n, to: c, tier: t + 1 });
+        next.push(c);
+        break;
+      }
+    }
+    if (!wave.length) break;
+    waves.push(wave);
+    frames.push([...b.tiles]);
+    frontier = next;
+  }
+  return { waves, frames };
+}
+
 export interface MoveResult {
   kind: LayKind;
   dir: Dir;
   laid?: TrackCell;
   slides: SlideMove[];
   merges: TrackCell[];
-  spawned?: TrackCell;
+  /** Tile state right after the slide, before any chain. */
+  slid: number[];
+  chain: ChainResult;
+  spawned: TrackCell[];
+  /** Slide merges plus chain merges. */
+  mergeCount: number;
+}
+
+export interface MoveOptions {
+  hillChance: number;
+  spawns: number;
 }
 
 /** Applies a swipe in place. Returns null if the head can't move that way. */
-export function applyMove(b: Board, dir: Dir, rng: Rng, hillChance: number): MoveResult | null {
+export function applyMove(b: Board, dir: Dir, rng: Rng, opts: MoveOptions): MoveResult | null {
   const kind = layKind(b, dir);
   if (!kind) return null;
   if (kind === 'close') {
     b.closed = true;
-    return { kind, dir, slides: [], merges: [] };
+    return { kind, dir, slides: [], merges: [], slid: [...b.tiles], chain: { waves: [], frames: [] }, spawned: [], mergeCount: 0 };
   }
   const t = step(head(b), dir);
   const i = idx(b, t.x, t.y);
@@ -199,6 +261,13 @@ export function applyMove(b: Board, dir: Dir, rng: Rng, hillChance: number): Mov
   b.path.push(laid);
   const s = slide(b, dir);
   b.tiles = s.tiles;
-  const spawned = spawnTile(b, rng, hillChance);
-  return { kind, dir, laid, slides: s.slides, merges: s.merges, spawned };
+  const slid = [...b.tiles];
+  const chain = resolveChains(b, s.merges);
+  const spawned: TrackCell[] = [];
+  for (let k = 0; k < opts.spawns; k++) {
+    const t = spawnTile(b, rng, opts.hillChance);
+    if (t) spawned.push(t);
+  }
+  const mergeCount = s.merges.length + chain.waves.reduce((a, w) => a + w.length, 0);
+  return { kind, dir, laid, slides: s.slides, merges: s.merges, slid, chain, spawned, mergeCount };
 }

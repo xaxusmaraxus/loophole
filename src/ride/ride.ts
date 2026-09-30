@@ -2,6 +2,7 @@ import type { DayResult } from '../game';
 import type { Board, Pt } from '../puzzle/board';
 import { PIECES } from '../puzzle/pieces';
 import { PAL, SHIRTS } from '../render/palette';
+import { sfx } from '../core/sfx';
 import { DECK } from '../render/metrics';
 import type { Renderer } from '../render/renderer';
 import { type Ctx, drawCar, drawSeated, px } from '../render/sprites';
@@ -135,11 +136,15 @@ export class RideAnim {
     if (!this.sick[i] && this.nausea[i] > v.rider.tolerance + this.toleranceBonus) {
       this.sick[i] = true;
       this.r.word('BLEH', p.x, p.y - 16, PAL.sick);
+      sfx.sick();
       return;
     }
     if (tier >= 3) {
       this.scream[i] = 0.6;
-      if (Math.random() < 0.45) this.r.word(THRILL_WORDS[Math.floor(Math.random() * THRILL_WORDS.length)], p.x, p.y - 16, PAL.white);
+      if (Math.random() < 0.45) {
+        sfx.scream();
+        this.r.word(THRILL_WORDS[Math.floor(Math.random() * THRILL_WORDS.length)], p.x, p.y - 16, PAL.white);
+      }
     }
     if (piece.inversion && Math.random() < 0.3) this.r.hat(p.x, p.y - 8, SHIRTS[(v.rider.look.shirt + 3) % SHIRTS.length]);
   }
@@ -154,12 +159,17 @@ export class RideAnim {
       this.r.addWalker({ look: rider.look, x: sc.x, y: sc.y, tx, ty, speed: 30, sick: verdict === 'sick', mood: verdict, delay: i * 120 });
       setTimeout(() => {
         if (verdict === 'happy') {
+          sfx.happy(i);
           this.r.heart(tx, ty - 16);
           this.r.word('YAY', tx, ty - 22, PAL.heart);
         } else if (verdict === 'sick') {
+          sfx.sick();
           this.r.puke(tx + 3, ty - 6);
           this.r.word('BLEH', tx, ty - 22, PAL.sick);
-        } else this.r.word('MEH', tx, ty - 22, PAL.white);
+        } else {
+          sfx.meh();
+          this.r.word('MEH', tx, ty - 22, PAL.white);
+        }
       }, 700 + i * 120);
     });
   }
