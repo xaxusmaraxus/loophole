@@ -136,6 +136,9 @@ Shops stock two eggs; Treasure stops give one free. Next egg idea: **Blueprint E
 
 Bug fixed in v0.8: at the end of every swipe animation, the board drew no tiles for one frame (the animation layer retired itself after the board had already skipped drawing tiles).
 
+## Art round 1, batch 1 (2026-09-30)
+First modeled characters in the Godot style test: three guests (tourist, balloon kid, grandma) and Big Barry, as chunky big-headed figurines on a shared body. They are built from scripts (`art/blender/*.py`) so proportions and colors can be retuned and re-exported in seconds. The user's new mood image (`docs/mood/coaster_town_mood.png`) pushes toward a denser painted island park; details in `docs/asset-brief.md` → Status.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

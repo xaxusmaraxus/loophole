@@ -3,3 +3,6 @@ dist/
 .DS_Store
 *.log
 .vite/
+art/comfy/out/
+*.blend1
+__pycache__/

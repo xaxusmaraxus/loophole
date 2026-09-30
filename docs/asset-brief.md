@@ -60,4 +60,10 @@ Save to `godot/assets/textures/`. Wiring them into `main.gd` is a round 2 task.
 ## Status
 _Update after each batch: what's done, what's blocked, open questions. Save renders to `docs/style-test/round-<n>/`._
 
-- Round 1: not started.
+- **Round 1, batch 1 (2026-09-30): guests 1–3 and Big Barry are in.** Waiting on review before the rest of the list.
+  - `guest_01` tourist (bucket hat, camera): 796 tris, 0.45 m. `guest_02` kid with a red balloon: 792 tris, 0.52 m with the balloon (body about 0.4 m). `guest_03` grandma (bun, glasses, handbag): 798 tris, 0.47 m with the bun. `boss_barry`: 1,424 tris, 0.9 m. All flat material colors from the palette, roughness 0.8, origin bottom center, front −Y.
+  - Pipeline: `tools/krea_bg.py` + `art/comfy/<name>.json` for concept sheets (Krea 2 Turbo in a local ComfyUI; the jobs start with the brief's style prompt). Models are Python scripts, `art/blender/<name>.py`, built on `tools/blender/kit.py` (primitives, budget check, bottom-center origin, GLB export) and `tools/blender/chibi.py` (the shared guest body). `python3 tools/blender/send.py art/blender/<name>.py` runs one in the open Blender through the BlenderMCP addon socket, so each model can be rebuilt from its script. `.blend` files and turnaround previews are saved next to them (`art/blender/`, `art/previews/`).
+  - Renders: `docs/style-test/round-1/`, plus `compare_round0_vs_round1.png` (left: round 0, right: round 1).
+  - New mood reference from the user: `docs/mood/coaster_town_mood.png` (painted isometric island park; a denser, more detailed direction than the style test so far).
+  - Observations: the guests read as characters at gameplay zoom now, and Barry stands out at the front of the queue. With only 3 variants the crowd repeats. `main.gd` gives each guest a random yaw, so about half face away from the camera; facing the queue forward is a scene change, left for the user to decide. The biggest remaining gap to the mood image is the environment (cliffs, water, paving, dressing), not the characters.
+  - Rendered with Godot 4.7.2 (the brief says 4.3+). The editor rewrote `godot/project.godot` for 4.7; that change isn't committed.
