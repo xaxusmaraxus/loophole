@@ -60,6 +60,12 @@ export interface Board {
   piers?: boolean;
   /** Park-piece flavor per cell, riding along with its tile (missing = none anywhere). */
   flav?: (Flavor | null)[];
+  /**
+   * The track eats tiles: a tile that slides into an open end of the track
+   * becomes the next piece of track, right where it stopped. Each end eats at
+   * most one tile per swipe. (Off for bare test boards.)
+   */
+  eat?: boolean;
 }
 
 /** The flavor of the tile at cell i. */
@@ -296,9 +302,18 @@ export interface SlideMove {
   merged: boolean;
   /** The moving tile's flavor (for animation). */
   flavor?: Flavor | null;
+  /** The tile slid into an end of the track and became track. */
+  eaten?: End;
+}
+
+export interface Eaten {
+  end: End;
+  cell: TrackCell;
+  from: Pt;
 }
 
 export interface SlideResult {
+  eaten: Eaten[];
   tiles: number[];
   flav: (Flavor | null)[];
   slides: SlideMove[];
@@ -315,6 +330,14 @@ export function slide(b: Board, dir: Dir): SlideResult {
   const merges: TrackCell[] = [];
   const reversed = d.x === 1 || d.y === 1;
   let moved = false;
+  const eaten: Eaten[] = [];
+  const fed = new Set<End>();
+  /** The end whose head is the cell at `p`, if it may still eat this swipe. */
+  const mouth = (p: Pt): End | null => {
+    if (!b.eat || b.opened) return null;
+    for (const e of [0, 1] as End[]) if (!fed.has(e) && samePt(head(b, e), p) && !b.ends[e][b.ends[e].length - 1]?.cross) return e;
+    return null;
+  };
 
   for (let lane = 0; lane < n; lane++) {
     // Leading edge first, so tiles pile up against it.
@@ -346,6 +369,20 @@ export function slide(b: Board, dir: Dir): SlideResult {
         moved = true;
       } else {
         const q = line[dest];
+        // The first tile of a run stops against whatever is ahead of it: if that's an open end of the track, it's eaten.
+        const stopper = dest === 0 ? { x: line[0].x + d.x, y: line[0].y + d.y } : line[dest - 1];
+        const end = last ? null : mouth(stopper);
+        if (end !== null) {
+          const fl = flavorAt(b, idx(b, p.x, p.y));
+          const cell: TrackCell = { x: q.x, y: q.y, tier, ...(fl ? { flavor: fl } : {}) };
+          b.ends[end].push(cell);
+          fed.add(end);
+          eaten.push({ end, cell, from: p });
+          slides.push({ from: p, to: q, tier, merged: false, flavor: fl, eaten: end });
+          moved = true;
+          dest++;
+          continue;
+        }
         tiles[idx(b, q.x, q.y)] = tier;
         flav[idx(b, q.x, q.y)] = flavorAt(b, idx(b, p.x, p.y));
         slides.push({ from: p, to: q, tier, merged: false, flavor: flavorAt(b, idx(b, p.x, p.y)) });
@@ -355,7 +392,7 @@ export function slide(b: Board, dir: Dir): SlideResult {
       }
     }
   }
-  return { tiles, flav, slides, merges, moved };
+  return { eaten, tiles, flav, slides, merges, moved };
 }
 
 export interface ChainStep {
@@ -459,6 +496,8 @@ export interface SwipeResult {
   sunk: TrackCell[];
   /** Slide merges plus chain merges. */
   mergeCount: number;
+  /** Tiles the track ate (they became track). */
+  eaten: Eaten[];
 }
 
 export interface SwipeOptions {
@@ -490,7 +529,12 @@ export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeRe
     if (t) spawned.push(t);
   }
   const mergeCount = s.merges.length + chain.waves.reduce((a, w) => a + w.length, 0);
-  return { dir, slides: s.slides, merges: s.merges, slid, slidFlav, chain, spawned, sunk, mergeCount };
+  return { dir, slides: s.slides, merges: s.merges, slid, slidFlav, chain, spawned, sunk, mergeCount, eaten: s.eaten };
+}
+
+/** Can any swipe still move something (or feed the track)? If not, it's gridlock. */
+export function canSwipe(b: Board): boolean {
+  return !b.opened && DIRS.some((d) => slide(cloneBoard(b), d).moved);
 }
 
 /** Loose tiles on sand sink one tier; a tier-1 tile sinks away. */

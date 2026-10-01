@@ -27,7 +27,7 @@ function playRide(seed: number, kind: 'circuit' | 'shuttle' | 'any'): Game {
   while (g.phase === 'build' && guard++ < 400) {
     const b = g.board;
     const len = b.ends[0].length + b.ends[1].length;
-    if (kind !== 'shuttle' && canConnect(b) && (len >= greed || g.daylight <= 2)) break;
+    if (kind !== 'shuttle' && canConnect(b) && (len >= greed || g.room <= 2)) break;
     if (kind === 'shuttle' && len >= greed && canShuttle(b)) break;
     const targets = buildTargets(b);
     if (targets.length && (len >= greed || rnd() < 0.4)) {
@@ -40,9 +40,7 @@ function playRide(seed: number, kind: 'circuit' | 'shuttle' | 'any'): Game {
         return (len >= greed ? d(a) - d(c) : 0) + (b.tiles[idx(b, c.x, c.y)] - b.tiles[idx(b, a.x, a.y)]) * 0.1 + rnd() - 0.5;
       })[0];
       g.buildAt(t.x, t.y);
-    } else if (g.daylight > 0) g.swipe(DIRS[Math.floor(rnd() * 4)]);
-    else if (targets.length) g.buildAt(targets[0].x, targets[0].y);
-    else break;
+    } else g.swipe(DIRS[Math.floor(rnd() * 4)]);
   }
   if (kind === 'shuttle' && canShuttle(g.board)) g.open('shuttle');
   else g.open();

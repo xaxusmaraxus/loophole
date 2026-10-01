@@ -11,12 +11,10 @@ import type { RideStats } from '../puzzle/pieces';
 export const SECONDS_EVERY = 4;
 export const WAVE_EVERY = 5;
 export const SPIN_EVERY = 6;
-/** Daylight a dry swipe costs on Lifeguard Lou's day. */
-export const WHISTLE_COST = 2;
-/** A rematch ride gets this share of the day's daylight. */
-export const ROUND_DAYLIGHT = 0.5;
+/** Tiles a dry swipe drops in on Lifeguard Lou's day. */
+export const WHISTLE_COST = 3;
 
-export type DemandId = 'long' | 'loop' | 'drop' | 'variety' | 'cross' | 'helix' | 'circuit';
+export type DemandId = 'long' | 'loop' | 'drop' | 'variety' | 'park' | 'helix' | 'circuit';
 
 export interface DemandDef {
   text: string;
@@ -28,7 +26,7 @@ export const DEMANDS: Record<DemandId, DemandDef> = {
   loop: { text: 'Something goes upside down', met: (s) => s.inversions > 0 },
   drop: { text: 'At least one Drop', met: (s) => s.tierCounts[3] > 0 },
   variety: { text: '4 or more piece types', met: (s) => s.variety >= 4 },
-  cross: { text: 'A bridge or a tunnel', met: (s) => s.crossings > 0 },
+  park: { text: 'A park piece (spinning, water or hanging)', met: (s) => s.flavors.spin + s.flavors.water + s.flavors.hang > 0 },
   helix: { text: 'A Helix or bigger', met: (s) => s.topTier >= 4 },
   circuit: { text: 'A full circuit, no shuttles', met: (_s, c) => c },
 };

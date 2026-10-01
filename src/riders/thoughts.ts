@@ -13,7 +13,7 @@ export interface ThoughtContext {
   thrill: number;
   /** The ends meet: it can open as a full circuit. */
   ready: boolean;
-  /** Sunset: no more swipes. */
+  /** The board is nearly full. */
   dark: boolean;
 }
 
@@ -84,7 +84,7 @@ export function lineThought(r: Rider, c: ThoughtContext): string {
   if (c.pukes >= 3) return pick(k.scared);
   if (c.pukes > 0) return pick([...k.scared, ...k.calm]);
   if (c.ready && Math.random() < 0.3) return pick(['Open it already!', 'Let us on!', 'Is it ready? It looks ready!']);
-  if (c.dark && Math.random() < 0.3) return pick(['It’s getting dark…', 'Is the park closing?']);
+  if (c.dark && Math.random() < 0.3) return pick(['It’s getting crowded in there…', 'Is that track going to fit?']);
   if (c.thrill < 10 || c.length < 4) return pick([...k.bored, ...k.calm]);
   return pick([...k.calm, ...k.bored.slice(0, 1)]);
 }

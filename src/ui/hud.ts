@@ -92,11 +92,12 @@ export class Hud {
     banner.hidden = !(g.cfg.boss || node === 'storm' || node === 'vip' || node === 'finale');
     banner.className = `day-banner ${g.cfg.boss ? 'boss' : node}`;
 
-    // Daylight.
-    const frac = Math.min(1, Math.max(0, g.daylight / g.cfg.daylight));
+    // Room: free cells left on the board. When nothing can move, it's gridlock.
+    const cells = g.board.size * g.board.size;
+    const frac = Math.min(1, Math.max(0, g.room / cells));
     $('daylightBar').style.width = `${frac * 100}%`;
-    $('daylightBar').classList.toggle('dusk', frac < 0.3);
-    $('daylightLeft').textContent = g.daylight > 0 ? `${g.daylight} swipe${g.daylight === 1 ? '' : 's'} of daylight left` : 'Sunset: no more swipes';
+    $('daylightBar').classList.toggle('dusk', g.room <= 4);
+    $('daylightLeft').textContent = g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'} left` : 'Board full: one more move, or gridlock';
 
     // Excitement × multiplier.
     const kind = g.openKind;
@@ -133,10 +134,10 @@ export class Hud {
     else if (aim?.tool === 'dynamite') hint.textContent = 'Tap a tree, rock, pond or stand to blow it up.';
     else if (aim && aim.tool in SPECIALS) hint.textContent = `Tap a piece of your track to fit the ${SPECIALS[aim.tool as SpecialId].name} there. Tap it again to cancel.`;
     else if (aim?.tool === 'crane') hint.textContent = aim.first ? 'Now tap where the tile should go.' : 'Tap the tile the crane should lift.';
-    else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit, or keep building for a wilder ride.';
-    else if (g.daylight <= 0) hint.textContent = 'The sun has set. No more swipes, but you can still build and open the ride.';
-    else if (trackLength(g.board) === 0) hint.textContent = 'Tap a highlighted cell above the platform to start building.';
-    else hint.textContent = 'Steer the two pennants toward each other to close the loop, or cash out now as a shuttle.';
+    else if (aim?.tool === 'crew') hint.textContent = 'Tap a cell right next to an end of the track: the crew lays it by hand.';
+    else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit now, or keep feeding it for a wilder ride.';
+    else if (trackLength(g.board) === 0) hint.innerHTML = 'Swipe tiles <strong>into the red and blue ends</strong> on the platform: the track eats them. Merge first, the bigger the piece the wilder the ride.';
+    else hint.textContent = 'Feed both ends and bring them back together to close the loop. Get boxed in and it opens by itself.';
     hint.classList.toggle('ready', building && canConnect(g.board));
     const open = $<HTMLButtonElement>('open');
     open.disabled = !kind;
@@ -187,7 +188,7 @@ export class Hud {
     let live = '';
     if (def.rule === 'seconds' && boss) live = `Stomach <b>${g.stomach(boss)}</b> · next snack in ${left(SECONDS_EVERY)}`;
     else if (def.rule === 'waves') live = `Next wave <b class="arrow">${ARROW[f.wave]}</b> in ${left(WAVE_EVERY)} swipe${left(WAVE_EVERY) === 1 ? '' : 's'}`;
-    else if (def.rule === 'whistle') live = 'A swipe with no merge costs <b>2</b> daylight';
+    else if (def.rule === 'whistle') live = 'A swipe with no merge drops in <b>2</b> extra tiles';
     else if (def.rule === 'spin')
       live = `<span class="compass" aria-label="Swiping up goes ${spun('up', f.spin)}">${(['up', 'right', 'down', 'left'] as const).map((d) => `<span class="c-${d}">${ARROW[spun(d, f.spin)]}</span>`).join('')}</span> turns in ${left(SPIN_EVERY)}`;
     else if (def.rule === 'seenitall') {
@@ -579,7 +580,7 @@ export class Hud {
               ? 'Park cleared!'
               : 'The crowd loved it.'
             : r.again
-              ? `Not done yet: the track comes down and ${bossName} gets back in line. Ride ${r.round + 1} of ${BOSS_ROUNDS}, with half the daylight.`
+              ? `Not done yet: the track comes down and ${bossName} gets back in line. Ride ${r.round + 1} of ${BOSS_ROUNDS}, on a restocked board.`
               : `The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
         }</p>
         ${photo ? `<figure class="photo-card"><img src="${photo}" alt="On-ride photo of the riders"></figure>` : ''}

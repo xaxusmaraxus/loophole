@@ -20,7 +20,7 @@ export type AttractionId =
   | 'crowdpleaser'
   | 'quicktrip'
   | 'adrenaline'
-  | 'twilight'
+  | 'openair'
   | 'funnelcake'
   // Legendaries: only bosses drop these.
   | 'ferris'
@@ -51,7 +51,8 @@ export interface ScoreContext {
   /** Riders in line who would puke at least once. */
   pukers: number;
   chainLinks: number;
-  daylightLeft: number;
+  /** Free cells left on the board when the ride opens. */
+  room: number;
   /** Pukes on the ride (each rider's count, not weighted by worth). */
   pukes: number;
 }
@@ -172,12 +173,12 @@ export const ATTRACTIONS: Record<AttractionId, AttractionDef> = {
     theme: 'thrill',
     effect: (c) => when(c.stats.thrill >= 10, { mult: Math.floor(c.stats.thrill / 10) }),
   },
-  twilight: {
-    name: 'Twilight Ride',
-    desc: '+6 excitement for each swipe of daylight left when you open.',
+  openair: {
+    name: 'Open Air',
+    desc: '+5 excitement for each free cell left on the board when you open.',
     rarity: 'common',
     theme: 'garden',
-    effect: (c) => when(c.daylightLeft > 0, { chips: 6 * c.daylightLeft }),
+    effect: (c) => when(c.room > 0, { chips: 5 * c.room }),
   },
   funnelcake: {
     name: 'Funnel Cake Stand',

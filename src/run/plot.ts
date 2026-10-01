@@ -17,7 +17,7 @@ export const PLOT_MAX_H = 5;
 export const STASH_SIZE = 2;
 
 export const UPGRADE_THEME: Record<UpgradeId, Theme> = {
-  latenight: 'show',
+  sweeper: 'garden',
   lumber: 'garden',
   hype: 'show',
   fries: 'food',

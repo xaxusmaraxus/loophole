@@ -11,7 +11,7 @@
   <body>
     <div class="app">
       <div class="canvas-wrap" id="canvasWrap">
-        <canvas id="park" aria-label="The park. Swipe to slide and merge tiles. Tap a highlighted cell to build track. Hover a guest to meet them."></canvas>
+        <canvas id="park" aria-label="The park. Swipe to slide and merge tiles, and into the ends of the track to build it. Hover a guest to meet them."></canvas>
         <div class="combo" id="combo" aria-hidden="true"></div>
         <div class="guest-card" id="guestCard" hidden></div>
         <div class="overlay" id="overlay" hidden></div>
@@ -86,7 +86,7 @@
           <div class="controls">
             <div id="tools" class="toolbar" role="group" aria-label="Tools"></div>
             <button id="undo" type="button" class="undo">Undo <span id="undoCount" class="count">1</span></button>
-            <button id="switchEnd" type="button" class="switch" title="Switch which pennant keyboard building extends (Tab)" aria-label="Switch end"><span class="sw-label">Switch end</span></button>
+            <button id="switchEnd" hidden type="button" class="switch" title="Switch which pennant keyboard building extends (Tab)" aria-label="Switch end"><span class="sw-label">Switch end</span></button>
             <button id="open" type="button" class="open">Open the ride</button>
             <div class="pad" role="group" aria-label="Swipe">
               <button type="button" data-dir="up" class="up" aria-label="Swipe up">↑</button>
@@ -105,9 +105,9 @@
           <ol>
             <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
             <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
-            <li><strong>Tap a highlighted cell</strong> to build: the tile there becomes that piece of track. Track grows from both sides of the station (the red and blue pennants).</li>
             <li>When the pennants meet, <strong>open the full circuit</strong>. Or cash out any time as a shuttle for half.</li>
-            <li>Every swipe uses daylight; building is free. After sunset you can't swipe, but you can keep building and open the ride whenever you're ready.</li>
+            <li><strong>The track eats tiles.</strong> Swipe a tile into an open end of the track (red or blue) and it becomes the next piece of the coaster. Each end eats one tile per swipe. Merge tiles before you feed them in: bigger pieces make a wilder ride.</li>
+            <li>There's no turn limit. Every swipe drops in a new tile and the track takes up room, so the board fills. Bring the two ends together and open the ride whenever you like; if nothing can move any more, it's gridlock and the ride opens by itself (as a half-price shuttle if the ends don't meet).</li>
             <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
             <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line (hover a guest to meet them). A shuttle hits every piece twice but pays half.</li>
             <li><strong>Your park plot:</strong> attractions and upgrades sit on a grid you arrange between days. Attractions score top row first, left to right, and each gets +1 multiplier for every touching spot of its theme. Targets climb fast, so build combos.</li>
@@ -116,7 +116,7 @@
             <li>Each park ends with a <strong>boss</strong> who bends the rules for the day. Make them puke enough times to break their composure; you get up to three rides. Breaking a boss grows your plot and drops a legendary attraction.</li>
             <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
           </ol>
-          <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
+          <p class="keys">Keys: arrows or WASD swipe, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
           <div class="help-actions">
             <button type="button" class="ghost-dark" id="unlocksHelp">Unlocks</button>
             <button type="button" class="ghost-dark" id="newRunHelp">Start a new season</button>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
-import { idx, stationPoint } from '../src/puzzle/board';
+import { idx, stationPoint, trackAt } from '../src/puzzle/board';
 import { dayConfig, modsFor, parkFor } from '../src/run/run';
 
 /** A new game, past the intro card, on the first day node. */
@@ -19,29 +19,57 @@ function finish(g: Game, total: number): void {
   g.continueFromResults();
 }
 
-describe('sunset', () => {
-  it('stops swipes but not building or opening, and never opens the ride by itself', () => {
+describe('the track eats tiles', () => {
+  /** A cleared board with tiles where we want them. */
+  function cleared(): Game {
     const g = freshGame();
-    g.daylight = 0;
-    const tiles = [...g.board.tiles];
-    g.swipe('left');
-    g.swipe('right');
-    expect(g.board.tiles).toEqual(tiles);
-    expect(g.phase).toBe('build');
+    const b = g.board;
+    b.tiles = b.tiles.map(() => 0);
+    b.obstacles = b.obstacles.map(() => null);
+    b.flav = b.flav!.map(() => null);
+    return g;
+  }
+
+  it('a tile that slides into an open end becomes track, one per end per swipe', () => {
+    const g = cleared();
+    const b = g.board;
     const s = stationPoint(g.board, 0);
-    g.tap(s.x, s.y - 1);
-    expect(g.board.ends[0]).toHaveLength(1);
-    expect(g.openKind).toBe('shuttle');
+    // Two tiles stacked in the red end's column, one in the blue end's.
+    b.tiles[idx(b, s.x, 0)] = 3;
+    b.tiles[idx(b, s.x, 1)] = 2;
+    b.tiles[idx(b, s.x + 1, 2)] = 4;
+    g.swipe('down');
+    expect(b.ends[0].map((c) => c.tier)).toEqual([2]);
+    expect(b.ends[1].map((c) => c.tier)).toEqual([4]);
+    // The Drop stopped right on top of the new red end; the next swipe down feeds it.
+    expect(b.tiles[idx(b, s.x, b.size - 2)]).toBe(3);
+    expect(g.openKind).toBe('circuit');
   });
 
-  it('building spends no daylight', () => {
+  it('tapping the park no longer builds', () => {
     const g = freshGame();
-    const before = g.daylight;
     const s = stationPoint(g.board, 0);
     g.tap(s.x, s.y - 1);
-    g.tap(s.x + 1, s.y - 1);
-    expect(g.board.ends[0].length + g.board.ends[1].length).toBe(2);
-    expect(g.daylight).toBe(before);
+    expect(g.board.ends[0]).toHaveLength(0);
+  });
+
+  it('gridlock opens the ride by itself', () => {
+    const g = cleared();
+    const b = g.board;
+    const s = stationPoint(b, 0);
+    b.tiles[idx(b, s.x, b.size - 1)] = 2;
+    b.tiles[idx(b, s.x + 1, b.size - 1)] = 2;
+    g.swipe('down');
+    expect(g.openKind).toBe('circuit');
+    // Fill every free cell with tiles that can't merge with anything.
+    for (let i = 0; i < b.tiles.length; i++) {
+      const [x, y] = [i % b.size, Math.floor(i / b.size)];
+      if (!trackAt(b, x, y)) b.tiles[i] = (x + y) % 2 ? 1 : 3;
+    }
+    // Checkerboard of Bumps and Drops: nothing merges; the ends can still eat, so feed them till nothing moves.
+    for (let n = 0; n < 60 && g.phase === 'build'; n++) g.swipe((['down', 'left', 'right', 'up'] as const)[n % 4]);
+    expect(g.phase).toBe('ride');
+    expect(g.events.some((e) => e.type === 'gridlock')).toBe(true);
   });
 });
 
@@ -77,12 +105,15 @@ describe('tools', () => {
     expect(g.board.tiles[from]).toBe(0);
   });
 
-  it('coffee adds daylight, even after sunset', () => {
+  it('the track crew lays one piece by hand', () => {
     const g = freshGame();
-    g.daylight = 0;
-    g.tools.coffee = 1;
-    g.useTool('coffee');
-    expect(g.daylight).toBe(5);
+    const s = stationPoint(g.board, 0);
+    g.board.obstacles[idx(g.board, s.x, s.y - 1)] = null;
+    g.tools.crew = 1;
+    g.useTool('crew');
+    g.tap(s.x, s.y - 1);
+    expect(g.board.ends[0]).toHaveLength(1);
+    expect(g.tools.crew).toBe(0);
   });
 });
 
@@ -90,10 +121,11 @@ describe('rewards and attractions', () => {
   it('rewards add upgrades, tool charges or attractions', () => {
     const g = freshGame();
     finish(g, g.cfg.target);
-    g.offer = [{ kind: 'upgrade', id: 'latenight' }];
+    g.offer = [{ kind: 'upgrade', id: 'sweeper' }];
     g.chooseReward(0);
-    expect(g.upgrades).toContain('latenight');
-    expect(dayConfig(g.dayNum, g.mods).daylight).toBe(dayConfig(g.dayNum, modsFor([])).daylight + 5);
+    expect(g.upgrades).toContain('sweeper');
+    expect(g.mods.sweepEvery).toBe(8);
+    expect(modsFor([]).sweepEvery).toBe(0);
   });
 
   it('Season Pass grows every day you beat the target', () => {
@@ -194,8 +226,8 @@ describe('puking', () => {
     // A U-shaped ride: two Mega Loops (9 nausea each for an ordinary stomach).
     b.tiles[idx(b, s.x, s.y - 1)] = 7;
     b.tiles[idx(b, s.x + 1, s.y - 1)] = 7;
-    g.tap(s.x, s.y - 1);
-    g.tap(s.x + 1, s.y - 1);
+    g.buildAt(s.x, s.y - 1);
+    g.buildAt(s.x + 1, s.y - 1);
     expect(g.openKind).toBe('circuit');
     const corndog = { ...g.queue[0], kind: 'corndog' as const, boss: undefined, stomach: 4 };
     expect(g.pukes(corndog)).toBe(4); // 18 nausea / stomach 4
@@ -211,8 +243,8 @@ describe('puking', () => {
     const s = stationPoint(b, 0);
     b.tiles[idx(b, s.x, s.y - 1)] = 5; // Loop, 4 nausea, upside down
     b.tiles[idx(b, s.x + 1, s.y - 1)] = 5;
-    g.tap(s.x, s.y - 1);
-    g.tap(s.x + 1, s.y - 1);
+    g.buildAt(s.x, s.y - 1);
+    g.buildAt(s.x + 1, s.y - 1);
     const base = { ...g.queue[0], boss: undefined, stomach: 8 };
     expect(g.pukes({ ...base, kind: 'tourist' })).toBe(1); // 8 / 8
     expect(g.pukes({ ...base, kind: 'grandma' })).toBe(3); // triple: 24 / 8

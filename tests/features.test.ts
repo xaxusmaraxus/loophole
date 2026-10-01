@@ -104,8 +104,8 @@ describe('special pieces', () => {
     b.obstacles = b.obstacles.map(() => null);
     b.tiles[(s.y - 1) * b.size + s.x] = 2;
     b.tiles[(s.y - 1) * b.size + s.x + 1] = 2;
-    g.tap(s.x, s.y - 1);
-    g.tap(s.x + 1, s.y - 1);
+    g.buildAt(s.x, s.y - 1);
+    g.buildAt(s.x + 1, s.y - 1);
     if (special) {
       g.specials[special] = 1;
       g.useSpecial(special);
@@ -171,14 +171,14 @@ describe('unlocks', () => {
     expect(checkUnlocks(r).sort()).toEqual(['coffee', 'launch']);
     expect(checkUnlocks(r)).toEqual([]);
     expect(unlockedSpecials(r)).toEqual(['launch']);
-    expect(startingKit(r).tools).toEqual({ coffee: 1 });
+    expect(startingKit(r).tools).toEqual({ crew: 1 });
   });
 
   it('a game records bosses it beats and starts seasons with the unlocked kit', () => {
     const g = new Game('UNLOCK');
     g.record.unlocked.push('coffee', 'bigride');
     g.newRun('UNLOCK');
-    expect(g.tools.coffee).toBe(1);
+    expect(g.tools.crew).toBe(1);
     expect(g.specials.launch).toBe(1);
   });
 });

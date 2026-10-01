@@ -863,9 +863,10 @@ export class Renderer {
           sfx.open();
           this.startRide();
           break;
-        case 'dark':
-          this.word('SUNSET', this.stationCenter().setY(1.1), PAL.gold);
-          sfx.meh();
+        case 'gridlock':
+          this.word('GRIDLOCK!', this.stationCenter().setY(1.2), PAL.gold, 1.4);
+          this.kick(3, 300);
+          sfx.bell();
           break;
         case 'tool': {
           const at = e.at ? this.cell(e.at) : this.stationCenter();
@@ -880,8 +881,8 @@ export class Renderer {
             this.flashes.set(idx(this.board, e.at.x, e.at.y), this.now + 200);
             this.burst(at.clone().setY(0.35), 18, [PAL.heart, PAL.gold, PAL.white]);
             sfx.merge(3);
-          } else if (e.tool === 'coffee') {
-            this.word('+5 SWIPES', at.clone().setY(1), PAL.gold);
+          } else if (e.tool === 'crew') {
+            this.word('TRACK CREW', at.clone().setY(1), PAL.gold);
             sfx.hype();
           } else if (e.tool === 'megaphone') {
             this.word('COME RIDE!', at.clone().setY(1), PAL.white);
@@ -1281,7 +1282,8 @@ export class Renderer {
 
   /** Late in the day the light turns golden, then dusk comes and the lamps light up. */
   private updateLight(dt: number): void {
-    const frac = this.game.daylight / Math.max(1, this.game.cfg.daylight);
+    // The evening comes as the park fills up: the fuller the board, the later it gets.
+    const frac = Math.min(1, (2.2 * this.game.room) / (this.n * this.n));
     const park = this.game.cfg.park.id;
     let gold = frac < 0.6 ? Math.min(1, (0.6 - frac) / 0.3) : 0;
     let dusk = frac < 0.3 ? Math.min(1, (0.3 - frac) / 0.3) : 0;
@@ -2034,7 +2036,7 @@ export class Renderer {
         inversions: stats.inversions,
         thrill: stats.thrill,
         ready: g.openKind === 'circuit',
-        dark: g.daylight <= 0,
+        dark: g.room <= 3,
       });
       const geo = personGeo(r.look, 'smile');
       this.think(text, () => {

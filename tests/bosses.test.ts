@@ -25,8 +25,8 @@ function uRide(g: Game, a: number, b: number): void {
   const s = bd.station;
   bd.tiles[(s.y - 1) * bd.size + s.x] = a;
   bd.tiles[(s.y - 1) * bd.size + s.x + 1] = b;
-  g.tap(s.x, s.y - 1);
-  g.tap(s.x + 1, s.y - 1);
+  g.buildAt(s.x, s.y - 1);
+  g.buildAt(s.x + 1, s.y - 1);
 }
 
 describe('the park plot', () => {
@@ -82,7 +82,7 @@ describe('the park plot', () => {
 
 describe('district bonus, Ferris Wheel and Hall of Mirrors', () => {
   const stats = rideStats([{ tier: 5 }], { thrillMult: 1, flatThrill: 0 });
-  const ctx = { stats, riders: 4, pukers: 0, pukes: 0, chainLinks: 0, daylightLeft: 0 };
+  const ctx = { stats, riders: 4, pukers: 0, pukes: 0, chainLinks: 0, room: 0 };
 
   it('a district adds +1 mult per same-theme neighbor', () => {
     const plain = scoreRide(ctx, [{ id: 'loopdeloop', counter: 0 }], false);
@@ -108,7 +108,7 @@ describe('boss days', () => {
 
   it('give up to three rides to break the boss, banking tickets in between', () => {
     const g = bossDay('barry');
-    expect(g.fight).toMatchObject({ round: 1, hp: 2, max: 2 });
+    expect(g.fight).toMatchObject({ round: 1, hp: 3, max: 3 });
     uRide(g, 1, 1);
     g.open('circuit');
     g.rideDone();
@@ -118,13 +118,12 @@ describe('boss days', () => {
     expect(r.passed).toBe(false);
     const hearts = g.hearts;
     g.continueFromResults();
-    // Round two: the track came down, the tiles stayed, same line, half the daylight.
+    // Round two: the track came down, the tiles stayed, same line.
     expect(g.phase).toBe('build');
     expect(g.hearts).toBe(hearts);
     expect(g.fight!.round).toBe(2);
     expect(g.fight!.banked).toBe(r.total);
     expect(g.board.ends).toEqual([[], []]);
-    expect(g.daylight).toBe(Math.ceil(g.cfg.daylight / 2));
     // Third time unlucky: a heart is lost.
     for (const round of [2, 3]) {
       uRide(g, 1, 1);
@@ -177,7 +176,7 @@ describe('boss days', () => {
   it('Rough Seas: every 5 swipes a wave slides the board', () => {
     const g = bossDay('ivy');
     let waves = 0;
-    for (let i = 0; i < 10 && g.daylight > 0; i++) {
+    for (let i = 0; i < 10 && g.phase === 'build'; i++) {
       g.swipe(['up', 'left', 'down', 'right'][i % 4] as never);
       waves += g.events.filter((e) => e.type === 'boss' && e.what === 'wave').length;
       g.events.length = 0;
@@ -185,13 +184,12 @@ describe('boss days', () => {
     expect(waves).toBe(Math.floor(g.actions / 5));
   });
 
-  it('No Running!: a dry swipe costs 2 daylight', () => {
+  it('No Running!: a dry swipe drops in two extra tiles', () => {
     const g = bossDay('lou');
     g.board.tiles = g.board.tiles.map(() => 0);
     g.board.tiles[0] = 1;
-    const before = g.daylight;
     g.swipe('right');
-    expect(g.daylight).toBe(before - 2);
+    expect(g.board.tiles.filter((t) => t > 0)).toHaveLength(4);
   });
 
   it('Spin Cycle: the controls turn a quarter every 6 swipes', () => {

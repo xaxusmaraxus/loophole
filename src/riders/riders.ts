@@ -166,7 +166,7 @@ export const KINDS: Record<Exclude<RiderKind, 'boss'>, KindDef> = {
  *  - seconds:  their stomach grows while you build (every 4 swipes).
  *  - seenitall: only the first piece of each type gets to them.
  *  - waves:    every 5 swipes a wave sloshes the board one way (forecast ahead).
- *  - whistle:  a swipe that merges nothing costs 2 daylight.
+ *  - whistle:  a swipe that merges nothing drops in two extra tiles.
  *  - spin:     every 6 swipes your swipe controls turn a quarter turn.
  *  - blackout: the fog closes in: only tiles next to the track can be seen.
  *  - demands:  the ride must meet three demands or they won't get on.
@@ -195,7 +195,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     name: 'Big Barry',
     quip: 'Has never puked. Not once. Not even at the chili festival.',
     stomach: 14,
-    composure: 2,
+    composure: 3,
     rule: 'seconds',
     ruleName: 'Second Helpings',
     ruleDesc: 'Barry snacks while you build: his stomach grows by 1 every 4 swipes. Open early!',
@@ -207,7 +207,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     name: 'Granny Grit',
     quip: 'Rode the first wooden coaster in 1952. Was bored.',
     stomach: 6,
-    composure: 2,
+    composure: 3,
     rule: 'seenitall',
     ruleName: 'Seen It All',
     ruleDesc: 'Only the first piece of each type gets to her. Variety is everything.',
@@ -219,7 +219,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     name: 'Iron-Gut Ivy',
     quip: 'Forty years at sea. Ate a storm once.',
     stomach: 8,
-    composure: 2,
+    composure: 3,
     rule: 'waves',
     ruleName: 'Rough Seas',
     ruleDesc: 'Every 5 swipes a wave sloshes the whole board one way. Watch the forecast.',
@@ -232,10 +232,10 @@ export const BOSSES: Record<BossId, BossDef> = {
     name: 'Lifeguard Lou',
     quip: 'NO RUNNING. NO DIVING. NO FUN.',
     stomach: 10,
-    composure: 2,
+    composure: 3,
     rule: 'whistle',
     ruleName: 'No Running!',
-    ruleDesc: 'Every swipe that merges nothing costs 2 daylight instead of 1.',
+    ruleDesc: 'Every swipe that merges nothing drops in two extra tiles. Keep it tidy.',
     trait: 'Hard to impress. Everything hits him normally.',
     worth: 8,
     look: { shirt: 0, hairStyle: 'spiky', hair: 3, accessory: 'shades' },
@@ -244,7 +244,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     name: 'Dr. Vertigo',
     quip: 'Wrote the textbook on motion sickness. Immune, allegedly.',
     stomach: 12,
-    composure: 2,
+    composure: 3,
     rule: 'spin',
     ruleName: 'Spin Cycle',
     ruleDesc: 'Every 6 swipes your controls turn a quarter turn clockwise. Check the compass.',
@@ -257,7 +257,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     name: 'Count Queasy',
     quip: 'Undead for 300 years. Has not felt a thing since.',
     stomach: 12,
-    composure: 2,
+    composure: 3,
     rule: 'blackout',
     ruleName: 'Lights Out',
     ruleDesc: 'The fog closes in: only tiles right next to your track can be seen.',
@@ -270,7 +270,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     name: 'The Mayor',
     quip: 'Has ridden every coaster in the state. Unshakeable, on paper.',
     stomach: 16,
-    composure: 3,
+    composure: 4,
     rule: 'demands',
     ruleName: 'Inspection Day',
     ruleDesc: 'The ride must meet all three of the Mayor’s demands, or the Mayor won’t get on.',

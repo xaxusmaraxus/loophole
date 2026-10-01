@@ -8,8 +8,8 @@ import { ATTRACTIONS, type AttractionId, LEGENDARIES } from './attractions';
 //  - Upgrades: permanent, stackable boosts to the park's stats.
 //  - Tools: charges you keep in a toolbar and spend whenever you like.
 
-export type UpgradeId = 'latenight' | 'lumber' | 'hype' | 'fries' | 'billboard' | 'landscaper' | 'scenic' | 'wrench' | 'teacups' | 'floodgates' | 'gantry' | 'blueprints';
-export type ToolId = 'coffee' | 'paint' | 'crane' | 'dynamite' | 'megaphone';
+export type UpgradeId = 'sweeper' | 'lumber' | 'hype' | 'fries' | 'billboard' | 'landscaper' | 'scenic' | 'wrench' | 'teacups' | 'floodgates' | 'gantry' | 'blueprints';
+export type ToolId = 'crew' | 'paint' | 'crane' | 'dynamite' | 'megaphone';
 
 export interface UpgradeDef {
   name: string;
@@ -17,7 +17,7 @@ export interface UpgradeDef {
 }
 
 export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
-  latenight: { name: 'Late Closing', desc: '+5 swipes of daylight every day.' },
+  sweeper: { name: 'Street Sweepers', desc: 'Every 8 swipes, the smallest loose tile is swept away. Room to breathe.' },
   lumber: { name: 'Better Lumber', desc: 'New tiles are Hills 15% more often.' },
   hype: { name: 'Hype Guy', desc: '+25% thrill on every ride.' },
   fries: { name: 'Greasy Fries', desc: 'Every rider’s stomach is 1 smaller.' },
@@ -35,13 +35,13 @@ export interface ToolDef {
   name: string;
   desc: string;
   /** What the next tap targets, or null if the tool works instantly. */
-  aim: 'tile' | 'swap' | 'obstacle' | null;
+  aim: 'tile' | 'swap' | 'obstacle' | 'build' | null;
   /** Charges one reward grants. */
   charges: number;
 }
 
 export const TOOLS: Record<ToolId, ToolDef> = {
-  coffee: { name: 'Coffee', desc: '+5 swipes of daylight today. Works after sunset too.', aim: null, charges: 2 },
+  crew: { name: 'Track Crew', desc: 'Lay one piece of track by hand: tap a cell next to an end (the tile there, or flat track).', aim: 'build', charges: 2 },
   paint: { name: 'Paint Can', desc: 'Upgrade one tile a tier. It can set off a chain.', aim: 'tile', charges: 2 },
   crane: { name: 'Crane', desc: 'Move a loose tile anywhere (it swaps with whatever is there).', aim: 'swap', charges: 2 },
   dynamite: { name: 'Dynamite', desc: 'Blow up one tree, rock, pond or stand.', aim: 'obstacle', charges: 2 },
@@ -66,7 +66,8 @@ export interface Mods {
   undos: number;
   obstacleDelta: number;
   spawns: number;
-  daylightBonus: number;
+  /** Street Sweepers: sweep the smallest tile every this many swipes (0 = never). */
+  sweepEvery: number;
   extraRiders: number;
   /** Nausea multiplier on spinning pieces. */
   spinNausea: number;
@@ -88,7 +89,7 @@ export function modsFor(upgrades: readonly UpgradeId[]): Mods {
     undos: 1 + n('wrench'),
     obstacleDelta: -2 * n('landscaper'),
     spawns: 1,
-    daylightBonus: 5 * n('latenight'),
+    sweepEvery: n('sweeper') ? Math.max(3, 9 - n('sweeper')) : 0,
     extraRiders: 2 * n('billboard'),
     spinNausea: n('teacups') ? 2 : 1.5,
     waterMult: n('floodgates'),
@@ -245,7 +246,7 @@ export type NodeKind = 'day' | 'vip' | 'storm' | 'shop' | 'repair' | 'treasure' 
 export const NODE_INFO: Record<NodeKind, { name: string; desc: string; isDay: boolean }> = {
   day: { name: 'Day', desc: 'A regular day at the park.', isDay: true },
   vip: { name: 'VIP day', desc: 'A VIP joins the line. Every time they puke, it pays 5×.', isDay: true },
-  storm: { name: 'Storm', desc: '8 fewer swipes. Afterwards, every reward choice is an attraction.', isDay: true },
+  storm: { name: 'Storm', desc: 'The wind blows in two tiles a swipe. Afterwards, every reward choice is an attraction.', isDay: true },
   shop: { name: 'Shop', desc: 'Spend park funds on tools, upgrades and attractions.', isDay: false },
   repair: { name: 'Repair', desc: 'Win back a heart. At full hearts, +100 park funds instead.', isDay: false },
   treasure: { name: 'Treasure', desc: 'A free capsule egg from the machine.', isDay: false },
@@ -281,8 +282,8 @@ export interface DayConfig {
   soft: number;
   /** Tickets to sell today. */
   target: number;
-  /** Swipes before sunset. Building is free. */
-  daylight: number;
+  /** Fresh tiles per swipe (storms blow in more). */
+  spawns: number;
   startRiders: number;
   maxQueue: number;
 }
@@ -292,8 +293,8 @@ export interface DayConfig {
  * attractions that multiply each other to keep up. Day 1 sits near what a simple
  * bot scores with no attractions at all.
  */
-export const BASE_TARGET = 1000;
-export const TARGET_GROWTH = 1.35;
+export const BASE_TARGET = 2400;
+export const TARGET_GROWTH = 1.85;
 
 /** Funds, prices and payouts scale with the targets. */
 export function priceScale(day: number): number {
@@ -305,7 +306,7 @@ export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day', parkB
   const d = Math.min(DAYS_PER_PARK, ((day - 1) % DAYS_PER_PARK) + 1);
   const boss = node === 'boss' || node === 'finale' ? parkBoss ?? BOSS_POOL[park.id][0] : null;
   let target = BASE_TARGET * TARGET_GROWTH ** (day - 1);
-  if (node === 'finale') target *= 1.5;
+  if (node === 'finale') target *= 2.5;
   return {
     day,
     park,
@@ -315,7 +316,7 @@ export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day', parkB
     obstacles: Math.max(0, (park.id === 'meadow' ? d : 2 + d) + (park.id === 'finale' ? 2 : 0) + mods.obstacleDelta),
     soft: park.soft,
     target: Math.round(target / 10) * 10,
-    daylight: 32 + park.size * 2 + (park.id === 'finale' ? 8 : 0) - (node === 'storm' ? 8 : 0) + mods.daylightBonus,
+    spawns: node === 'storm' ? 2 : 1,
     startRiders: 3 + mods.extraRiders + (park.id === 'finale' ? 3 : 0),
     maxQueue: park.id === 'finale' ? 12 : 10,
   };
@@ -396,6 +397,7 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
       soft: new Array(n * n).fill(false),
       piers: cfg.park.piers,
       flav: new Array(n * n).fill(null),
+      eat: true,
     };
     // Keep the two rows above the platform clear so a first loop is always possible.
     const nearStation = (x: number, y: number) => y >= n - 2 && x >= station.x - 1 && x <= station.x + 2;

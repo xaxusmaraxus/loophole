@@ -3,34 +3,36 @@
 // purpose, so treat its numbers as a floor, not as what a player can do.
 // Run: npx vite-node tools/season-bot.ts
 import { Game } from '../src/game';
-import { DIRS, buildTargets, canConnect, head, idx } from '../src/puzzle/board';
+import { DIRS, type Dir, canConnect, cloneBoard, head, slide } from '../src/puzzle/board';
+import { spun } from '../src/run/bossday';
 
+/**
+ * Snake-style: try each swipe on a copy, prefer ones that feed big pieces into
+ * the track, merge, and keep the two ends close; cash out once the ride is
+ * long enough or the board gets crowded.
+ */
 function playDay(g: Game, rnd: () => number, greed: number) {
   let guard = 0;
-  while (g.phase === 'build' && guard++ < 600) {
+  while (g.phase === 'build' && guard++ < 400) {
     const b = g.board;
-    const [h0, h1] = [head(b, 0), head(b, 1)];
-    const gap = Math.abs(h0.x - h1.x) + Math.abs(h0.y - h1.y);
     const len = b.ends[0].length + b.ends[1].length;
-    const returning = g.daylight <= gap + 3 || len >= greed;
-    if (canConnect(b) && (returning || g.daylight <= 2)) { g.open('circuit'); break; }
-    const targets = buildTargets(b);
-    if (targets.length && (returning || rnd() < 0.35)) {
-      const score = (t: { x: number; y: number; end: 0 | 1 }) => {
-        const other = head(b, t.end === 0 ? 1 : 0);
-        const dist = Math.abs(t.x - other.x) + Math.abs(t.y - other.y);
-        return b.tiles[idx(b, t.x, t.y)] * 3 - (returning ? dist * 5 : 0) + rnd();
-      };
-      const t = targets.sort((a, c) => score(c) - score(a))[0];
-      g.buildAt(t.x, t.y);
-    } else {
-      const before = g.daylight;
-      g.swipe(DIRS[Math.floor(rnd() * 4)]);
-      if (g.daylight === before) {
-        if (targets.length && g.daylight <= 0) { const t = targets[0]; g.buildAt(t.x, t.y); }
-        else if (g.daylight <= 0 || !targets.length) { g.open(); }
-      }
+    if (canConnect(b) && (len >= greed || g.room <= 4)) { g.open('circuit'); break; }
+    let best: Dir | null = null;
+    let bestScore = -Infinity;
+    for (const d of DIRS) {
+      const c = cloneBoard(b);
+      // Dr. Vertigo turns the controls: simulate where the swipe really goes.
+      const r = slide(c, g.fight && g.bossRule === 'spin' ? spun(d, g.fight.spin) : d);
+      if (!r.moved) continue;
+      const fed = r.eaten.reduce((a, e) => a + e.cell.tier, 0);
+      const [h0, h1] = [head(c, 0), head(c, 1)];
+      const gap = Math.abs(h0.x - h1.x) + Math.abs(h0.y - h1.y);
+      const closing = len >= greed * 0.6 ? -gap * 2 : 0;
+      const score = fed * (len < greed ? 1.5 : 0.5) + r.merges.length * 1.2 + closing + rnd() * 1.5;
+      if (score > bestScore) { bestScore = score; best = d; }
     }
+    if (!best) { g.open(); break; }
+    g.swipe(best);
   }
   if (g.phase === 'build') g.open();
   g.events.length = 0;
@@ -44,7 +46,7 @@ const targets: Record<number, number> = {};
 let wins = 0, reached: number[] = []; let bossFails = 0, bossDays = 0; const rounds: Record<number, number> = {}; const perBoss: Record<string, number[]> = {};
 for (let run = 0; run < 200; run++) {
   const g = new Game('B' + run);
-  const greed = 7 + Math.floor(rnd() * 10);
+  const greed = 8 + Math.floor(rnd() * 14);
   let guard = 0;
   while (guard++ < 60) {
     if (g.phase === 'intro') g.beginPark();

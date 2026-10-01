@@ -36,7 +36,7 @@ export const UNLOCKS: { [K in UnlockId]: UnlockDef } = {
   launch: { name: 'Launch pieces', desc: 'Special piece: +10 thrill, and the next piece hits double.', how: 'Break a Meadow Park boss.', earned: (r) => beat(r, 'meadow') },
   splash: { name: 'Water Splash pieces', desc: 'Special piece: +1 multiplier and soaked riders.', how: 'Break a Sunny Boardwalk boss.', earned: (r) => beat(r, 'boardwalk') },
   brakes: { name: 'Brake Run pieces', desc: 'Special piece: +3 nausea for every rider.', how: 'Break a Haunted Hollow boss.', earned: (r) => beat(r, 'hollow') },
-  coffee: { name: 'Thermos', desc: 'Every new season starts with an extra Coffee.', how: 'Make guests puke 100 times.', earned: (r) => r.totalPukes >= 100 },
+  coffee: { name: 'Union card', desc: 'Every new season starts with an extra Track Crew.', how: 'Make guests puke 100 times.', earned: (r) => r.totalPukes >= 100 },
   crane: { name: 'Crane license', desc: 'Every new season starts with a Crane.', how: 'Make guests puke 500 times.', earned: (r) => r.totalPukes >= 500 },
   bigride: { name: 'Headliner', desc: 'Every new season starts with a Launch piece.', how: 'Sell 100,000 tickets on a single ride.', earned: (r) => r.bestRide >= 100000 },
   candy: { name: 'Candy-stripe station', desc: 'A pink and mint paint job for the station.', how: 'Play 3 seasons.', earned: (r) => r.seasons >= 3 },
@@ -61,7 +61,7 @@ export function unlockedSpecials(r: PlayRecord): SpecialId[] {
 /** Charges every new season starts with, from unlocks. */
 export function startingKit(r: PlayRecord): { tools: Partial<{ [K in ToolId]: number }>; specials: Partial<{ [K in SpecialId]: number }> } {
   return {
-    tools: { ...(r.unlocked.includes('coffee') ? { coffee: 1 } : {}), ...(r.unlocked.includes('crane') ? { crane: 1 } : {}) },
+    tools: { ...(r.unlocked.includes('coffee') ? { crew: 1 } : {}), ...(r.unlocked.includes('crane') ? { crane: 1 } : {}) },
     specials: r.unlocked.includes('bigride') ? { launch: 1 } : {},
   };
 }

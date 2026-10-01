@@ -99,10 +99,7 @@ window.addEventListener('keydown', (e) => {
   const dir = KEYS[e.key];
   if (dir && (e.key.startsWith('Arrow') || game.phase === 'build')) {
     e.preventDefault();
-    act(() => (e.shiftKey ? game.buildDir(dir) : game.swipe(dir)));
-  } else if (e.key === 'Tab' && game.phase === 'build') {
-    e.preventDefault();
-    act(() => game.selectEnd());
+    act(() => game.swipe(dir));
   } else if (e.key === 'Enter' && game.phase === 'build' && !(e.target instanceof HTMLButtonElement)) {
     act(() => game.open());
   } else if (e.key === 'Escape' && game.aiming) {

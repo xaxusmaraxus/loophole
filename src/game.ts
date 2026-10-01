@@ -10,6 +10,10 @@ import {
   type TrackCell,
   build,
   buildTargets,
+  canSwipe,
+  emptyCells,
+  spawnTile,
+  trackAt,
   canConnect,
   canShuttle,
   cloneBoard,
@@ -26,7 +30,7 @@ import { BRAKES_NAUSEA, type Flavor, MAX_TIER, type RideStats, SPECIALS, type Sp
 import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
 import { BOSSES, BOSS_POOL, BOSS_ROUNDS, type BossId, type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { type OwnedAttraction, type Score, scoreRide } from './run/attractions';
-import { type BossFight, DEMANDS, ROUND_DAYLIGHT, SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, WHISTLE_COST, pickDemands, spun } from './run/bossday';
+import { type BossFight, DEMANDS, SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, WHISTLE_COST, pickDemands, spun } from './run/bossday';
 import {
   PLOT_MAX_H,
   type Plot,
@@ -86,7 +90,8 @@ export type GameEvent =
   | { type: 'blocked' }
   | { type: 'arrive'; rider: Rider; reason: ArrivalReason }
   | { type: 'open'; kind: RideKind }
-  | { type: 'dark' }
+  /** No swipe can move anything: the ride opens by itself. */
+  | { type: 'gridlock' }
   | { type: 'tool'; tool: ToolId; at?: Pt }
   | { type: 'special'; special: SpecialId; at: Pt }
   | { type: 'unlock'; id: UnlockId }
@@ -133,7 +138,6 @@ export interface DayResult {
 interface Snapshot {
   board: Board;
   queue: Rider[];
-  daylight: number;
   actions: number;
   buzz: number;
   bestCombo: number;
@@ -150,6 +154,11 @@ interface Snapshot {
 const HEARTS = 3;
 /** Merges in one swipe that pay a free special piece (each once a day). */
 export const COMBO_PRIZES = [6, 9, 12];
+
+function spawnAt(b: Board, c: Pt, tier: number): void {
+  b.tiles[c.y * b.size + c.x] = tier;
+  if (b.flav) b.flav[c.y * b.size + c.x] = null;
+}
 const BEST_KEY = 'loophole.bestScore';
 /** A walk-in rider arrives every this many swipes. */
 const WALKIN_EVERY = 5;
@@ -183,7 +192,6 @@ export class Game {
   cfg!: DayConfig;
   board!: Board;
   queue: Rider[] = [];
-  daylight = 0;
   actions = 0;
   bestCombo = 0;
   /** Combo prizes already paid today. */
@@ -323,7 +331,6 @@ export class Game {
     for (const kind of this.crowd) this.queue.push(makeRider(this.rng, this.dayNum, this.nextId++, this.cfg.park.id, kind));
     if (node === 'vip') this.queue.unshift(makeVip(this.rng, this.dayNum, this.nextId++));
     if (this.cfg.boss) this.queue.unshift(makeBoss(this.rng, this.cfg.boss, this.nextId++));
-    this.daylight = this.cfg.daylight;
     this.actions = 0;
     this.buzz = 0;
     this.bestCombo = 0;
@@ -351,7 +358,8 @@ export class Game {
     const b = this.board;
     b.ends = [[], []];
     b.opened = null;
-    this.daylight = Math.ceil(this.cfg.daylight * ROUND_DAYLIGHT);
+    // A fresh morning: the board fills back up to about half with new tiles.
+    for (const c of emptyCells(b)) if (this.rng.chance(0.45)) spawnAt(b, c, this.rng.chance(0.3) ? 2 : 1);
     this.actions = 0;
     this.buzz = 0;
     this.selected = 0;
@@ -575,7 +583,7 @@ export class Game {
     const counts = this.queue.map((r) => this.pukes(r, kind));
     const pukers = counts.filter((n) => n > 0).length;
     const pukes = counts.reduce((a, n) => a + n, 0);
-    const ctx = { stats: this.stats, riders: this.queue.length, pukers, pukes, chainLinks: this.chainLinks, daylightLeft: Math.max(0, this.daylight) };
+    const ctx = { stats: this.stats, riders: this.queue.length, pukers, pukes, chainLinks: this.chainLinks, room: this.room };
     return scoreRide(ctx, this.attractions, kind === 'shuttle');
   }
 
@@ -601,7 +609,6 @@ export class Game {
     this.history.push({
       board: cloneBoard(this.board),
       queue: this.queue.map((r) => ({ ...r })),
-      daylight: this.daylight,
       actions: this.actions,
       buzz: this.buzz,
       bestCombo: this.bestCombo,
@@ -619,22 +626,17 @@ export class Game {
   swipe(dir: Dir): void {
     if (this.phase !== 'build') return;
     this.aiming = null;
-    if (this.daylight <= 0) {
-      // After sunset the tiles stay put; building and opening still work.
-      this.events.push({ type: 'blocked' });
-      return;
-    }
     // Dr. Vertigo: the controls have turned.
     if (this.fight && this.bossRule === 'spin') dir = spun(dir, this.fight.spin);
     this.snapshot();
     const result = swipe(this.board, dir, this.rng, {
       hillChance: this.mods.hillChance,
-      spawns: this.mods.spawns,
+      spawns: this.mods.spawns + this.cfg.spawns - 1,
       parkFlavor: this.parkFlavor,
       flavorSpawn: this.mods.flavorSpawn,
     });
     if (!result) {
-      // Nothing moved, so nothing changed: drop the snapshot, spend no daylight.
+      // Nothing moved, so nothing changed: drop the snapshot.
       this.history.pop();
       this.events.push({ type: 'blocked' });
       return;
@@ -642,12 +644,36 @@ export class Game {
     this.bestCombo = Math.max(this.bestCombo, result.mergeCount);
     this.chainLinks += result.chain.waves.length;
     this.events.push({ type: 'swipe', result });
+    // The track ate tiles: they're track now.
+    for (const e of result.eaten) this.events.push({ type: 'build', laid: e.cell, end: e.end });
     // Chain reactions draw a crowd: one new rider per link.
     for (let i = 0; i < result.chain.waves.length; i++) this.arrive('chain');
     this.comboPrize(result.mergeCount);
-    // Lifeguard Lou: no running! A swipe that merges nothing costs extra.
-    if (this.bossRule === 'whistle' && result.mergeCount === 0) this.daylight -= WHISTLE_COST - 1;
+    // Lifeguard Lou: no running! A swipe that merges nothing drops in extra tiles.
+    if (this.bossRule === 'whistle' && result.mergeCount === 0)
+      for (let k = 0; k < WHISTLE_COST - 1; k++) spawnTile(this.board, this.rng, this.mods.hillChance);
     this.tick();
+    this.checkGridlock();
+  }
+
+  /** Free cells on the board: the room you have left to play with. */
+  get room(): number {
+    return emptyCells(this.board).length;
+  }
+
+  /**
+   * Like Snake: the day goes on until you open the ride, or until no swipe can
+   * move anything. Then it's gridlock and the ride opens by itself: the full
+   * circuit if the ends meet, else a shuttle (or nothing at all).
+   */
+  private checkGridlock(): void {
+    if (this.phase !== 'build' || canSwipe(this.board)) return;
+    this.events.push({ type: 'gridlock' });
+    const kind = this.openKind;
+    if (kind) return this.open(kind);
+    // Not a single piece of track: nobody rides.
+    this.board.opened = 'shuttle';
+    this.finishDay('shuttle', this.score('shuttle'), false);
   }
 
   /**
@@ -666,10 +692,9 @@ export class Game {
     this.comboPrizes = tier;
   }
 
-  /** A tap on the park: aims the active tool, or builds. */
+  /** A tap on the park aims the active tool. (The track grows by eating tiles; there's no tap-to-build.) */
   tap(x: number, y: number): void {
     if (this.aiming) this.aimAt(x, y);
-    else this.buildAt(x, y);
   }
 
   /** Arm a special piece: the next tap on built track fits it there. Tapping it again disarms it. */
@@ -692,7 +717,6 @@ export class Game {
     this.snapshot();
     this.tools[id]--;
     this.aiming = null;
-    if (id === 'coffee') this.daylight += 5;
     if (id === 'megaphone') for (let i = 0; i < 3; i++) this.arrive('buzz');
     this.events.push({ type: 'tool', tool: id });
   }
@@ -715,6 +739,16 @@ export class Game {
       this.specials[id]--;
       this.aiming = null;
       this.events.push({ type: 'special', special: id, at: { x, y } });
+      return;
+    }
+    if (aim.tool === 'crew') {
+      // The track crew lays one piece from whichever end can reach (x, y): the tile there, or flat track.
+      const t = buildTargets(b).find((c) => c.x === x && c.y === y && !trackAt(b, x, y));
+      if (!t) return fail();
+      this.snapshot();
+      const laid = build(b, t.end, x, y)!;
+      this.spend('crew', { x, y });
+      this.events.push({ type: 'build', laid, end: t.end });
       return;
     }
     if (aim.tool === 'dynamite') {
@@ -779,7 +813,7 @@ export class Game {
     const mergeCount = chain.waves.reduce((a, w) => a + w.length, 0);
     this.bestCombo = Math.max(this.bestCombo, mergeCount);
     this.chainLinks += chain.waves.length;
-    this.events.push({ type: 'swipe', result: { dir: 'up', slides, merges: [], slid, chain, spawned: [], sunk: [], mergeCount } });
+    this.events.push({ type: 'swipe', result: { dir: 'up', slides, merges: [], slid, chain, spawned: [], sunk: [], mergeCount, eaten: [] } });
     for (let w = 0; w < chain.waves.length; w++) this.arrive('chain');
   }
 
@@ -811,7 +845,6 @@ export class Game {
     const laid = build(this.board, end, x, y)!;
     this.selected = end;
     this.events.push({ type: 'build', laid, end });
-    // Building is free: only swipes spend daylight.
   }
 
   selectEnd(end?: End): void {
@@ -826,18 +859,28 @@ export class Game {
     this.events.push({ type: 'arrive', rider, reason });
   }
 
-  /** One swipe's worth of daylight passes. */
+  /** One swipe passes. */
   private tick(): void {
     this.actions++;
-    this.daylight--;
     if (this.actions % WALKIN_EVERY === 0) this.arrive('walkin');
+    // Street Sweepers: every so often the smallest loose tile is swept away.
+    if (this.mods.sweepEvery && this.actions % this.mods.sweepEvery === 0) this.sweep();
     this.bossTick();
     this.buzz += this.stats.chips / BUZZ_PER;
     while (this.buzz >= 1) {
       this.buzz -= 1;
       this.arrive('buzz');
     }
-    if (this.daylight === 0) this.events.push({ type: 'dark' });
+  }
+
+  private sweep(): void {
+    const b = this.board;
+    let best = -1;
+    for (let i = 0; i < b.tiles.length; i++) if (b.tiles[i] && (best < 0 || b.tiles[i] < b.tiles[best])) best = i;
+    if (best < 0) return;
+    b.tiles[best] = 0;
+    if (b.flav) b.flav[best] = null;
+    this.events.push({ type: 'tool', tool: 'dynamite', at: { x: best % b.size, y: Math.floor(best / b.size) } });
   }
 
   /** Boss rules that run on the swipe clock. */
@@ -878,7 +921,6 @@ export class Game {
     const s = this.history.pop()!;
     this.board = s.board;
     this.queue = s.queue;
-    this.daylight = s.daylight;
     this.actions = s.actions;
     this.buzz = s.buzz;
     this.bestCombo = s.bestCombo;
@@ -895,7 +937,7 @@ export class Game {
     this.events.push({ type: 'undo' });
   }
 
-  private finishDay(kind: RideKind, score: Score): void {
+  private finishDay(kind: RideKind, score: Score, ride = true): void {
     const stats = this.stats;
     const tickets: RiderTicket[] = this.queue.map((rider) => {
       const pukes = this.pukes(rider, kind);
@@ -937,6 +979,10 @@ export class Game {
       passed,
       timeline,
     };
+    if (!ride) {
+      this.phase = 'results';
+      return;
+    }
     // The ride plays out on the board first; the renderer calls rideDone() after.
     this.phase = 'ride';
     this.events.push({ type: 'open', kind });
@@ -1084,7 +1130,7 @@ function emptySpecials(): Record<SpecialId, number> {
 }
 
 function emptyTools(): Record<ToolId, number> {
-  return { coffee: 0, paint: 0, crane: 0, dynamite: 0, megaphone: 0 };
+  return { crew: 0, paint: 0, crane: 0, dynamite: 0, megaphone: 0 };
 }
 
 function loadBest(): number {

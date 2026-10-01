@@ -477,8 +477,8 @@ export function attractionGroup(id: AttractionId, rarity: Rarity): Group {
       });
       break;
     }
-    case 'twilight': {
-      // A crescent moon lamp with stars.
+    case 'openair': {
+      // A crescent moon lamp with stars: a picnic under the open sky.
       m.post(0, 0.04, 0, 0.01, 0.2, PAL.ink, 6);
       glow.sphere(v3(0, 0.34, 0), 0.1, '#f3efd6', 1, 1, 0.6, 14, 9);
       m.sphere(v3(0.05, 0.36, 0.02), 0.09, '#2b3a6e', 1, 1, 0.7, 12, 8, true);
@@ -510,8 +510,8 @@ export function upgradeGroup(id: UpgradeId, count: number): Group {
   const p = parts();
   const { matte: m, gloss: gl, cloth: cl, glow } = p;
   switch (id) {
-    case 'latenight': {
-      // A clock tower with a lit face.
+    case 'sweeper': {
+      // The sweepers' clock tower: they come round like clockwork.
       m.cube(0, 0.22, 0, 0.14, 0.44, 0.14, '#b98552', 0.02);
       m.cyl(M(0, 0.5, 0), 0.12, 0, 0.12, PAL.red, 4);
       glow.cyl(new Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0.36, 0.072), 0.05, 0.05, 0.01, '#fff1b0', 16);
