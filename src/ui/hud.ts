@@ -7,7 +7,7 @@ import { mapHtml } from './map';
 import { photoStore } from './photo';
 import { lastRecord, playerName, recordLocal } from './scores';
 import { setShareText, shareLinks } from './share';
-import { ATTRACTIONS, ATTRACTION_SLOTS, type Effect } from '../run/attractions';
+import { ATTRACTIONS, type Effect, THEMES } from '../run/attractions';
 import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -34,7 +34,7 @@ function rewardLabel(r: Reward | ShopItem | EggItem, day = 1): { tag: string; na
   if (r.kind === 'upgrade') return { tag: 'Upgrade', name: UPGRADES[r.id].name, desc: UPGRADES[r.id].desc };
   if (r.kind === 'tool') return { tag: `Tool ×${TOOLS[r.id].charges}`, name: TOOLS[r.id].name, desc: TOOLS[r.id].desc };
   if (r.kind === 'special') return { tag: 'Special piece', name: SPECIALS[r.id].name, desc: SPECIALS[r.id].desc };
-  if (r.kind === 'attraction') return { tag: ATTRACTIONS[r.id].rarity === 'rare' ? 'Rare attraction' : 'Attraction', name: ATTRACTIONS[r.id].name, desc: ATTRACTIONS[r.id].desc };
+  if (r.kind === 'attraction') return { tag: { common: 'Attraction · 1×1', rare: 'Rare attraction · 2×1', legendary: 'Legendary · 2×2' }[ATTRACTIONS[r.id].rarity], name: ATTRACTIONS[r.id].name, desc: ATTRACTIONS[r.id].desc };
   return { tag: 'Repair', name: 'Repair a heart', desc: 'Win back one heart of park reputation.' };
 }
 
@@ -123,21 +123,16 @@ export class Hud {
   private renderAttractions(firing: Set<string>): void {
     const g = this.game;
     const strip = $('attractions');
-    const cards = g.attractions.map((a, i) => {
+    // Attractions in scoring order (top row of the plot first). Rearrange them on the plot between days.
+    const cards = g.attractions.map((a) => {
       const def = ATTRACTIONS[a.id];
       const extra = a.id === 'seasonpass' ? ` <span class="count">+${1 + a.counter}</span>` : '';
-      return `<li class="attraction ${def.rarity}${firing.has(def.name) ? ' firing' : ''}">
-        <div class="attraction-name">${def.name}${extra}</div>
+      const dist = a.district ? ` <span class="district" title="District bonus: +${a.district} multiplier from touching ${THEMES[def.theme].name}">+${a.district}</span>` : '';
+      return `<li class="attraction ${def.rarity} theme-${def.theme}${[...firing].some((l) => l.startsWith(def.name)) ? ' firing' : ''}" style="--theme:${THEMES[def.theme].color}">
+        <div class="attraction-name">${def.name}${extra}${dist}</div>
         <div class="attraction-desc">${def.desc}</div>
-        <div class="attraction-actions">
-          <button type="button" data-attr-move="${i}" data-by="-1" aria-label="Move ${def.name} left" ${i === 0 ? 'disabled' : ''}>◀</button>
-          <button type="button" data-attr-sell="${i}" title="Sell for ${sellValue(g.dayNum)} funds">Sell ${sellValue(g.dayNum)}</button>
-          <button type="button" data-attr-move="${i}" data-by="1" aria-label="Move ${def.name} right" ${i === g.attractions.length - 1 ? 'disabled' : ''}>▶</button>
-        </div>
       </li>`;
     });
-    // Empty slots only show once there's something in the strip (they'd clutter the park otherwise).
-    if (cards.length) for (let i = g.attractions.length; i < ATTRACTION_SLOTS; i++) cards.push('<li class="attraction empty" title="Empty attraction slot">+</li>');
     const html = cards.join('');
     if (html === this.lastStrip) return;
     this.lastStrip = html;
@@ -271,7 +266,7 @@ export class Hud {
               })
               .join('')}
           </div>
-          ${!g.slotsFree && e.kind === 'golden' ? '<p class="muted">Your attraction slots are full. Sell one from the strip above the park to make room.</p>' : ''}
+          ${!g.slotsFree && e.kind === 'golden' ? '<p class="muted">Your park plot and stash are full. Sell something from the plot to make room.</p>' : ''}
           <button class="ghost-dark" data-action="egg-leave">Leave the rest</button>
         </div>`;
     }
@@ -280,12 +275,12 @@ export class Hud {
         <div class="card">
           <p class="eyebrow">${g.cfg.park.name}</p>
           <h2>Park shop</h2>
-          <p>You have <strong>${g.funds.toLocaleString()}</strong> in park funds. Attraction slots: ${g.attractions.length} of ${ATTRACTION_SLOTS}.</p>
+          <p>You have <strong>${g.funds.toLocaleString()}</strong> in park funds. Everything you buy goes on your park plot.</p>
           <div class="perks">
             ${g.shop
               .map((item, i) => {
                 const { tag, name, desc } = rewardLabel(item);
-                const blocked = item.sold || g.funds < item.price || (item.kind === 'heart' && g.hearts >= 3) || (item.kind === 'attraction' && !g.slotsFree);
+                const blocked = item.sold || g.funds < item.price || (item.kind === 'heart' && g.hearts >= 3) || ((item.kind === 'attraction' || item.kind === 'upgrade') && !g.canGain(item));
                 return `<button class="perk shop-item kind-${item.kind}" data-action="buy" data-index="${i}" ${blocked ? 'disabled' : ''}><span class="price">${item.sold ? 'Sold' : item.price.toLocaleString()}</span><span class="tag">${tag}</span><strong>${name}</strong><span>${desc}</span></button>`;
               })
               .join('')}
@@ -305,21 +300,21 @@ export class Hud {
     }
     if (g.phase === 'results' && g.result) return this.resultsHtml();
     if (g.phase === 'reward') {
-      const full = !g.slotsFree && g.offer.every((r) => r.kind === 'attraction');
+      const full = g.offer.some((r) => !g.canTake(r));
       return `
         <div class="card">
           <h2>Pick a reward</h2>
-          <p>Upgrades last all run. Tools go in your toolbar. Attractions change how every ride scores (${g.attractions.length} of ${ATTRACTION_SLOTS} slots used).</p>
+          <p>Upgrades last all run. Tools go in your toolbar. Attractions and upgrades go on your park plot.</p>
           <div class="perks">
             ${g.offer
               .map((r, i) => {
                 const { tag, name, desc } = rewardLabel(r);
-                const blocked = r.kind === 'attraction' && !g.slotsFree;
+                const blocked = !g.canTake(r);
                 return `<button class="perk kind-${r.kind}" data-action="reward" data-index="${i}" ${blocked ? 'disabled' : ''}><span class="tag">${tag}</span><strong>${name}</strong><span>${desc}</span></button>`;
               })
               .join('')}
           </div>
-          ${full ? '<p class="muted">Your attraction slots are full. Sell one from the strip above the park to make room, or skip.</p>' : ''}
+          ${full ? '<p class="muted">No room on your park plot or in the stash. Sell something from the plot to make room, or skip.</p>' : ''}
           <button class="ghost-dark" data-action="skip">Skip</button>
         </div>`;
     }

@@ -1,0 +1,62 @@
+import type { Rng } from '../core/rng';
+import type { Dir } from '../puzzle/board';
+import type { RideStats } from '../puzzle/pieces';
+
+// Boss days. The boss is drawn from the park's pool when you arrive, so you see
+// who's waiting at the top of the map and can prepare. On the day they bend the
+// rules (see BossRule in riders.ts), and you get up to three rides to break
+// their composure: every time they puke, it cracks a little more.
+
+/** Swipes between the boss's rule kicking in. */
+export const SECONDS_EVERY = 4;
+export const WAVE_EVERY = 5;
+export const SPIN_EVERY = 6;
+/** Daylight a dry swipe costs on Lifeguard Lou's day. */
+export const WHISTLE_COST = 2;
+/** A rematch ride gets this share of the day's daylight. */
+export const ROUND_DAYLIGHT = 0.5;
+
+export type DemandId = 'long' | 'loop' | 'drop' | 'variety' | 'cross' | 'helix' | 'circuit';
+
+export interface DemandDef {
+  text: string;
+  met: (s: RideStats, circuit: boolean) => boolean;
+}
+
+export const DEMANDS: Record<DemandId, DemandDef> = {
+  long: { text: 'At least 12 pieces of track', met: (s) => s.length >= 12 },
+  loop: { text: 'Something goes upside down', met: (s) => s.inversions > 0 },
+  drop: { text: 'At least one Drop', met: (s) => s.tierCounts[3] > 0 },
+  variety: { text: '4 or more piece types', met: (s) => s.variety >= 4 },
+  cross: { text: 'A bridge or a tunnel', met: (s) => s.crossings > 0 },
+  helix: { text: 'A Helix or bigger', met: (s) => s.topTier >= 4 },
+  circuit: { text: 'A full circuit, no shuttles', met: (_s, c) => c },
+};
+
+export function pickDemands(rng: Rng): DemandId[] {
+  return rng.shuffle(Object.keys(DEMANDS) as DemandId[]).slice(0, 3);
+}
+
+const CLOCKWISE: Dir[] = ['up', 'right', 'down', 'left'];
+
+/** Where a swipe really goes after the controls have turned `quarters` quarter turns clockwise. */
+export function spun(dir: Dir, quarters: number): Dir {
+  return CLOCKWISE[(CLOCKWISE.indexOf(dir) + quarters) % 4];
+}
+
+/** A boss fight in progress. */
+export interface BossFight {
+  /** Ride number, from 1. */
+  round: number;
+  /** Pukes still needed to break them. */
+  hp: number;
+  max: number;
+  /** Tickets sold on earlier rides today. */
+  banked: number;
+  /** Ivy: the direction of the next wave. */
+  wave: Dir;
+  /** Vertigo: quarter turns the controls have made. */
+  spin: number;
+  /** The Mayor's demands. */
+  demands: DemandId[];
+}

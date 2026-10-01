@@ -130,7 +130,7 @@ describe('rideStats', () => {
 
 describe('attractions', () => {
   const stats = rideStats([{ tier: 5 }], { thrillMult: 1, flatThrill: 0 });
-  const ctx = { stats, riders: 4, pukers: 0, chainLinks: 0, daylightLeft: 0 };
+  const ctx = { stats, riders: 4, pukers: 0, pukes: 0, chainLinks: 0, daylightLeft: 0 };
   it('apply left to right, so order matters', () => {
     const loopFirst = scoreRide(ctx, [{ id: 'loopdeloop', counter: 0 }, { id: 'quicktrip', counter: 0 }], false);
     const tripFirst = scoreRide(ctx, [{ id: 'quicktrip', counter: 0 }, { id: 'loopdeloop', counter: 0 }], false);

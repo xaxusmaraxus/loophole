@@ -17,7 +17,8 @@ function playRide(seed: number, kind: 'circuit' | 'shuttle' | 'any'): Game {
   const n = seed % 6;
   for (let i = 0; i < n; i++) {
     const id = ids[(seed * 3 + i * 5) % ids.length];
-    if (!g.attractions.some((a) => a.id === id)) g.attractions.push({ id, counter: seed % 3 });
+    if (!g.attractions.some((a) => a.id === id)) g.gain({ kind: 'attraction', id });
+    for (const it of g.plot.items) it.counter = seed % 3;
   }
   if (seed % 2) g.mods = modsFor(['hype', 'scenic', 'fries']);
   g.chainLinks = seed % 4;

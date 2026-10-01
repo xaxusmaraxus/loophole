@@ -1,6 +1,7 @@
 import { Rng, randomSeed } from './core/rng';
 import {
   type Board,
+  DIRS,
   type Dir,
   type End,
   type Pt,
@@ -23,8 +24,25 @@ import {
 } from './puzzle/board';
 import { BRAKES_NAUSEA, MAX_TIER, type RideStats, SPECIALS, type SpecialId, rideStats } from './puzzle/pieces';
 import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
-import { type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
-import { ATTRACTION_SLOTS, type OwnedAttraction, type Score, scoreRide } from './run/attractions';
+import { BOSSES, BOSS_POOL, BOSS_ROUNDS, type BossId, type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
+import { type OwnedAttraction, type Score, scoreRide } from './run/attractions';
+import { type BossFight, DEMANDS, ROUND_DAYLIGHT, SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, WHISTLE_COST, pickDemands, spun } from './run/bossday';
+import {
+  PLOT_MAX_H,
+  type Plot,
+  type PlotItem,
+  type PlotRef,
+  STASH_SIZE,
+  cellsOf,
+  district,
+  emptyPlot,
+  firstFit,
+  fits,
+  freeCells,
+  neighbors,
+  readingOrder,
+  themeOf,
+} from './run/plot';
 import { type ScoreEvent, rideTimeline } from './run/timeline';
 import {
   type BusRider,
@@ -48,13 +66,14 @@ import {
   dayConfig,
   generateBoard,
   generateParkMap,
+  legendaryOffer,
   modsFor,
   rewardOffer,
   sellValue,
   shopStock,
 } from './run/run';
 
-export type Phase = 'intro' | 'map' | 'build' | 'ride' | 'results' | 'reward' | 'shop' | 'egg' | 'over' | 'won';
+export type Phase = 'intro' | 'map' | 'build' | 'ride' | 'results' | 'reward' | 'conquered' | 'shop' | 'egg' | 'over' | 'won';
 export type RideKind = 'circuit' | 'shuttle';
 
 /** Why a rider joined the queue. */
@@ -71,6 +90,8 @@ export type GameEvent =
   | { type: 'tool'; tool: ToolId; at?: Pt }
   | { type: 'special'; special: SpecialId; at: Pt }
   | { type: 'unlock'; id: UnlockId }
+  /** A boss rule kicked in: a wave sloshed the board, the controls spun, or Barry had a snack. */
+  | { type: 'boss'; what: 'wave' | 'spin' | 'snack'; dir?: Dir }
   | { type: 'undo' };
 
 export interface RiderTicket {
@@ -87,8 +108,20 @@ export interface DayResult {
   tickets: RiderTicket[];
   total: number;
   target: number;
-  /** The boss (if any) puked at least once. */
+  /** The boss (if any) is broken: their composure is gone. */
   bossPuked: boolean;
+  /** Times the boss puked on this ride. */
+  bossHits: number;
+  /** Boss composure left after this ride. */
+  bossHp: number;
+  /** Ride number on a boss day (1 otherwise). */
+  round: number;
+  /** Tickets today, earlier rides included: what the target is measured against. */
+  dayTotal: number;
+  /** The Mayor's demands weren't met, so the Mayor sat it out. */
+  refused: boolean;
+  /** The boss isn't done yet: another ride follows today. */
+  again: boolean;
   passed: boolean;
   /** The score as it builds up during the ride: sums exactly to `total`. */
   timeline: ScoreEvent[];
@@ -105,6 +138,7 @@ interface Snapshot {
   selected: End;
   tools: Record<ToolId, number>;
   specials: Record<SpecialId, number>;
+  fight: BossFight | null;
   rngState: number;
   nextId: number;
 }
@@ -125,8 +159,12 @@ export class Game {
   dayNum = 1;
   hearts = HEARTS;
   runScore = 0;
-  upgrades: UpgradeId[] = [];
-  attractions: OwnedAttraction[] = [];
+  /** The park plot: every attraction and upgrade you've built, on a grid. */
+  plot: Plot = emptyPlot();
+  /** Who waits at the end of this park (drawn from the park's pool when you arrive). */
+  parkBoss: BossId = 'barry';
+  /** Today's boss fight, if it's a boss day. */
+  fight: BossFight | null = null;
   /** Tool charges carried through the run. */
   tools: Record<ToolId, number> = emptyTools();
   /** Special piece charges (Launch, Water Splash, Brake Run), fitted onto built track. */
@@ -168,7 +206,8 @@ export class Game {
   notice: string | null = null;
   best = loadBest();
   events: GameEvent[] = [];
-  private rewardFrom: 'day' | 'treasure' = 'day';
+  private rewardFrom: 'day' | 'treasure' | 'boss' = 'day';
+  private nextUid = 1;
   private buzz = 0;
   private nextId = 1;
   private history: Snapshot[] = [];
@@ -183,8 +222,8 @@ export class Game {
     this.dayNum = 1;
     this.hearts = HEARTS;
     this.runScore = 0;
-    this.upgrades = [];
-    this.attractions = [];
+    this.plot = emptyPlot();
+    this.fight = null;
     this.crowd = [];
     this.egg = null;
     this.funds = 0;
@@ -212,6 +251,7 @@ export class Game {
   private enterPark(index: number): void {
     this.parkIndex = index;
     this.parkMap = generateParkMap(SEASON_ORDER[index], this.rng);
+    this.parkBoss = this.rng.pick(BOSS_POOL[SEASON_ORDER[index]]);
     this.mapPos = null;
     this.visited = [];
     this.notice = null;
@@ -240,7 +280,7 @@ export class Game {
       return;
     }
     if (n.kind === 'shop') {
-      this.shop = shopStock(this.rng, this.dayNum, this.attractions.map((a) => a.id), unlockedSpecials(this.record));
+      this.shop = shopStock(this.rng, this.dayNum, this.ownedIds, unlockedSpecials(this.record));
       this.phase = 'shop';
     } else if (n.kind === 'repair') {
       if (this.hearts < HEARTS) {
@@ -267,7 +307,8 @@ export class Game {
   // ---- A day at the park -----------------------------------------------------
 
   private startDay(node: NodeKind): void {
-    this.cfg = dayConfig(this.dayNum, this.mods, node);
+    this.cfg = dayConfig(this.dayNum, this.mods, node, this.parkBoss);
+    if (this.has('buffet')) this.cfg.maxQueue -= 3;
     this.board = generateBoard(this.cfg, this.rng);
     this.queue = [];
     for (let i = 0; i < this.cfg.startRiders; i++) this.queue.push(this.newRider());
@@ -284,8 +325,145 @@ export class Game {
     this.undos = this.mods.undos;
     this.history = [];
     this.result = null;
+    const boss = this.cfg.boss;
+    this.fight = boss
+      ? { round: 1, hp: BOSSES[boss].composure, max: BOSSES[boss].composure, banked: 0, wave: this.rng.pick(DIRS), spin: 0, demands: BOSSES[boss].rule === 'demands' ? pickDemands(this.rng) : [] }
+      : null;
     this.phase = 'build';
     this.events.push({ type: 'day' });
+  }
+
+  /** The boss wasn't broken yet: the track comes down, they get back in line, and you go again. */
+  private nextRound(): void {
+    const f = this.fight!;
+    f.round++;
+    f.banked += this.result!.total;
+    f.wave = this.rng.pick(DIRS);
+    const b = this.board;
+    b.ends = [[], []];
+    b.opened = null;
+    this.daylight = Math.ceil(this.cfg.daylight * ROUND_DAYLIGHT);
+    this.actions = 0;
+    this.buzz = 0;
+    this.selected = 0;
+    this.aiming = null;
+    this.undos = this.mods.undos;
+    this.history = [];
+    this.result = null;
+    this.phase = 'build';
+    this.events.push({ type: 'day' });
+  }
+
+  /** The boss rule in force today, if any. */
+  get bossRule() {
+    return this.cfg.boss ? BOSSES[this.cfg.boss].rule : null;
+  }
+
+  /** The Mayor's demands, each with whether the ride meets it now. */
+  demands(kind: RideKind = this.openKind ?? 'circuit'): { text: string; met: boolean }[] {
+    const s = this.stats;
+    return (this.fight?.demands ?? []).map((d) => ({ text: DEMANDS[d].text, met: DEMANDS[d].met(s, kind === 'circuit') }));
+  }
+
+  /** On Inspection Day, the Mayor only rides if every demand is met. */
+  refuses(r: Rider, kind: RideKind): boolean {
+    return !!r.boss && this.bossRule === 'demands' && this.demands(kind).some((d) => !d.met);
+  }
+
+  // ---- The park plot ---------------------------------------------------------
+
+  /** Attractions on the plot, in scoring order, with what touches them. */
+  get attractions(): (OwnedAttraction & { uid: number })[] {
+    const p = this.plot;
+    const placed = readingOrder(p.items).filter((i): i is PlotItem & { kind: 'attraction' } => i.kind === 'attraction');
+    return placed.map((it) => ({
+      uid: it.uid,
+      id: it.id,
+      counter: it.counter,
+      touching: placed.flatMap((o, j) => (neighbors(p, it).includes(o) ? [j] : [])),
+      district: district(p, it),
+    }));
+  }
+
+  /** Upgrades on the plot (stashed ones don't count). */
+  get upgrades(): UpgradeId[] {
+    return this.plot.items.flatMap((i) => (i.kind === 'upgrade' ? [i.id] : []));
+  }
+
+  /** Every attraction you own, placed or stashed (so offers don't repeat them). */
+  get ownedIds() {
+    return [...this.plot.items, ...this.plot.stash].flatMap((i) => (i.kind === 'attraction' ? [i.id] : []));
+  }
+
+  private refreshMods(): void {
+    this.mods = modsFor(this.upgrades);
+  }
+
+  /** Room for one more thing: a free cell, or a free stash space. */
+  get slotsFree(): boolean {
+    return freeCells(this.plot) > 0 || this.plot.stash.length < STASH_SIZE;
+  }
+
+  canGain(r: PlotRef): boolean {
+    return !!firstFit(this.plot, r) || this.plot.stash.length < STASH_SIZE;
+  }
+
+  /** Puts something new on the plot (first free spot), or in the stash if it doesn't fit. */
+  gain(r: PlotRef): boolean {
+    const at = firstFit(this.plot, r);
+    if (!at && this.plot.stash.length >= STASH_SIZE) return false;
+    const it = { ...r, uid: this.nextUid++, counter: 0, x: at?.x ?? -1, y: at?.y ?? -1, turned: at?.turned ?? false } as PlotItem;
+    (at ? this.plot.items : this.plot.stash).push(it);
+    this.refreshMods();
+    return true;
+  }
+
+  /** The plot can be rearranged between days, not while a day is on. */
+  get canEditPlot(): boolean {
+    return this.phase !== 'build' && this.phase !== 'ride';
+  }
+
+  private findItem(uid: number): PlotItem | undefined {
+    return this.plot.items.find((i) => i.uid === uid) ?? this.plot.stash.find((i) => i.uid === uid);
+  }
+
+  /** Move a spot (from the plot or the stash) to (x, y). */
+  placeItem(uid: number, x: number, y: number, turned?: boolean): boolean {
+    const it = this.findItem(uid);
+    if (!it || !this.canEditPlot) return false;
+    const t = turned ?? it.turned;
+    if (!fits(this.plot, it, x, y, t, uid)) return false;
+    Object.assign(it, { x, y, turned: t });
+    const k = this.plot.stash.indexOf(it);
+    if (k >= 0) {
+      this.plot.stash.splice(k, 1);
+      this.plot.items.push(it);
+    }
+    this.refreshMods();
+    return true;
+  }
+
+  /** Take a spot off the plot into the stash. */
+  stashItem(uid: number): boolean {
+    const p = this.plot;
+    const k = p.items.findIndex((i) => i.uid === uid);
+    if (k < 0 || !this.canEditPlot || p.stash.length >= STASH_SIZE) return false;
+    const [it] = p.items.splice(k, 1);
+    it.x = it.y = -1;
+    p.stash.push(it);
+    this.refreshMods();
+    return true;
+  }
+
+  /** Sell a spot (placed or stashed) for funds. */
+  sellItem(uid: number): void {
+    const it = this.findItem(uid);
+    if (!it || !this.canEditPlot) return;
+    const p = this.plot;
+    p.items = p.items.filter((i) => i !== it);
+    p.stash = p.stash.filter((i) => i !== it);
+    this.funds += sellValue(this.dayNum, cellsOf({ ...it, x: 0, y: 0 }).length);
+    this.refreshMods();
   }
 
   private newRider(): Rider {
@@ -297,22 +475,26 @@ export class Game {
     return rideStats(trackCells(this.board), this.mods);
   }
 
-  get slotsFree(): boolean {
-    return this.attractions.length < ATTRACTION_SLOTS;
-  }
-
   private has(id: string): boolean {
     return this.attractions.some((a) => a.id === id);
   }
 
   /** How much nausea it takes to make this rider puke once, after upgrades and attractions. */
   stomach(r: Rider): number {
-    return r.stomach + this.mods.stomachDelta - (this.has('corndogcart') ? 2 : 0);
+    let s = r.stomach + this.mods.stomachDelta - (this.has('corndogcart') ? 2 : 0) - (this.has('buffet') ? 3 : 0);
+    // Funnel Cake Stands: 1 smaller for each Food spot touching one.
+    for (const it of this.plot.items) if (it.kind === 'attraction' && it.id === 'funnelcake') s -= neighbors(this.plot, it).filter((o) => themeOf(o) === 'food').length;
+    // Big Barry snacks while you build.
+    if (r.boss && this.bossRule === 'seconds') s += Math.floor(this.actions / SECONDS_EVERY);
+    return s;
   }
 
   /** Nausea one piece gives this rider, including attraction bonuses. */
   nausea(r: Rider, tier: number): number {
-    return pieceNausea(r, tier) + (tier === 4 && this.has('tilttable') ? 3 : 0);
+    if (tier === 3 && this.has('gravitywell')) return 0;
+    let n = pieceNausea(r, tier) + (tier === 4 && this.has('tilttable') ? 3 : 0);
+    if (tier >= 5 && this.has('gravitywell')) n += 2;
+    return n;
   }
 
   /**
@@ -322,6 +504,8 @@ export class Game {
   stopNausea(r: Rider, stops: readonly RideStop[], i: number): number {
     const s = stops[i];
     if (s.station) return 0;
+    // Granny Grit has seen it all: only the first piece of each type gets to her.
+    if (r.boss && this.bossRule === 'seenitall' && stops.slice(0, i).some((o) => !o.station && o.tier === s.tier)) return 0;
     let n = this.nausea(r, s.tier);
     let j = i - 1;
     while (j >= 0 && stops[j].station) j--;
@@ -332,14 +516,17 @@ export class Game {
 
   /** How many times this rider would puke if the ride opened now as `kind`. A shuttle passes each piece twice. */
   pukes(r: Rider, kind: RideKind = this.openKind ?? 'circuit'): number {
+    if (this.refuses(r, kind)) return 0;
     const stops = rideOrder(this.board, kind);
     return pukesFor(stops.reduce((a, _s, i) => a + this.stopNausea(r, stops, i), 0), this.stomach(r));
   }
 
   /** Excitement × multiplier if the ride opened now as `kind`. */
   score(kind: RideKind): Score {
-    const pukers = this.queue.filter((r) => this.pukes(r, kind) > 0).length;
-    const ctx = { stats: this.stats, riders: this.queue.length, pukers, chainLinks: this.chainLinks, daylightLeft: Math.max(0, this.daylight) };
+    const counts = this.queue.map((r) => this.pukes(r, kind));
+    const pukers = counts.filter((n) => n > 0).length;
+    const pukes = counts.reduce((a, n) => a + n, 0);
+    const ctx = { stats: this.stats, riders: this.queue.length, pukers, pukes, chainLinks: this.chainLinks, daylightLeft: Math.max(0, this.daylight) };
     return scoreRide(ctx, this.attractions, kind === 'shuttle');
   }
 
@@ -373,6 +560,7 @@ export class Game {
       selected: this.selected,
       tools: { ...this.tools },
       specials: { ...this.specials },
+      fight: this.fight && { ...this.fight },
       rngState: this.rng.state,
       nextId: this.nextId,
     });
@@ -386,6 +574,8 @@ export class Game {
       this.events.push({ type: 'blocked' });
       return;
     }
+    // Dr. Vertigo: the controls have turned.
+    if (this.fight && this.bossRule === 'spin') dir = spun(dir, this.fight.spin);
     this.snapshot();
     const result = swipe(this.board, dir, this.rng, {
       hillChance: this.mods.hillChance,
@@ -402,6 +592,8 @@ export class Game {
     this.events.push({ type: 'swipe', result });
     // Chain reactions draw a crowd: one new rider per link.
     for (let i = 0; i < result.chain.waves.length; i++) this.arrive('chain');
+    // Lifeguard Lou: no running! A swipe that merges nothing costs extra.
+    if (this.bossRule === 'whistle' && result.mergeCount === 0) this.daylight -= WHISTLE_COST - 1;
     this.tick();
   }
 
@@ -569,12 +761,36 @@ export class Game {
     this.actions++;
     this.daylight--;
     if (this.actions % WALKIN_EVERY === 0) this.arrive('walkin');
+    this.bossTick();
     this.buzz += this.stats.chips / BUZZ_PER;
     while (this.buzz >= 1) {
       this.buzz -= 1;
       this.arrive('buzz');
     }
     if (this.daylight === 0) this.events.push({ type: 'dark' });
+  }
+
+  /** Boss rules that run on the swipe clock. */
+  private bossTick(): void {
+    const f = this.fight;
+    if (!f) return;
+    const rule = this.bossRule;
+    if (rule === 'seconds' && this.actions % SECONDS_EVERY === 0) this.events.push({ type: 'boss', what: 'snack' });
+    if (rule === 'spin' && this.actions % SPIN_EVERY === 0) {
+      f.spin = (f.spin + 1) % 4;
+      this.events.push({ type: 'boss', what: 'spin' });
+    }
+    if (rule === 'waves' && this.actions % WAVE_EVERY === 0) {
+      const dir = f.wave;
+      f.wave = this.rng.pick(DIRS);
+      this.events.push({ type: 'boss', what: 'wave', dir });
+      // The wave slides every loose tile one way. Merges and chains happen as usual; nothing new washes up.
+      const result = swipe(this.board, dir, this.rng, { hillChance: this.mods.hillChance, spawns: 0 });
+      if (result) {
+        this.chainLinks += result.chain.waves.length;
+        this.events.push({ type: 'swipe', result });
+      }
+    }
   }
 
   open(kind: RideKind | null = this.openKind): void {
@@ -600,6 +816,7 @@ export class Game {
     this.selected = s.selected;
     this.tools = s.tools;
     this.specials = s.specials;
+    this.fight = s.fight;
     this.aiming = null;
     this.rng.state = s.rngState;
     this.nextId = s.nextId;
@@ -615,16 +832,38 @@ export class Game {
     });
     const total = tickets.reduce((a, t) => a + t.paid, 0);
     const boss = tickets.find((t) => t.rider.boss);
-    const bossPuked = !boss || boss.pukes > 0;
+    const f = this.fight;
+    const bossHits = boss?.pukes ?? 0;
+    if (f) f.hp = Math.max(0, f.hp - bossHits);
+    const bossPuked = !f || f.hp <= 0;
+    const dayTotal = (f?.banked ?? 0) + total;
+    const passed = dayTotal >= this.cfg.target && bossPuked;
+    const refused = !!boss && this.refuses(boss.rider, kind);
     const stops = rideOrder(this.board, kind);
     const timeline = rideTimeline({
       stops,
       mods: this.mods,
       score,
       shuttle: kind === 'shuttle',
-      riders: this.queue.map((r) => ({ nausea: (i: number) => this.stopNausea(r, stops, i), stomach: this.stomach(r), worth: riderWorth(r), boss: !!r.boss })),
+      riders: this.queue.map((r) => ({ nausea: (i: number) => (this.refuses(r, kind) ? 0 : this.stopNausea(r, stops, i)), stomach: this.stomach(r), worth: riderWorth(r), boss: !!r.boss })),
     });
-    this.result = { kind, stats, score, tickets, total, target: this.cfg.target, bossPuked, passed: total >= this.cfg.target && bossPuked, timeline };
+    this.result = {
+      kind,
+      stats,
+      score,
+      tickets,
+      total,
+      target: this.cfg.target,
+      bossPuked,
+      bossHits,
+      bossHp: f?.hp ?? 0,
+      round: f?.round ?? 1,
+      dayTotal,
+      refused,
+      again: !!f && !passed && f.round < BOSS_ROUNDS,
+      passed,
+      timeline,
+    };
     // The ride plays out on the board first; the renderer calls rideDone() after.
     this.phase = 'ride';
     this.events.push({ type: 'open', kind });
@@ -643,11 +882,16 @@ export class Game {
     const rec = this.record;
     rec.totalPukes += r.tickets.reduce((a, t) => a + t.pukes, 0);
     rec.bestRide = Math.max(rec.bestRide, r.total);
-    const boss = r.tickets.find((t) => t.rider.boss && t.pukes > 0)?.rider.boss;
-    if (boss && !rec.bosses.includes(boss)) rec.bosses.push(boss);
+    // Bosses go on the trophy shelf once broken.
+    const boss = this.cfg.boss;
+    if (boss && r.bossPuked && !rec.bosses.includes(boss)) rec.bosses.push(boss);
+    if (r.again) {
+      this.unlockCheck();
+      return this.nextRound();
+    }
     if (r.passed) {
-      this.funds += r.total - r.target;
-      for (const a of this.attractions) if (a.id === 'seasonpass') a.counter++;
+      this.funds += r.dayTotal - r.target;
+      for (const it of this.plot.items) if (it.kind === 'attraction' && it.id === 'seasonpass') it.counter++;
     } else this.hearts--;
     if (this.hearts <= 0 || (r.passed && this.cfg.node === 'finale')) {
       this.phase = this.hearts <= 0 ? 'over' : 'won';
@@ -661,26 +905,36 @@ export class Game {
       return;
     }
     this.unlockCheck();
-    this.offer = rewardOffer(this.rng, this.attractions.map((a) => a.id), this.slotsFree, this.cfg.node === 'storm', unlockedSpecials(this.record));
+    // A broken boss: the park grows a row, and drops a legendary.
+    if (r.passed && this.cfg.node === 'boss') {
+      this.plot.h = Math.min(PLOT_MAX_H, this.plot.h + 1);
+      this.offer = legendaryOffer(this.rng, this.ownedIds);
+      this.rewardFrom = 'boss';
+      this.phase = 'conquered';
+      return;
+    }
+    this.offer = rewardOffer(this.rng, this.ownedIds, this.slotsFree, this.cfg.node === 'storm', unlockedSpecials(this.record));
     this.rewardFrom = 'day';
     this.phase = 'reward';
   }
 
+  /** Whether a reward on offer can be taken right now (attractions and upgrades need room). */
+  canTake(r: Reward): boolean {
+    return r.kind === 'attraction' || r.kind === 'upgrade' ? this.canGain(r) : true;
+  }
+
   chooseReward(i: number): void {
     const r = this.offer[i];
-    if (this.phase !== 'reward' || !r) return;
-    if (r.kind === 'upgrade') {
-      this.upgrades.push(r.id);
-      this.mods = modsFor(this.upgrades);
-    } else if (r.kind === 'tool') this.tools[r.id] += TOOLS[r.id].charges;
+    if ((this.phase !== 'reward' && this.phase !== 'conquered') || !r || !this.canTake(r)) return;
+    if (r.kind === 'upgrade' || r.kind === 'attraction') this.gain(r);
+    else if (r.kind === 'tool') this.tools[r.id] += TOOLS[r.id].charges;
     else if (r.kind === 'special') this.specials[r.id] += SPECIAL_CHARGES;
-    else if (this.slotsFree) this.attractions.push({ id: r.id, counter: 0 });
     this.afterReward();
   }
 
   /** Skip the reward (e.g. when attraction slots are full). */
   skipReward(): void {
-    if (this.phase === 'reward') this.afterReward();
+    if (this.phase === 'reward' || this.phase === 'conquered') this.afterReward();
   }
 
   private afterReward(): void {
@@ -695,16 +949,13 @@ export class Game {
     const item = this.shop[i];
     if (this.phase !== 'shop' || !item || item.sold || this.funds < item.price) return;
     if (item.kind === 'heart' && this.hearts >= HEARTS) return;
-    if (item.kind === 'attraction' && !this.slotsFree) return;
+    if ((item.kind === 'attraction' || item.kind === 'upgrade') && !this.canGain(item)) return;
     this.funds -= item.price;
     item.sold = true;
     if (item.kind === 'egg') this.openEgg(item.id, 'shop');
     else if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
     else if (item.kind === 'special') this.specials[item.id] += SPECIAL_CHARGES;
-    else if (item.kind === 'upgrade') {
-      this.upgrades.push(item.id);
-      this.mods = modsFor(this.upgrades);
-    } else if (item.kind === 'attraction') this.attractions.push({ id: item.id, counter: 0 });
+    else if (item.kind === 'upgrade' || item.kind === 'attraction') this.gain(item);
     else this.hearts++;
   }
 
@@ -716,7 +967,7 @@ export class Game {
   // ---- Capsule eggs --------------------------------------------------------
 
   private openEgg(kind: EggKind, returnTo: 'shop' | 'map'): void {
-    const items = eggContents(this.rng, kind, this.dayNum, this.attractions.map((a) => a.id));
+    const items = eggContents(this.rng, kind, this.dayNum, this.ownedIds);
     this.egg = { kind, items, picksLeft: EGGS[kind].picks, cracked: false, returnTo };
     this.phase = 'egg';
   }
@@ -727,14 +978,14 @@ export class Game {
 
   canTakeFromEgg(i: number): boolean {
     const item = this.egg?.items[i];
-    return !!item && !(item.kind === 'attraction' && !this.slotsFree);
+    return !!item && !(item.kind === 'attraction' && !this.canGain(item));
   }
 
   takeFromEgg(i: number): void {
     const egg = this.egg;
     if (this.phase !== 'egg' || !egg?.cracked || !this.canTakeFromEgg(i)) return;
     const [item] = egg.items.splice(i, 1);
-    if (item.kind === 'attraction') this.attractions.push({ id: item.id, counter: 0 });
+    if (item.kind === 'attraction') this.gain(item);
     else if (item.kind === 'tool') this.tools[item.id] += TOOLS[item.id].charges;
     else this.crowd.push(item.id);
     egg.picksLeft--;
@@ -752,20 +1003,6 @@ export class Game {
 
   leaveShop(): void {
     if (this.phase === 'shop') this.advance();
-  }
-
-  /** Sell an attraction to free its slot. */
-  sellAttraction(i: number): void {
-    if (!this.attractions[i] || this.phase === 'ride') return;
-    this.attractions.splice(i, 1);
-    this.funds += sellValue(this.dayNum);
-  }
-
-  /** Reorder attractions: they score left to right. */
-  moveAttraction(i: number, by: -1 | 1): void {
-    const j = i + by;
-    if (!this.attractions[i] || !this.attractions[j] || this.phase === 'ride') return;
-    [this.attractions[i], this.attractions[j]] = [this.attractions[j], this.attractions[i]];
   }
 }
 

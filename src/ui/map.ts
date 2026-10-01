@@ -1,7 +1,7 @@
 import type { Game } from '../game';
 import { mapArt } from '../render3d/mapart';
 import { BOSSES } from '../riders/riders';
-import { FINALE_DAY, NODE_INFO, PARKS, PARK_BOSS, type ParkId, SEASON_ORDER } from '../run/run';
+import { FINALE_DAY, NODE_INFO, PARKS, type ParkId, SEASON_ORDER } from '../run/run';
 
 // The route map, Slay the Spire style: a painted map of the park, read from the
 // gates at the bottom up to the boss's lair at the top. Every stop is a little
@@ -224,7 +224,7 @@ export function mapHtml(g: Game): string {
   // Open trails on top.
   trails.sort((p, q) => Number(p.includes(' open')) - Number(q.includes(' open')));
   // Stops.
-  const boss = PARK_BOSS[id];
+  const boss = g.parkBoss;
   const nodes = rows
     .map((row, ci) =>
       row

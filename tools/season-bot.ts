@@ -41,7 +41,7 @@ let seed = 7;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 const perDay: Record<number, number[]> = {};
 const targets: Record<number, number> = {};
-let wins = 0, reached: number[] = []; let bossFails = 0, bossDays = 0;
+let wins = 0, reached: number[] = []; let bossFails = 0, bossDays = 0; const rounds: Record<number, number> = {}; const perBoss: Record<string, number[]> = {};
 for (let run = 0; run < 200; run++) {
   const g = new Game('B' + run);
   const greed = 7 + Math.floor(rnd() * 10);
@@ -55,12 +55,13 @@ for (let run = 0; run < 200; run++) {
     }
     if (g.phase === 'shop') { g.buy(0); g.buy(1); g.leaveShop(); continue; }
     if (g.phase === 'egg') { g.crackEgg(); g.takeFromEgg(0); if (g.phase === 'egg') g.closeEgg(); continue; }
+    if (g.phase === 'conquered') { g.chooseReward(0); continue; }
     if (g.phase === 'reward') { const a = g.offer.findIndex((o) => o.kind === 'attraction'); a >= 0 && g.slotsFree ? g.chooseReward(a) : g.chooseReward(0); continue; }
     if (g.phase === 'build') {
       playDay(g, rnd, greed);
       const r = g.result!;
       (perDay[g.dayNum] ??= []).push(r.total);
-      if (g.cfg.boss) { bossDays++; if (!r.bossPuked) bossFails++; }
+      if (g.cfg.boss && !r.again) { bossDays++; if (!r.bossPuked) bossFails++; rounds[r.round] = (rounds[r.round] ?? 0) + (r.passed ? 1 : 0); const pb = (perBoss[g.cfg.boss] ??= [0, 0, 0]); pb[0]++; if (r.bossPuked) pb[1]++; if (r.passed) pb[2]++; }
       targets[g.dayNum] = g.cfg.node === 'boss' ? targets[g.dayNum] ?? r.target : r.target;
       g.continueFromResults();
       if (g.phase === 'won') { wins++; break; }
@@ -77,4 +78,6 @@ for (const [d, arr] of Object.entries(perDay)) {
   console.log(`day ${d}: target~${targets[+d]}  n=${arr.length}  p25 ${q(0.25)}  median ${q(0.5)}  p75 ${q(0.75)}  p90 ${q(0.9)}`);
 }
 reached.sort((a, b) => a - b);
+console.log('boss days won on ride', JSON.stringify(rounds));
+console.log('per boss [days, broken, cleared]', JSON.stringify(perBoss));
 console.log('wins', wins, 'median day reached', reached[Math.floor(reached.length / 2)], 'boss fails', bossFails, 'of', bossDays);

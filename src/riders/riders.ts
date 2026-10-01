@@ -18,7 +18,7 @@ export type RiderKind =
   | 'ghost'
   | 'vip'
   | 'boss';
-export type BossId = 'barry' | 'ivy' | 'vertigo' | 'mayor';
+export type BossId = 'barry' | 'granny' | 'ivy' | 'lou' | 'vertigo' | 'count' | 'mayor';
 export type HairStyle = 'short' | 'long' | 'bun' | 'spiky' | 'bald' | 'cap';
 export type Accessory = 'none' | 'glasses' | 'shades' | 'corndog' | 'camera' | 'balloon';
 
@@ -161,44 +161,132 @@ export const KINDS: Record<Exclude<RiderKind, 'boss'>, KindDef> = {
   },
 };
 
+/**
+ * How a boss bends the day. Each one is a twist on the puzzle, not just a bigger
+ * stomach (like Balatro's boss blinds):
+ *  - seconds:  their stomach grows while you build (every 4 swipes).
+ *  - seenitall: only the first piece of each type gets to them.
+ *  - waves:    every 5 swipes a wave sloshes the board one way (forecast ahead).
+ *  - whistle:  a swipe that merges nothing costs 2 daylight.
+ *  - spin:     every 6 swipes your swipe controls turn a quarter turn.
+ *  - blackout: the fog closes in: only tiles next to the track can be seen.
+ *  - demands:  the ride must meet three demands or they won't get on.
+ */
+export type BossRule = 'seconds' | 'seenitall' | 'waves' | 'whistle' | 'spin' | 'blackout' | 'demands';
+
 export interface BossDef extends Profile {
   name: string;
+  /** A one-liner for the title card. */
+  quip: string;
   stomach: number;
+  /** Pukes it takes to break them, over up to BOSS_ROUNDS rides. */
+  composure: number;
+  rule: BossRule;
+  ruleName: string;
+  ruleDesc: string;
   look: Partial<Look>;
 }
 
-/** Each park ends with one of these in line. Make them puke to clear the day. */
+/** Rides you get to break a boss on their day. */
+export const BOSS_ROUNDS = 3;
+
+/** Each park ends with one of these in line. Break their composure to clear the park. */
 export const BOSSES: Record<BossId, BossDef> = {
   barry: {
     name: 'Big Barry',
-    stomach: 24,
+    quip: 'Has never puked. Not once. Not even at the chili festival.',
+    stomach: 14,
+    composure: 2,
+    rule: 'seconds',
+    ruleName: 'Second Helpings',
+    ruleDesc: 'Barry snacks while you build: his stomach grows by 1 every 4 swipes. Open early!',
     trait: 'Huge. Everything hits him, just not very hard.',
     worth: 8,
-    look: { shirt: 0, pants: 2, hairStyle: 'short', hair: 0 },
+    look: { shirt: 0, pants: 2, hairStyle: 'short', hair: 0, accessory: 'corndog' },
+  },
+  granny: {
+    name: 'Granny Grit',
+    quip: 'Rode the first wooden coaster in 1952. Was bored.',
+    stomach: 6,
+    composure: 2,
+    rule: 'seenitall',
+    ruleName: 'Seen It All',
+    ruleDesc: 'Only the first piece of each type gets to her. Variety is everything.',
+    trait: 'Small stomach, long memory.',
+    worth: 8,
+    look: { hairStyle: 'bun', hair: 4, accessory: 'glasses', shirt: 5 },
   },
   ivy: {
     name: 'Iron-Gut Ivy',
-    stomach: 20,
-    trait: 'Old sailor. Only Drops and inversions get to her, but those hit double.',
+    quip: 'Forty years at sea. Ate a storm once.',
+    stomach: 8,
+    composure: 2,
+    rule: 'waves',
+    ruleName: 'Rough Seas',
+    ruleDesc: 'Every 5 swipes a wave sloshes the whole board one way. Watch the forecast.',
+    trait: 'Only Drops and inversions get to her, but those hit double.',
     hit: (t) => (t === 3 || inverted(t) ? 2 : 0),
     worth: 8,
     look: { shirt: 1, hairStyle: 'cap', hair: 4 },
   },
+  lou: {
+    name: 'Lifeguard Lou',
+    quip: 'NO RUNNING. NO DIVING. NO FUN.',
+    stomach: 10,
+    composure: 2,
+    rule: 'whistle',
+    ruleName: 'No Running!',
+    ruleDesc: 'Every swipe that merges nothing costs 2 daylight instead of 1.',
+    trait: 'Hard to impress. Everything hits him normally.',
+    worth: 8,
+    look: { shirt: 0, hairStyle: 'spiky', hair: 3, accessory: 'shades' },
+  },
   vertigo: {
     name: 'Dr. Vertigo',
-    stomach: 26,
-    trait: 'Coaster scientist. Barely notices small stuff; Corkscrews and Mega Loops hit triple.',
+    quip: 'Wrote the textbook on motion sickness. Immune, allegedly.',
+    stomach: 12,
+    composure: 2,
+    rule: 'spin',
+    ruleName: 'Spin Cycle',
+    ruleDesc: 'Every 6 swipes your controls turn a quarter turn clockwise. Check the compass.',
+    trait: 'Barely notices small stuff; Corkscrews and Mega Loops hit triple.',
     hit: (t) => (t >= 6 ? 3 : 0.5),
     worth: 10,
     look: { shirt: 8, hairStyle: 'spiky', hair: 4, accessory: 'glasses' },
   },
+  count: {
+    name: 'Count Queasy',
+    quip: 'Undead for 300 years. Has not felt a thing since.',
+    stomach: 8,
+    composure: 2,
+    rule: 'blackout',
+    ruleName: 'Lights Out',
+    ruleDesc: 'The fog closes in: only tiles right next to your track can be seen.',
+    trait: 'Only feels upside-down pieces, but those hit double.',
+    hit: (t) => (inverted(t) ? 2 : 0),
+    worth: 10,
+    look: { skin: 5, hairStyle: 'short', hair: 0, shirt: 8, pants: 0, accessory: 'none' },
+  },
   mayor: {
     name: 'The Mayor',
-    stomach: 40,
-    trait: 'Has ridden every coaster in the state. Unshakeable, on paper.',
+    quip: 'Has ridden every coaster in the state. Unshakeable, on paper.',
+    stomach: 16,
+    composure: 3,
+    rule: 'demands',
+    ruleName: 'Inspection Day',
+    ruleDesc: 'The ride must meet all three of the Mayor’s demands, or the Mayor won’t get on.',
+    trait: 'Everything hits normally. There is just a lot of Mayor.',
     worth: 12,
     look: { shirt: 4, hairStyle: 'short', hair: 5, accessory: 'shades' },
   },
+};
+
+/** Who might be waiting at the end of each park. */
+export const BOSS_POOL: Record<ParkId, BossId[]> = {
+  meadow: ['barry', 'granny'],
+  boardwalk: ['ivy', 'lou'],
+  hollow: ['vertigo', 'count'],
+  finale: ['mayor'],
 };
 
 function profile(r: Rider): Profile {

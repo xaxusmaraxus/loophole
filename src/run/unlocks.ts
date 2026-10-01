@@ -1,5 +1,5 @@
 import type { SpecialId } from '../puzzle/pieces';
-import type { BossId } from '../riders/riders';
+import { BOSS_POOL, type BossId } from '../riders/riders';
 import type { ToolId } from './run';
 
 // Meta-progression: what you've done across all your seasons unlocks new things
@@ -30,10 +30,12 @@ export interface UnlockDef {
   earned: (r: PlayRecord) => boolean;
 }
 
+const beat = (r: PlayRecord, park: keyof typeof BOSS_POOL) => r.bosses.some((b) => BOSS_POOL[park].includes(b));
+
 export const UNLOCKS: { [K in UnlockId]: UnlockDef } = {
-  launch: { name: 'Launch pieces', desc: 'Special piece: +10 thrill, and the next piece hits double.', how: 'Make Big Barry puke.', earned: (r) => r.bosses.includes('barry') },
-  splash: { name: 'Water Splash pieces', desc: 'Special piece: +1 multiplier and soaked riders.', how: 'Make Iron-Gut Ivy puke.', earned: (r) => r.bosses.includes('ivy') },
-  brakes: { name: 'Brake Run pieces', desc: 'Special piece: +3 nausea for every rider.', how: 'Make Dr. Vertigo puke.', earned: (r) => r.bosses.includes('vertigo') },
+  launch: { name: 'Launch pieces', desc: 'Special piece: +10 thrill, and the next piece hits double.', how: 'Break a Meadow Park boss.', earned: (r) => beat(r, 'meadow') },
+  splash: { name: 'Water Splash pieces', desc: 'Special piece: +1 multiplier and soaked riders.', how: 'Break a Sunny Boardwalk boss.', earned: (r) => beat(r, 'boardwalk') },
+  brakes: { name: 'Brake Run pieces', desc: 'Special piece: +3 nausea for every rider.', how: 'Break a Haunted Hollow boss.', earned: (r) => beat(r, 'hollow') },
   coffee: { name: 'Thermos', desc: 'Every new season starts with an extra Coffee.', how: 'Make guests puke 100 times.', earned: (r) => r.totalPukes >= 100 },
   crane: { name: 'Crane license', desc: 'Every new season starts with a Crane.', how: 'Make guests puke 500 times.', earned: (r) => r.totalPukes >= 500 },
   bigride: { name: 'Headliner', desc: 'Every new season starts with a Launch piece.', how: 'Sell 100,000 tickets on a single ride.', earned: (r) => r.bestRide >= 100000 },

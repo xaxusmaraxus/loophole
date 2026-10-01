@@ -1,8 +1,8 @@
 import type { Rng } from '../core/rng';
 import type { SpecialId } from '../puzzle/pieces';
 import { type Board, type ObstacleKind, idx, isWall } from '../puzzle/board';
-import { type BossId, KINDS, type RiderKind } from '../riders/riders';
-import { ATTRACTIONS, type AttractionId } from './attractions';
+import { BOSS_POOL, type BossId, KINDS, type RiderKind } from '../riders/riders';
+import { ATTRACTIONS, type AttractionId, LEGENDARIES } from './attractions';
 
 // Rewards between days come in two kinds:
 //  - Upgrades: permanent, stackable boosts to the park's stats.
@@ -83,7 +83,7 @@ export function modsFor(upgrades: readonly UpgradeId[]): Mods {
 
 /** Attractions not yet owned, rares less often. */
 export function attractionPicks(rng: Rng, owned: readonly AttractionId[], n: number): AttractionId[] {
-  const pool = (Object.keys(ATTRACTIONS) as AttractionId[]).filter((a) => !owned.includes(a));
+  const pool = (Object.keys(ATTRACTIONS) as AttractionId[]).filter((a) => !owned.includes(a) && ATTRACTIONS[a].rarity !== 'legendary');
   const weighted = pool.flatMap((a) => (ATTRACTIONS[a].rarity === 'rare' ? [a] : [a, a, a]));
   const out: AttractionId[] = [];
   while (out.length < n && weighted.length) {
@@ -111,6 +111,14 @@ export function rewardOffer(rng: Rng, owned: readonly AttractionId[], slotsFree:
   // Once special pieces are unlocked, the tool pick is often one of them instead.
   const tool: Reward = specials.length && rng.chance(0.5) ? { kind: 'special', id: rng.pick([...specials]) } : { kind: 'tool', id: tools[0] };
   return rng.shuffle<Reward>([{ kind: 'upgrade', id: ups[0] }, tool, third]);
+}
+
+/** A broken boss drops 1 of 3 legendaries you don't have yet. */
+export function legendaryOffer(rng: Rng, owned: readonly AttractionId[]): Reward[] {
+  return rng
+    .shuffle(LEGENDARIES.filter((a) => !owned.includes(a)))
+    .slice(0, 3)
+    .map((id): Reward => ({ kind: 'attraction', id }));
 }
 
 // ---- Season -----------------------------------------------------------------
@@ -213,12 +221,9 @@ export const NODE_INFO: Record<NodeKind, { name: string; desc: string; isDay: bo
   shop: { name: 'Shop', desc: 'Spend park funds on tools, upgrades and attractions.', isDay: false },
   repair: { name: 'Repair', desc: 'Win back a heart. At full hearts, +100 park funds instead.', isDay: false },
   treasure: { name: 'Treasure', desc: 'A free capsule egg from the machine.', isDay: false },
-  boss: { name: 'Boss day', desc: 'A tough customer is in line. Make them puke to clear the park.', isDay: true },
-  finale: { name: 'Grand Opening', desc: 'Make the Mayor puke and hit the target to win the season.', isDay: true },
+  boss: { name: 'Boss day', desc: 'A tough customer is in line, with a twist. Break their composure (up to 3 rides) to clear the park.', isDay: true },
+  finale: { name: 'Grand Opening', desc: 'Break the Mayor and hit the target to win the season.', isDay: true },
 };
-
-/** The tough customer waiting at the end of each park. */
-export const PARK_BOSS: Record<ParkId, BossId> = { meadow: 'barry', boardwalk: 'ivy', hollow: 'vertigo', finale: 'mayor' };
 
 export interface MapNode {
   kind: NodeKind;
@@ -267,10 +272,10 @@ export function priceScale(day: number): number {
   return (BASE_TARGET / 300) * TARGET_GROWTH ** (day - 1);
 }
 
-export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day'): DayConfig {
+export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day', parkBoss: BossId | null = null): DayConfig {
   const park = parkFor(day);
   const d = Math.min(DAYS_PER_PARK, ((day - 1) % DAYS_PER_PARK) + 1);
-  const boss = node === 'boss' || node === 'finale' ? PARK_BOSS[park.id] : null;
+  const boss = node === 'boss' || node === 'finale' ? parkBoss ?? BOSS_POOL[park.id][0] : null;
   let target = BASE_TARGET * TARGET_GROWTH ** (day - 1);
   if (node === 'finale') target *= 1.5;
   return {
@@ -340,9 +345,9 @@ export function shopStock(rng: Rng, day: number, owned: readonly AttractionId[],
   ];
 }
 
-/** Selling an attraction refunds a share of what it would cost. */
-export function sellValue(day: number): number {
-  return Math.round((60 * priceScale(day)) / 10) * 10;
+/** Selling a spot on the plot refunds a share of what it would cost (more for bigger ones). */
+export function sellValue(day: number, cells = 1): number {
+  return Math.round((60 * (1 + (cells - 1) * 0.5) * priceScale(day)) / 10) * 10;
 }
 
 const OBSTACLES: ObstacleKind[] = ['tree', 'tree', 'tree', 'rock', 'pond', 'stand'];

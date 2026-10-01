@@ -15,7 +15,7 @@ function freshGame(): Game {
 /** Pretend the current day just ended with this many tickets. */
 function finish(g: Game, total: number): void {
   g.phase = 'results';
-  g.result = { kind: 'circuit', stats: g.stats, score: g.score('circuit'), tickets: [], total, target: g.cfg.target, bossPuked: true, passed: total >= g.cfg.target, timeline: [] };
+  g.result = { kind: 'circuit', stats: g.stats, score: g.score('circuit'), tickets: [], total, target: g.cfg.target, bossPuked: true, bossHits: 0, bossHp: 0, round: 1, dayTotal: total, refused: false, again: false, passed: total >= g.cfg.target, timeline: [] };
   g.continueFromResults();
 }
 
@@ -98,21 +98,22 @@ describe('rewards and attractions', () => {
 
   it('Season Pass grows every day you beat the target', () => {
     const g = freshGame();
-    g.attractions = [{ id: 'seasonpass', counter: 0 }];
+    g.gain({ kind: 'attraction', id: 'seasonpass' });
     finish(g, g.cfg.target);
     expect(g.attractions[0].counter).toBe(1);
   });
 
-  it('sells and reorders attractions', () => {
+  it('sells and rearranges attractions on the plot (they score in reading order)', () => {
     const g = freshGame();
-    g.attractions = [
-      { id: 'loopdeloop', counter: 0 },
-      { id: 'quicktrip', counter: 0 },
-    ];
-    g.moveAttraction(0, 1);
+    g.gain({ kind: 'attraction', id: 'loopdeloop' });
+    g.gain({ kind: 'attraction', id: 'quicktrip' });
+    expect(g.attractions.map((a) => a.id)).toEqual(['loopdeloop', 'quicktrip']);
+    g.phase = 'map';
+    const loop = g.plot.items[0].uid;
+    expect(g.placeItem(loop, 4, 1)).toBe(true);
     expect(g.attractions.map((a) => a.id)).toEqual(['quicktrip', 'loopdeloop']);
     const funds = g.funds;
-    g.sellAttraction(0);
+    g.sellItem(loop);
     expect(g.attractions).toHaveLength(1);
     expect(g.funds).toBeGreaterThan(funds);
   });
@@ -147,9 +148,13 @@ describe('season and map', () => {
     if (g.phase === 'egg') g.closeEgg();
     expect(g.phase).toBe('map');
     g.chooseNode(3, 0);
-    expect(g.cfg.boss).toBe('barry');
-    expect(g.queue[0].boss).toBe('barry');
+    expect(['barry', 'granny']).toContain(g.cfg.boss);
+    expect(g.queue[0].boss).toBe(g.cfg.boss);
     finish(g, g.cfg.target);
+    // A broken boss: the park plot grows a row, and a legendary is on offer.
+    expect(g.phase).toBe('conquered');
+    expect(g.plot.h).toBe(3);
+    expect(g.offer.every((o) => o.kind === 'attraction')).toBe(true);
     g.skipReward();
     expect(g.dayNum).toBe(4);
     expect(g.cfg.park.id).toBe('boardwalk');
@@ -221,7 +226,7 @@ describe('puking', () => {
     g.dayNum = 3;
     g.skipReward();
     (g as unknown as { startDay(n: string): void }).startDay('boss');
-    expect(g.queue[0].boss).toBe('barry');
+    expect(g.queue[0].boss).toBe(g.parkBoss);
     g.open('shuttle'); // nothing built: can't open
     expect(g.phase).toBe('build');
   });
