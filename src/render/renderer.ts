@@ -42,7 +42,8 @@ import { RideAnim, parkS } from '../ride/ride';
 import type { Rider } from '../riders/riders';
 import { Geo, rng, shade, v3 } from '../render3d/geo';
 import { GLOW_MAT, GRASS_Y, type Island, WATER_Y, buildIsland } from '../render3d/island';
-import { type CarKind, CRATE_H, type Face, M, type Parts, carGeo, crateGeo, mysteryGeo, personGeo, rope } from '../render3d/models';
+import { type CarKind, CRATE_H, FLAVOR_COLORS, FLAVOR_PIVOT, type Face, M, type Parts, carGeo, crateGeo, flavorAnimGeo, flavorBaseGeo, mysteryGeo, personGeo, rope } from '../render3d/models';
+import { type Flavor, SPECIALS } from '../puzzle/pieces';
 import { Particles, Pool, bubbleMaterial, makeBubble, makeMarker, puddleGeo } from '../render3d/fx';
 import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
 import { MATS, SHARED, toon } from '../render3d/toon';
@@ -79,6 +80,25 @@ const QUEUE_START = 0.7;
 const STRUCT_SCALE = 1.6;
 /** Depth of the stairs up to a raised station. */
 const STAIRS = 0.42;
+/** How far below the rail a hanging car rides. */
+const HANG_DROP = 0.44;
+/**
+ * A suspended car's hanger, in the car's frame: unit height, from the car (y = 0)
+ * up to the rail (y = 1); the car's matrix scales it to the real drop.
+ */
+function hangerGeo(): ReturnType<Geo['build']> {
+  const g = new Geo();
+  const iron = '#3c3550';
+  // A post up the back of the car (clear of the rider's head), then a yoke over to the rail's bogie.
+  g.beam(v3(0, 0.22, -0.15), v3(0, 1.0, -0.15), 0.034, iron, 0.03);
+  g.beam(v3(0, 0.98, -0.15), v3(0, 0.98, 0.04), 0.04, iron, 0.034);
+  g.beam(v3(0, 0.24, -0.15), v3(0, 0.2, -0.1), 0.03, iron, 0.03);
+  g.beam(v3(0, 1.0, -0.06), v3(0, 1.0, 0.06), 0.07, '#2b2140', 0.05);
+  return g.build();
+}
+
+/** Flume water on the track: glossy, a touch see-through. */
+const FLUME_MAT = toon({ gloss: 1, rim: 0.7, transparent: true, opacity: 0.88, lump: 0.004 });
 
 export interface Walker {
   look: Rider['look'];
@@ -192,6 +212,12 @@ export class Renderer {
   private cellGroups = new Map<string, Group>();
   private riseAt = new Map<string, number>();
   private crates: Pool<Mesh>;
+  /** The arms suspended cars hang from. */
+  private hangers: Pool<Mesh>;
+  /** Chain cells of the track that are flumes (their water foams along). */
+  private flumes: number[] = [];
+  /** Park-piece badges on flavored crates: a static part and a moving part. */
+  private decos: Pool<Group>;
   private people: Pool<Rig>;
   private cars: Pool<Mesh>;
   private markers: Pool<Mesh>;
@@ -285,9 +311,24 @@ export class Renderer {
       m.receiveShadow = true;
       return m;
     });
+    this.decos = new Pool(this.dyn, () => {
+      const grp = new Group();
+      for (let k = 0; k < 2; k++) {
+        const m = new Mesh(undefined, MATS.gloss);
+        m.castShadow = true;
+        grp.add(m);
+      }
+      return grp;
+    });
     this.people = new Pool(this.dyn, () => new Rig());
     this.cars = new Pool(this.dyn, () => {
       const m = new Mesh(undefined, MATS.gloss);
+      m.castShadow = true;
+      m.matrixAutoUpdate = false;
+      return m;
+    });
+    this.hangers = new Pool(this.dyn, () => {
+      const m = new Mesh(hangerGeo(), MATS.gloss);
       m.castShadow = true;
       m.matrixAutoUpdate = false;
       return m;
@@ -767,6 +808,9 @@ export class Renderer {
         case 'unlock':
           this.onUnlock(e.id);
           break;
+        case 'combo':
+          this.comboPrizePop(e.merges, e.special);
+          break;
         case 'boss':
           if (e.what === 'wave') this.waveNext = e.dir!;
           else if (e.what === 'spin') {
@@ -895,6 +939,14 @@ export class Renderer {
       const a = Math.random() * Math.PI * 2;
       const sp = 0.6 + Math.random() * 1.1;
       this.particles.add({ p: at.clone(), v: v3(Math.cos(a) * sp, 1.2 + Math.random() * 1.6, Math.sin(a) * sp), g: 5, max: 0.8 + Math.random() * 0.4, color: k % 3 ? '#8fdcf6' : '#fbf6ec', size: 0.025 + Math.random() * 0.02 });
+    }
+  }
+
+  /** A flume wake: spray thrown off both sides of a car ploughing through the water. */
+  flumeSpray(at: Vector3, t: Vector3, right: Vector3, speed: number): void {
+    for (const side of [-1, 1]) {
+      const v = right.clone().multiplyScalar(side * (0.5 + Math.random() * 0.5)).addScaledVector(t, speed * 0.4).add(v3(0, 0.9 + Math.random() * 0.8, 0));
+      this.particles.add({ p: at.clone().addScaledVector(right, side * 0.13).setY(at.y + 0.02), v, g: 5, max: 0.5 + Math.random() * 0.3, color: Math.random() < 0.4 ? '#fbf6ec' : '#8fdcf6', size: 0.02 + Math.random() * 0.018 });
     }
   }
 
@@ -1039,7 +1091,7 @@ export class Renderer {
     this.particles.add({ p: at.clone(), v: v3((Math.random() - 0.5) * 1.2, 1.8, (Math.random() - 0.5) * 0.8), g: 4, max: 1.6, color, size: 0.07 });
   }
 
-  word(text: string, at: Vector3, color: string, big = 1): void {
+  word(text: string, at: Vector3, color: string, big = 1): HTMLElement {
     // The same shout again nearby just counts up ("OOH ×3").
     const same = this.words.find((w) => w.base === text && this.now - w.born < 900 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 1.6);
     if (same) {
@@ -1049,7 +1101,7 @@ export class Renderer {
       same.el.style.animation = 'none';
       void same.el.offsetWidth;
       same.el.style.animation = '';
-      return;
+      return same.el;
     }
     // Stack different shouts that land on the same spot instead of piling them up.
     const near = this.words.filter((w) => this.now - w.born < 700 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 0.9).length;
@@ -1061,6 +1113,7 @@ export class Renderer {
     el.style.setProperty('--s', String(big));
     this.wordLayer.append(el);
     this.words.push({ el, at: at.clone(), born: this.now, max: 1100, base: text });
+    return el;
   }
 
   addWalker(w: Walker): void {
@@ -1116,6 +1169,7 @@ export class Renderer {
     this.animateStructures();
     this.updateLight(dt);
     this.drawTrackRise();
+    this.foamFlumes(gdt);
     this.drawCrates();
     this.drawTargets();
     this.drawQueue(dt);
@@ -1140,8 +1194,10 @@ export class Renderer {
     if (this.puddleDirty) this.rebuildPuddles();
     this.animateScenery(now);
     this.crates.end();
+    this.decos.end();
     this.people.end();
     this.cars.end();
+    this.hangers.end();
     this.markers.end();
     this.bubbles.end();
     this.mists.end();
@@ -1415,6 +1471,10 @@ export class Renderer {
   }
 
   private animateStructures(): void {
+    // Rides on the plaza that turn (the teacups).
+    const t = this.now / 1000;
+    for (const grp of this.structures.children)
+      for (const c of grp.children) if (c.userData.spin) c.rotation.y = t * c.userData.spin;
     this.attrLots.forEach((grp, i) => {
       const t = (this.now - (this.attrPulse[i] ?? -1e9)) / 1000;
       const k = t >= 0 && t < 0.7 ? Math.sin(t * 18) * Math.exp(-t * 5) : 0;
@@ -1435,6 +1495,7 @@ export class Renderer {
       g.traverse((o) => (o as Mesh).geometry?.dispose());
     }
     this.cellGroups.clear();
+    this.flumes = [];
     const look = this.island!.look;
     this.path.cells.forEach((c, i) => {
       const parts = buildCellTrack(this.path, i, { support: look.support, tie: look.tie });
@@ -1447,6 +1508,11 @@ export class Renderer {
         m.receiveShadow = true;
         g.add(m);
       }
+      if (parts.water && !parts.water.empty) {
+        const m = new Mesh(parts.water.build(), FLUME_MAT);
+        m.receiveShadow = true;
+        g.add(m);
+      }
       if (parts.glow && !parts.glow.empty) {
         const m = new Mesh(parts.glow.build(), GLOW_MAT);
         m.layers.set(GLOW_LAYER);
@@ -1454,11 +1520,26 @@ export class Renderer {
         g.add(m);
       }
       // A crossing pass shares its cell with the track it crosses: key it apart.
-      const k = `${c.x},${c.y}${c.cross ? ',x' : ''}${c.special ? `,${c.special}` : ''}`;
+      const k = `${c.x},${c.y}${c.cross ? ',x' : ''}${c.special ? `,${c.special}` : ''}${c.flavor && !c.station ? `,${c.flavor}` : ''}`;
       if (fresh && !had.has(k)) this.riseAt.set(k, this.now);
+      if (c.flavor === 'water' && !c.station) this.flumes.push(i);
       this.cellGroups.set(k, g);
       this.trackGroup.add(g);
     });
+  }
+
+  /** Foam flecks drift down each flume, so the water reads as running. */
+  private foamFlumes(dt: number): void {
+    if (!this.path || !dt) return;
+    for (const i of this.flumes) {
+      const [a, b] = this.path.range(i);
+      if (Math.random() > dt * 9 * (b - a)) continue;
+      const s = a + Math.random() * (b - a);
+      const f = this.path.sample(s);
+      if (f.up.y < 0.35) continue;
+      const p = f.p.clone().addScaledVector(f.up, -0.012).addScaledVector(f.right, (Math.random() - 0.5) * 0.24);
+      this.particles.add({ p, v: f.t.clone().multiplyScalar(0.45), g: 0, max: 0.7, color: Math.random() < 0.6 ? '#fbf6ec' : '#bff0ff', size: 0.018 + Math.random() * 0.012, drag: 0 });
+    }
   }
 
   private drawTrackRise(): void {
@@ -1484,7 +1565,7 @@ export class Renderer {
 
   // ---- Crates ---------------------------------------------------------------------
 
-  private crate(tier: number, x: number, z: number, cellI: number, flash = 0, lift = 0, squash = 0): void {
+  private crate(tier: number, x: number, z: number, cellI: number, flash = 0, lift = 0, squash = 0, flavor: Flavor | null = null): void {
     const m = this.crates.get();
     const fog = this.fogged.has(cellI);
     m.geometry = fog ? mysteryGeo() : crateGeo(tier);
@@ -1493,6 +1574,29 @@ export class Renderer {
     m.scale.set(pop * (1 + squash), pop * (1 - squash * 1.5), pop * (1 + squash));
     const mat = m.material as ReturnType<typeof toon>;
     mat.emissive.setScalar(flash * 0.9);
+    // The fog keeps a park piece's secret.
+    if (flavor && !fog) this.flavorBadge(flavor, m.position, m.scale, cellI);
+  }
+
+  /** A flavored crate's badge: the lollipop whirls, the droplet bobs, the bat swings. */
+  private flavorBadge(f: Flavor, at: Vector3, scale: Vector3, seed: number): void {
+    const d = this.decos.get();
+    d.position.copy(at);
+    d.scale.copy(scale);
+    const [base, anim] = d.children as Mesh[];
+    base.geometry = flavorBaseGeo(f);
+    anim.geometry = flavorAnimGeo(f);
+    anim.position.copy(FLAVOR_PIVOT[f]);
+    const t = this.now / 1000 + seed * 0.37;
+    if (f === 'spin') anim.rotation.set(-0.45, 0, -t * 2.6);
+    else if (f === 'water') {
+      anim.position.y += Math.abs(Math.sin(t * 2.4)) * 0.035;
+      anim.rotation.set(0, Math.sin(t * 0.9) * 0.6, 0);
+      const k = 1 + Math.max(0, Math.cos(t * 2.4 * 2)) * 0.06;
+      anim.scale.set(k, 2 - k, k);
+    } else anim.rotation.set(Math.sin(t * 1.7) * 0.12, Math.sin(t * 0.6) * 0.3, Math.sin(t * 2.2) * 0.32);
+    if (f !== 'water') anim.scale.setScalar(f === 'hang' ? 1.5 : 1.25);
+    else anim.scale.multiplyScalar(1.4);
   }
 
   private drawCrates(): void {
@@ -1504,7 +1608,7 @@ export class Renderer {
           const i = idx(b, x, y);
           const t = b.tiles[i];
           if (!t) continue;
-          this.crate(t, x, y, i, this.flashAt(i));
+          this.crate(t, x, y, i, this.flashAt(i), 0, 0, b.flav?.[i] ?? null);
           if (t === 7 && Math.random() < 0.04 && !this.fogged.has(i)) this.sparks.add({ p: v3(x + 0.2 + Math.random() * 0.6, CRATE_H + 0.1 + Math.random() * 0.25, y + 0.2 + Math.random() * 0.6), v: v3(0, 0.25, 0), g: 0, max: 0.5, color: '#fff6c8', size: 0.03, drag: 0 });
         }
       return;
@@ -1517,28 +1621,30 @@ export class Renderer {
       for (const s of mv.slides) {
         const x = s.from.x + (s.to.x - s.from.x) * e;
         const y = s.from.y + (s.to.y - s.from.y) * e;
-        this.crate(s.tier, x, y, idx(b, s.to.x, s.to.y), 0, 0, Math.sin(e * Math.PI) * 0.06);
+        this.crate(s.tier, x, y, idx(b, s.to.x, s.to.y), 0, 0, Math.sin(e * Math.PI) * 0.06, s.flavor ?? null);
       }
       return;
     }
     const k = Math.floor((el - SLIDE_MS) / WAVE_MS);
     const e = ease(((el - SLIDE_MS) % WAVE_MS) / (WAVE_MS * 0.6));
     const base = k === 0 ? mv.slid : mv.chain.frames[k - 1];
+    // Flavors as they stood at this stage (older events may lack them: fall back to the board's).
+    const flav = (k === 0 ? mv.slidFlav : mv.chain.flavFrames?.[k - 1]) ?? b.flav ?? [];
     const wave: ChainStep[] = mv.chain.waves[k] ?? [];
     const busy = new Set(wave.flatMap((w) => [idx(b, w.from.x, w.from.y), idx(b, w.to.x, w.to.y)]));
     for (let y = 0; y < b.size; y++)
       for (let x = 0; x < b.size; x++) {
         const i = idx(b, x, y);
-        if (base[i] && !busy.has(i)) this.crate(base[i], x, y, i, this.flashAt(i));
+        if (base[i] && !busy.has(i)) this.crate(base[i], x, y, i, this.flashAt(i), 0, 0, flav[i] ?? null);
       }
     for (const w of wave) {
       const ti = idx(b, w.to.x, w.to.y);
-      this.crate(w.tier - 1, w.to.x, w.to.y, ti);
+      this.crate(w.tier - 1, w.to.x, w.to.y, ti, 0, 0, 0, w.toFlavor ?? flav[ti] ?? null);
       const t = Math.min(1, e);
       const x = w.from.x + (w.to.x - w.from.x) * t;
       const y = w.from.y + (w.to.y - w.from.y) * t;
       // The grabbed tile hops over into the merged one.
-      this.crate(w.tier - 1, x, y, ti, 0, Math.sin(t * Math.PI) * 0.45);
+      this.crate(w.tier - 1, x, y, ti, 0, Math.sin(t * Math.PI) * 0.45, 0, w.fromFlavor ?? null);
     }
   }
 
@@ -1572,6 +1678,7 @@ export class Renderer {
         for (const w of wave) {
           this.flashes.set(idx(b, w.to.x, w.to.y), this.now + 200);
           this.burst(this.cell(w.to).setY(0.35), 14 + link * 6, TIER_RAMPS[w.tier]);
+          if (w.fresh && w.flavor) this.parkPiecePop(w.flavor, w.to);
         }
         this.word(`CHAIN ${link + 1}`, this.cell(wave[0].to).setY(0.9), PAL.gold, 1 + link * 0.12);
         this.kick(Math.min(3, link), 140 + link * 40);
@@ -1585,6 +1692,91 @@ export class Renderer {
       const next = this.waveQueue.shift();
       if (next) this.startWave(next.move, next.dir);
     }
+  }
+
+  /** A big combo paid out a free special piece: a gold shout over the board and a gift box that pops. */
+  private comboPrizePop(merges: number, special: keyof typeof SPECIALS): void {
+    const n = this.n;
+    // Let the chain's own shouts land first.
+    const delay = this.tileAnim ? Math.max(0, SLIDE_MS + this.tileAnim.move.chain.waves.length * WAVE_MS - (this.now - this.tileAnim.start)) + 120 : 0;
+    this.after(delay, () => {
+      const top = v3(n / 2, 1.7, n / 2 - 0.3);
+      const loud = (el: HTMLElement) => {
+        el.style.webkitTextStroke = '3px var(--ink)';
+        el.style.textShadow = '0 5px 0 var(--ink)';
+      };
+      loud(this.word(`COMBO ×${merges}!`, top, PAL.gold, 2));
+      this.after(260, () => loud(this.word(`+${SPECIALS[special].name.toUpperCase()}`, top.clone().setY(1.25), special === 'launch' ? '#7ff2ff' : special === 'splash' ? '#8fdcf6' : '#ff8a7a', 1.4)));
+      this.burst(v3(n / 2, 0.9, n / 2), 46, [PAL.gold, PAL.white, PAL.heart, '#7ff2ff']);
+      this.kick(3, 280);
+      this.flash = Math.max(this.flash, 0.25);
+      sfx.chain(Math.min(8, merges));
+      sfx.hype();
+      this.giftBox(v3(n / 2, 0.5, n / 2 + 0.2));
+    });
+  }
+
+  /** A clay gift box that hops up, wobbles and bursts open in ribbons and confetti. */
+  private giftBox(at: Vector3): void {
+    const box = new Group();
+    const body = new Geo();
+    body.cube(0, 0.1, 0, 0.26, 0.2, 0.26, '#f0584e', 0.03);
+    body.cube(0, 0.1, 0, 0.27, 0.205, 0.06, PAL.gold, 0.01);
+    body.cube(0, 0.1, 0, 0.06, 0.205, 0.27, PAL.gold, 0.01);
+    const lid = new Geo();
+    lid.cube(0, 0.025, 0, 0.3, 0.05, 0.3, '#ff7a6e', 0.02);
+    lid.cube(0, 0.025, 0, 0.31, 0.055, 0.065, PAL.gold, 0.01);
+    lid.cube(0, 0.025, 0, 0.065, 0.055, 0.31, PAL.gold, 0.01);
+    for (const sx of [-1, 1]) lid.sphere(v3(sx * 0.05, 0.08, 0), 0.045, PAL.gold, 1.2, 0.8, 0.6, 8, 5, true);
+    const bm = new Mesh(body.build(), MATS.gloss);
+    const lm = new Mesh(lid.build(), MATS.gloss);
+    lm.position.y = 0.2;
+    box.add(bm, lm);
+    box.position.copy(at);
+    this.dyn.add(box);
+    const t0 = this.now;
+    const step = () => {
+      const t = (this.now - t0) / 1000;
+      if (t > 1.5) {
+        this.dyn.remove(box);
+        bm.geometry.dispose();
+        lm.geometry.dispose();
+        return;
+      }
+      const hop = Math.min(1, t / 0.35);
+      box.position.y = at.y + Math.sin(hop * Math.PI * 0.5) * 0.5;
+      const pop = Math.min(1, t / 0.2);
+      box.scale.setScalar(1.6 * (t < 0.9 ? pop * (1 + Math.sin(t * 30) * 0.06 * (t > 0.4 ? 1 : 0)) : Math.max(0.01, 1 - (t - 0.9) * 2.4)));
+      box.rotation.y = t * 2.2;
+      if (t > 0.75) {
+        lm.position.y = 0.2 + (t - 0.75) * 1.6;
+        lm.rotation.z = (t - 0.75) * 5;
+      }
+      this.after(0, step);
+    };
+    this.after(0, step);
+    this.after(760, () => {
+      this.burst(box.position.clone().setY(box.position.y + 0.25), 40, [PAL.gold, PAL.heart, '#7ff2ff', PAL.white, '#a6e05a']);
+      this.sparkle(box.position.clone().setY(box.position.y + 0.3), 18, PAL.gold);
+      sfx.pop();
+    });
+  }
+
+  /** A chain just made a brand-new park piece: a burst in its colors and a shout. */
+  private parkPiecePop(f: Flavor, at: Pt): void {
+    const c = this.cell(at);
+    const C = FLAVOR_COLORS[f];
+    this.after(90, () => {
+      this.burst(c.clone().setY(0.55), 22, f === 'hang' ? [C[1], C[3], C[2], '#7a7f99'] : [C[0], C[1], C[2], PAL.white]);
+      if (f === 'water') this.splash(c.clone().setY(0.4));
+      if (f === 'hang')
+        // A little flock of bats flaps off.
+        for (let k = 0; k < 5; k++)
+          this.particles.add({ p: c.clone().setY(0.5), v: v3((Math.random() - 0.5) * 1.6, 1 + Math.random() * 0.8, (Math.random() - 0.5) * 0.8), g: -0.4, max: 1.2, color: '#2b2140', size: 0.06, flat: true, spin: v3(0, 0, 18 + Math.random() * 8), drag: 0.4 });
+      this.word(f === 'spin' ? 'SPIN!' : f === 'water' ? 'SPLASH!' : 'BATS!', c.clone().setY(1.05), f === 'hang' ? '#c49dff' : C[0], 1.15);
+      if (f === 'water') sfx.splash();
+      else sfx.merge(5);
+    });
   }
 
   /** Iron-Gut Ivy's Rough Seas: a wave sloshes every loose tile one way. */
@@ -1964,9 +2156,27 @@ export class Renderer {
   // ---- Train -------------------------------------------------------------------------
 
   /** Places one car on the track at arc length s, with its rider (if any). */
-  car(kind: CarKind, s: number, rider?: { look: Rider['look']; face: Face; arms: number }): { head: Vector3; mouth: Vector3; fwd: Vector3; up: Vector3 } {
+  car(
+    kind: CarKind,
+    s: number,
+    rider?: { look: Rider['look']; face: Face; arms: number },
+    pose?: { spin?: number; hang?: number; sway?: number },
+  ): { head: Vector3; mouth: Vector3; fwd: Vector3; up: Vector3; t: Vector3 } {
     const f = this.path.sample(s);
-    const m = new Matrix4().makeBasis(f.right, f.up, f.t).setPosition(f.p.clone().addScaledVector(f.up, 0.025)).multiply(new Matrix4().makeScale(CAR_SCALE, CAR_SCALE, CAR_SCALE));
+    const m = new Matrix4().makeBasis(f.right, f.up, f.t).setPosition(f.p.clone().addScaledVector(f.up, 0.025));
+    const hang = pose?.hang ?? 0;
+    if (hang > 0) {
+      // A suspended car: it swings round the rail like a gondola and hangs below it,
+      // staying upright (in the track's frame) and swaying like a pendulum.
+      const th = hang * Math.PI;
+      const r = 0.025 + HANG_DROP * Math.sin(th / 2) ** 2;
+      // The arm swings round the rail (plus the pendulum sway); the car keeps upright with it.
+      const phi = th + (pose?.sway ?? 0) * hang;
+      m.multiply(new Matrix4().makeRotationZ(phi)).multiply(M(0, r, 0)).multiply(new Matrix4().makeRotationZ(-th));
+      this.hanger(m, th, r);
+    }
+    if (pose?.spin) m.multiply(new Matrix4().makeRotationY(pose.spin));
+    m.multiply(new Matrix4().makeScale(CAR_SCALE, CAR_SCALE, CAR_SCALE));
     const c = this.cars.get();
     c.geometry = carGeo(kind);
     c.matrix.copy(m);
@@ -1980,7 +2190,20 @@ export class Renderer {
       head = v3(0, (g.headY - 0.03) * g.scale, 0.09 * g.scale).applyMatrix4(seat);
       mouth = g.mouth.clone().multiplyScalar(g.scale).applyMatrix4(seat);
     }
-    return { head, mouth, fwd: f.t, up: f.up };
+    if (!pose?.spin && !hang) return { head, mouth, fwd: f.t, up: f.up, t: f.t };
+    // Spinning or hanging: the riders face (and puke) wherever the car points now.
+    const e = m.elements;
+    const fwd = v3(e[8], e[9], e[10]).normalize();
+    const up = v3(e[4], e[5], e[6]).normalize();
+    if (!rider) head = v3(0, 0.3, 0).applyMatrix4(m);
+    return { head, mouth: rider ? mouth : head.clone(), fwd, up, t: f.t };
+  }
+
+  /** The arm a suspended car hangs from: from the rail's underside down to the car's roof bar. */
+  private hanger(carM: Matrix4, th: number, r: number): void {
+    const h = this.hangers.get();
+    h.matrix.copy(carM).multiply(new Matrix4().makeRotationZ(th + Math.PI)).multiply(new Matrix4().makeScale(1, Math.max(0.01, r), 1));
+    h.matrixWorldNeedsUpdate = true;
   }
 
   private drawParkedTrain(): void {

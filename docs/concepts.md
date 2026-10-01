@@ -263,6 +263,31 @@ A playtester got to park 3 and said something was missing: a reason to keep goin
 - **Unlocks** now ask for breaking any boss of a park (Launch for the Meadow, Water Splash for the Boardwalk, Brake Run for the Hollow).
 - **Balance** (bot, 200 seasons): boss days fail 73% (was 78%). The bot never builds for bosses, so treat that as a floor. Median day reached 8 (unchanged), 1 win (was 5). By boss, the bot breaks Barry 53% of the time, Ivy 38%, Lou 36%, Granny 34%, Count 12% and Vertigo 4%. It almost never satisfies the Mayor's demands. Human play decides the final numbers.
 
+## Park pieces: every park its own kind of ride (v0.21)
+The user wanted every park to feel like a different ride: the Boardwalk water-based, the Hollow hanging, and spinning carts somewhere, with fresh things showing up on the track, in upgrades and from combos.
+- **Park pieces** are tiles with a flavor. Chain reactions of two links or more turn the merged tile into the park's piece, and 5% of fresh tiles spawn as one. The flavor rides up the merge ladder (merging keeps it) and goes into the track when you build on it.
+
+  | Park | Piece | Effect |
+  | --- | --- | --- |
+  | Meadow | 🌀 Spinning cars | The car whirls through it: nausea ×1.5 (rounded up), +2 thrill |
+  | Boardwalk | 💧 Water (flume) | +1 multiplier |
+  | Hollow | 🦇 Hanging | The train hangs under the rail: +3 thrill, and it counts as upside down (ghosts and Grandma feel it, Loop-de-Loop and the Gravity Well count it) |
+  | Grand Opening | All three, mixed | |
+
+  Park pieces can't be crossed by bridges or tunnels. The stats bar counts them.
+- **Upgrades for them:**
+  - Teacup Works: spinning hits 2×.
+  - Flood Gates: water +1 more multiplier.
+  - Steel Gantry: hanging +3 more thrill.
+  - Blueprint Office: fresh tiles 15% more likely to be park pieces.
+- **Combo prizes:** 6, 9 and 12 merges in one swipe each pay a free special piece (Launch, Water Splash or Brake Run), once per day per threshold.
+- **The look:**
+  - Flavored tiles wear their park's mark.
+  - Water track runs in a flume trough, and spinning track has candy swirls.
+  - Hanging track gets an overhead steel gantry, and the cars swing under the rail.
+  - The cars whirl on spinning pieces, and water pieces spray as the train passes.
+- **Balance** (bot, 200 seasons): park pieces end up as about 1 in 5 tiles. Boss days fail 67%, median day 9, 3 wins. Count Queasy's stomach went from 8 to 12, because hanging pieces count as upside down for him.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

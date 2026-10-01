@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import type { Board } from '../puzzle/board';
-import type { SpecialId } from '../puzzle/pieces';
+import type { Flavor, SpecialId } from '../puzzle/pieces';
 
 // The coaster as one continuous 3D centerline with a frame (tangent, up,
 // right) at every sample. The laid track forms a single chain through the
@@ -53,7 +53,12 @@ export interface ChainCell {
   cross?: boolean;
   pier?: boolean;
   special?: SpecialId;
+  /** A park piece: spinning cars, a flume, or a suspended (hanging) run. */
+  flavor?: Flavor | null;
 }
+
+/** A hanging run is carried high on its gantry, so the train can hang under the rail. */
+export const HANG_LIFT = 0.42;
 
 /** How a crossing pass gets past the track it crosses: over it, or under it. */
 export type CrossKind = 'bridge' | 'tunnel';
@@ -244,6 +249,11 @@ export class TrackPath {
     return new TrackPath(cells, b.opened === 'circuit', ground, lift);
   }
 
+  /** Ground height under a board cell (hills). */
+  groundAt(x: number, y: number): number {
+    return this.ground(x, y);
+  }
+
   deck(i: number): number {
     const c = this.cells[i];
     if (c.station) return STATION_H + this.lift;
@@ -251,7 +261,7 @@ export class TrackPath {
     const k = this.crossKind.get(i);
     if (k === 'bridge') return DECK_H[0] + g + BRIDGE_RISE;
     if (k === 'tunnel') return TUNNEL_H + g;
-    return DECK_H[c.tier] + g;
+    return DECK_H[c.tier] + g + (c.flavor === 'hang' ? HANG_LIFT : 0);
   }
 
   private neighbor(i: number, d: -1 | 1): number {

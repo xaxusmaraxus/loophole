@@ -16,7 +16,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 | What | How |
 | --- | --- |
 | Web prototype | `npm install`, `npm run dev` |
-| Tests (66, Vitest) | `npm test` |
+| Tests (73, Vitest) | `npm test` |
 | Typecheck and build | `npx tsc --noEmit -p .`, `npm run build` |
 | Balance simulation | `npx vite-node tools/season-bot.ts`: 200 seeded seasons, score percentiles per day vs. targets |
 | Single-file build for the artifact | `npm run build && python3 tools/bundle-artifact.py out/loophole.html`, then publish to the URL above |
@@ -48,6 +48,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 - **Godot style test:** procedural placeholders with drop-in hooks for `godot/assets/models/<name>.glb`. The recommended camera is the gameplay isometric view (`docs/style-test/03_play_iso_day.png`). Swipes there still need mapping to the board's diagonals, which isn't built yet.
 - **Built since the first handover (see `docs/concepts.md` v0.7–v0.18):** the claymation look, the on-ride photo with sharing, highscores (device + shared board through the artifact's db), a full-screen HUD, guests with personalities and hover cards, hills and high stations, the painted route map, park structures for what you buy, crossings (bridges and tunnels), Boardwalk piers, Hollow ghosts, special pieces (Launch, Water Splash, Brake Run), unlocks across seasons, guest thoughts, and chiptune music.
 - **v0.20, boss fights and the park plot:** boss pools with rule twists, composure over up to three rides, a conquered screen with legendaries and a trophy shelf, and the backpack-style park plot (`src/run/plot.ts`, `src/run/bossday.ts`, `src/ui/plot.ts`). See `docs/concepts.md`.
+- **v0.21, park pieces:** tiles carry a park flavor (spinning, water, hanging) through merges into the track (`Board.flav`, `Flavor` in `src/puzzle/pieces.ts`), plus combo prizes.
 - **Not built yet:** the energy budget (Mountain park), Space Park, the daily seed, contracts, board modifiers, unlockable riders and attractions, and the rival park (saved for multiplayer). All are in the roadmap in `docs/concepts.md`.
 - **Balance after v0.18** (`tools/season-bot.ts`, 200 seasons): median run reaches day 8, 5 wins, boss days fail 402 of 514. Crossings and piers made the season a touch easier than before (median day 7, ~1% wins).
 - **Nothing is blocked.**

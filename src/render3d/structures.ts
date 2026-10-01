@@ -567,6 +567,97 @@ export function upgradeGroup(id: UpgradeId, count: number): Group {
       m.cube(0, 0.1, 0.101, 0.08, 0.16, 0.01, '#fbf6ec', 0.004);
       break;
     }
+    case 'teacups': {
+      // A little teacup ride: a pink platter that turns, with three cups that whirl on it.
+      m.cyl(M(0, 0.02, 0), 0.2, 0.21, 0.04, '#e9d7c0', 18, undefined, true);
+      const spin = parts();
+      spin.gloss.cyl(M(0, 0.05, 0), 0.18, 0.18, 0.025, '#ff7eb6', 18, '#ffd1e6', true);
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        spin.gloss.sphere(v3(Math.cos(a) * 0.17, 0.065, Math.sin(a) * 0.17), 0.014, k % 2 ? '#fbf6ec' : '#ffd23f', 1, 1, 1, 6, 4, true);
+      }
+      const cups = ['#7fe0c8', '#ffd23f', '#9d6ef0'];
+      cups.forEach((c, k) => {
+        const a = (k / 3) * Math.PI * 2;
+        const x = Math.cos(a) * 0.095;
+        const z = Math.sin(a) * 0.095;
+        spin.gloss.cyl(M(x, 0.1, z), 0.035, 0.055, 0.07, c, 12, shade(c, -0.25), true);
+        spin.gloss.pipe(arc(8, (t) => v3(x + 0.055 + Math.sin(t * Math.PI) * 0.025, 0.08 + t * 0.04, z)), 0.008, c, 5);
+        spin.gloss.sphere(v3(x, 0.17, z), 0.022, SHIRTS[(k * 3) % SHIRTS.length], 1, 1, 1, 6, 4, true);
+        spin.gloss.sphere(v3(x, 0.205, z), 0.02, '#eab893', 1, 1, 1, 6, 4, true);
+      });
+      // A candy-striped pole with a swirl on top.
+      for (let k = 0; k < 4; k++) m.post(0, 0.06 + k * 0.05, 0, 0.012, 0.05, k % 2 ? '#ff7eb6' : '#fbf6ec', 6);
+      spin.gloss.cyl(new Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 0.3, 0), 0.05, 0.05, 0.02, '#ff7eb6', 14, '#ff7eb6', true);
+      spin.gloss.pipe(arc(16, (t) => v3(Math.cos(t * Math.PI * 4) * (0.005 + t * 0.035), 0.3 + Math.sin(t * Math.PI * 4) * (0.005 + t * 0.035), 0.012)), 0.007, '#fbf6ec', 5);
+      const g = toGroup(p);
+      const turn = toGroup(spin);
+      turn.userData.spin = 1.4;
+      g.add(turn);
+      const extra = parts();
+      for (let k = 1; k < Math.min(count, 4); k++) extra.gloss.sphere(v3(-0.12 + k * 0.06, 0.02, 0.22), 0.02, PAL.gold, 1, 0.6, 1, 6, 4, true);
+      if (!extra.gloss.empty) g.add(toGroup(extra));
+      // A touch smaller than it was modelled, so it leaves its neighbours room.
+      for (const c of g.children) c.scale.setScalar(0.8);
+      return g;
+    }
+    case 'floodgates': {
+      // A sluice: two stone piers, a wooden gate half raised, and water gushing out under it.
+      for (const sx of [-1, 1]) {
+        m.cube(sx * 0.13, 0.15, 0, 0.07, 0.3, 0.14, '#a9adc0', 0.02, '#d9dbe6');
+        m.cube(sx * 0.13, 0.31, 0, 0.09, 0.03, 0.16, '#7a7f99', 0.01);
+      }
+      m.cube(0, 0.33, 0, 0.34, 0.03, 0.05, '#8a5a36', 0.01);
+      m.cube(0, 0.2, 0, 0.19, 0.16, 0.03, '#b98552', 0.012);
+      for (let k = 0; k < 3; k++) m.cube(0, 0.14 + k * 0.05, 0.017, 0.19, 0.012, 0.006, '#7a4e2f');
+      // The wheel that cranks it.
+      gl.cyl(new Matrix4().makeRotationX(Math.PI / 2).setPosition(0.13, 0.38, 0.05), 0.04, 0.04, 0.012, PAL.red, 10);
+      // Water: a pool behind, a gushing tongue under the gate, a puddle in front.
+      gl.cube(0, 0.1, -0.06, 0.19, 0.12, 0.1, '#45a8e0', 0.02, '#8fdcf6');
+      gl.pipe([v3(0, 0.1, 0.0), v3(0, 0.07, 0.07), v3(0, 0.03, 0.13)], 0.04, '#8fdcf6', 8);
+      gl.cyl(M(0, 0.008, 0.16), 0.13, 0.15, 0.016, '#5cc8f0', 14, '#8fdcf6', true);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        gl.sphere(v3(Math.cos(a) * 0.1, 0.03 + (k % 2) * 0.02, 0.16 + Math.sin(a) * 0.06), 0.016, '#fbf6ec', 1, 1, 1, 6, 4, true);
+      }
+      break;
+    }
+    case 'gantry': {
+      // A steel crane gantry: two legs, a girder, a trolley and a hook.
+      const steel = '#3c3550';
+      for (const sx of [-1, 1]) {
+        m.beam(v3(sx * 0.17, 0, -0.06), v3(sx * 0.15, 0.44, 0), 0.03, steel);
+        m.beam(v3(sx * 0.17, 0, 0.06), v3(sx * 0.15, 0.44, 0), 0.03, steel);
+        m.beam(v3(sx * 0.165, 0.15, -0.045), v3(sx * 0.165, 0.15, 0.045), 0.015, '#5a5270');
+        m.cube(sx * 0.17, 0.01, 0, 0.07, 0.02, 0.17, PAL.ink, 0.006);
+      }
+      m.cube(0, 0.46, 0, 0.42, 0.05, 0.06, PAL.gold, 0.012);
+      for (let k = 0; k < 6; k++) m.cube(-0.18 + k * 0.072, 0.46, 0.031, 0.03, 0.05, 0.004, PAL.ink);
+      m.cube(0.05, 0.41, 0, 0.07, 0.04, 0.08, steel, 0.01);
+      m.beam(v3(0.05, 0.39, 0), v3(0.05, 0.2, 0), 0.006, '#7a7f99');
+      gl.pipe(arc(8, (t) => v3(0.05 + Math.sin(t * Math.PI * 1.3) * 0.025, 0.19 - Math.sin(t * Math.PI) * 0.03, 0)), 0.009, '#c9a05a', 5);
+      // A coaster car dangling from the hook, for show.
+      m.cube(0.05, 0.12, 0, 0.1, 0.05, 0.12, PAL.car[1], 0.015);
+      break;
+    }
+    case 'blueprints': {
+      // A drafting office: a little hut with a blue awning, rolled plans in a barrel.
+      m.cube(0, 0.12, 0, 0.26, 0.24, 0.2, '#e6d6b4', 0.02);
+      m.box(new Matrix4().makeRotationZ(0.45).setPosition(-0.065, 0.28, 0), 0.17, 0.02, 0.24, '#2a6fb0', 0.006);
+      m.box(new Matrix4().makeRotationZ(-0.45).setPosition(0.065, 0.28, 0), 0.17, 0.02, 0.24, '#2a6fb0', 0.006);
+      gl.cube(0.06, 0.15, 0.101, 0.08, 0.07, 0.006, '#b9f0ff', 0.004);
+      m.cube(-0.06, 0.09, 0.101, 0.07, 0.15, 0.008, '#8a5a36', 0.004);
+      // A blueprint pinned up on the front, with a white plan of a loop.
+      m.cube(0.06, 0.06, 0.104, 0.09, 0.05, 0.004, '#2a6fb0');
+      gl.pipe(arc(14, (t) => v3(0.06 + Math.sin(t * Math.PI * 2) * 0.014, 0.06 + (1 - Math.cos(t * Math.PI * 2)) * 0.01 - 0.008, 0.108)), 0.003, '#fbf6ec', 4);
+      // A barrel of rolled plans.
+      m.cyl(M(0.18, 0.05, 0.08), 0.04, 0.045, 0.1, '#a8784a', 10);
+      for (let k = 0; k < 4; k++) {
+        const a = k * 1.7;
+        gl.cyl(new Matrix4().makeRotationZ(0.2 * Math.cos(a)).multiply(new Matrix4().makeRotationX(0.2 * Math.sin(a))).setPosition(0.18 + Math.cos(a) * 0.015, 0.13, 0.08 + Math.sin(a) * 0.015), 0.014, 0.014, 0.14, k % 2 ? '#45a8e0' : '#fbf6ec', 8, '#2a6fb0');
+      }
+      break;
+    }
   }
   // Doubled up: a little gold star for each extra copy.
   for (let k = 1; k < Math.min(count, 4); k++) gl.sphere(v3(-0.12 + k * 0.06, 0.02, 0.14), 0.02, PAL.gold, 1, 0.6, 1, 6, 4, true);

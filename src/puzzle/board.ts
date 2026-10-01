@@ -294,6 +294,8 @@ export interface SlideMove {
   to: Pt;
   tier: number;
   merged: boolean;
+  /** The moving tile's flavor (for animation). */
+  flavor?: Flavor | null;
 }
 
 export interface SlideResult {
@@ -339,14 +341,14 @@ export function slide(b: Board, dir: Dir): SlideResult {
         tiles[idx(b, q.x, q.y)] = last.tier;
         // A merge keeps any flavor either tile had.
         flav[idx(b, q.x, q.y)] ??= flavorAt(b, idx(b, p.x, p.y));
-        slides.push({ from: p, to: q, tier, merged: true });
+        slides.push({ from: p, to: q, tier, merged: true, flavor: flavorAt(b, idx(b, p.x, p.y)) });
         merges.push({ x: q.x, y: q.y, tier: last.tier });
         moved = true;
       } else {
         const q = line[dest];
         tiles[idx(b, q.x, q.y)] = tier;
         flav[idx(b, q.x, q.y)] = flavorAt(b, idx(b, p.x, p.y));
-        slides.push({ from: p, to: q, tier, merged: false });
+        slides.push({ from: p, to: q, tier, merged: false, flavor: flavorAt(b, idx(b, p.x, p.y)) });
         if (!samePt(p, q)) moved = true;
         last = { pos: dest, tier, merged: false };
         dest++;
@@ -361,6 +363,12 @@ export interface ChainStep {
   to: Pt;
   /** Tier of the merged tile at `to`. */
   tier: number;
+  /** Flavors for animation: the grabbed tile's, the tile at `to` before, and the merged tile's after. */
+  fromFlavor?: Flavor | null;
+  toFlavor?: Flavor | null;
+  flavor?: Flavor | null;
+  /** This merge made a brand-new park piece (neither tile had a flavor). */
+  fresh?: boolean;
 }
 
 export interface ChainResult {
@@ -368,6 +376,8 @@ export interface ChainResult {
   waves: ChainStep[][];
   /** Tile state after each wave. */
   frames: number[][];
+  /** Flavor state after each wave (for animation; missing when the board has no flavors). */
+  flavFrames?: (Flavor | null)[][];
 }
 
 /**
@@ -377,6 +387,7 @@ export interface ChainResult {
 export function resolveChains(b: Board, seeds: readonly Pt[], parkFlavor: () => Flavor | null = () => null): ChainResult {
   const waves: ChainStep[][] = [];
   const frames: number[][] = [];
+  const flavFrames: (Flavor | null)[][] = [];
   let frontier: Pt[] = seeds.map((s) => ({ x: s.x, y: s.y }));
   while (frontier.length) {
     const wave: ChainStep[] = [];
@@ -393,6 +404,8 @@ export function resolveChains(b: Board, seeds: readonly Pt[], parkFlavor: () => 
         if (used.has(ni) || b.tiles[ni] !== t) continue;
         b.tiles[ci] = t + 1;
         b.tiles[ni] = 0;
+        const fromFlavor = flavorAt(b, ni);
+        const toFlavor = flavorAt(b, ci);
         // Chain reactions make park pieces: from the second link on, the merged tile takes the park's flavor (or keeps its own).
         if (b.flav) {
           b.flav[ci] = b.flav[ci] ?? b.flav[ni] ?? (waves.length >= 1 ? parkFlavor() : null);
@@ -400,7 +413,8 @@ export function resolveChains(b: Board, seeds: readonly Pt[], parkFlavor: () => 
         }
         used.add(ci);
         used.add(ni);
-        wave.push({ from: n, to: c, tier: t + 1 });
+        const flavor = flavorAt(b, ci);
+        wave.push({ from: n, to: c, tier: t + 1, fromFlavor, toFlavor, flavor, fresh: !fromFlavor && !toFlavor && !!flavor });
         next.push(c);
         break;
       }
@@ -408,9 +422,10 @@ export function resolveChains(b: Board, seeds: readonly Pt[], parkFlavor: () => 
     if (!wave.length) break;
     waves.push(wave);
     frames.push([...b.tiles]);
+    if (b.flav) flavFrames.push([...b.flav]);
     frontier = next;
   }
-  return { waves, frames };
+  return { waves, frames, ...(b.flav ? { flavFrames } : {}) };
 }
 
 export function emptyCells(b: Board): Pt[] {
@@ -436,6 +451,8 @@ export interface SwipeResult {
   merges: TrackCell[];
   /** Tile state right after the slide, before any chain. */
   slid: number[];
+  /** Flavors right after the slide (for animation). */
+  slidFlav?: (Flavor | null)[];
   chain: ChainResult;
   spawned: TrackCell[];
   /** Tiles that sank a tier on sand (tier is the new tier; 0 = gone). */
@@ -463,6 +480,7 @@ export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeRe
   b.tiles = s.tiles;
   if (b.flav) b.flav = s.flav;
   const slid = [...b.tiles];
+  const slidFlav = b.flav ? [...b.flav] : undefined;
   const chain = opts.chains === false ? { waves: [], frames: [] } : resolveChains(b, s.merges, opts.parkFlavor);
   const sunk = sink(b);
   const spawned: TrackCell[] = [];
@@ -472,7 +490,7 @@ export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeRe
     if (t) spawned.push(t);
   }
   const mergeCount = s.merges.length + chain.waves.reduce((a, w) => a + w.length, 0);
-  return { dir, slides: s.slides, merges: s.merges, slid, chain, spawned, sunk, mergeCount };
+  return { dir, slides: s.slides, merges: s.merges, slid, slidFlav, chain, spawned, sunk, mergeCount };
 }
 
 /** Loose tiles on sand sink one tier; a tier-1 tile sinks away. */

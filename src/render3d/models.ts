@@ -490,6 +490,170 @@ export function mysteryGeo(): BufferGeometry {
   });
 }
 
+// ---- Park-piece decorations ---------------------------------------------------------
+//
+// A flavored tile wears its park's badge: a static part (bands, brackets) and a
+// moving part drawn as its own mesh, pivoting at `pivot` (crate space).
+//  - spin: a candy-striped band and a swirl lollipop that whirls on the back corner.
+//  - water: a wave-crest band, a puddle, and a fat bobbing droplet.
+//  - hang: an iron band with rivets, a gallows bracket with a chain, and a bat that swings.
+
+export type FlavorKind = 'spin' | 'water' | 'hang';
+
+export const FLAVOR_COLORS: Record<FlavorKind, readonly string[]> = {
+  spin: ['#ff7eb6', '#fbf6ec', '#ffd1e6', '#7fe0c8'],
+  water: ['#45b8f0', '#bff0ff', '#fbf6ec', '#2a7fd0'],
+  hang: ['#3c3550', '#8a5ad0', '#ffd23f', '#2b2140'],
+};
+
+/** Where the badge's moving part hangs, in crate space. */
+export const FLAVOR_PIVOT: Record<FlavorKind, Vector3> = {
+  spin: v3(0.25, CRATE_H + 0.25, -0.2),
+  water: v3(0.24, CRATE_H + 0.2, -0.19),
+  hang: v3(0.04, CRATE_H + 0.31, -0.22),
+};
+
+/** A band of alternating blobs around the plinth at height y. */
+function band(g: Geo, inset: number, y: number, r: number, colors: readonly Col[], per = 3, sy = 1): void {
+  const rg = ring(inset, y, 6);
+  const pts = rg.p;
+  for (let k = 0; k < pts.length; k++) g.sphere(pts[k], r, colors[Math.floor(k / per) % colors.length], 1, sy, 1, 8, 5, true);
+}
+
+export function flavorBaseGeo(f: FlavorKind): BufferGeometry {
+  return cached(`flavbase-${f}`, () => {
+    const g = new Geo();
+    const top = CRATE_H;
+    const C = FLAVOR_COLORS[f];
+    if (f === 'spin') {
+      // Candy band around the foot, and a striped stick for the lollipop.
+      const rg = ring(-0.03, 0.035, 8);
+      const N = rg.p.length;
+      for (let k = 0; k < N; k++) {
+        const a = rg.p[k];
+        const b = rg.p[(k + 1) % N];
+        g.pipe([a, b], 0.03, Math.floor(k / 2) % 2 ? C[1] : C[0], 8);
+        g.sphere(a, 0.03, Math.floor(k / 2) % 2 ? C[1] : C[0], 1, 1, 1, 8, 5, true);
+      }
+      const p = FLAVOR_PIVOT.spin;
+      const foot = v3(p.x, top + 0.01, p.z);
+      g.post(foot.x, foot.y - 0.01, foot.z, 0.05, 0.03, C[3], 10);
+      const n = 6;
+      for (let k = 0; k < n; k++) {
+        const y0 = foot.y + ((p.y - foot.y) * k) / n;
+        const y1 = foot.y + ((p.y - foot.y) * (k + 1)) / n;
+        g.post(p.x, y0, p.z, 0.016, y1 - y0, k % 2 ? C[0] : C[1], 8);
+      }
+    } else if (f === 'water') {
+      // A puddle under the plinth and white-capped wave crests around its foot.
+      const pud: Vector3[] = [];
+      for (let k = 0; k < 20; k++) {
+        const a = (k / 20) * Math.PI * 2;
+        const r = 0.53 + Math.sin(a * 3 + 1) * 0.03 + Math.sin(a * 5) * 0.02;
+        pud.push(v3(Math.cos(a) * r, 0.006, Math.sin(a) * r * 0.96 + 0.03));
+      }
+      g.disc(pud, C[0]);
+      const pud2 = pud.map((q) => v3(q.x * 0.88, 0.009, q.z * 0.88 + 0.01));
+      g.disc(pud2, '#7fd6f5');
+      const rg = ring(-0.035, 0.045, 6);
+      rg.p.forEach((q, k) => {
+        g.sphere(q, 0.042, C[0], 1, 0.8, 1, 8, 5, true);
+        if (k % 2 === 0) g.sphere(q.clone().addScaledVector(rg.d[k], 0.012).setY(q.y + 0.03), 0.022, C[2], 1, 0.7, 1, 7, 4, true);
+      });
+      // A splash ring on the lid under the droplet.
+      const p = FLAVOR_PIVOT.water;
+      g.cyl(M(p.x, top + 0.012, p.z), 0.07, 0.075, 0.018, C[1], 12, '#e8fbff', true);
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2 + 0.3;
+        g.sphere(v3(p.x + Math.cos(a) * 0.075, top + 0.03, p.z + Math.sin(a) * 0.075), 0.018, C[2], 1, 1.4, 1, 6, 4, true);
+      }
+    } else {
+      // An iron band with rivets, and a gallows bracket with a chain.
+      const rg = ring(-0.025, 0.04, 6);
+      const N = rg.p.length;
+      for (let k = 0; k < N; k++) g.pipe([rg.p[k], rg.p[(k + 1) % N]], 0.026, C[0], 6);
+      for (let k = 0; k < N; k += 4) g.sphere(rg.p[k].clone().addScaledVector(rg.d[k], 0.022), 0.014, '#c9a05a', 1, 1, 0.7, 6, 4, true);
+      const p = FLAVOR_PIVOT.hang;
+      const postX = 0.27;
+      const ph = p.y + 0.12;
+      g.post(postX, top, p.z, 0.026, ph - top, C[0], 6);
+      g.post(postX, top, p.z, 0.055, 0.025, C[3], 8);
+      // The arm, with a brace.
+      g.beam(v3(postX + 0.02, ph, p.z), v3(p.x - 0.03, ph, p.z), 0.032, C[0]);
+      g.beam(v3(postX, ph - 0.11, p.z), v3(postX - 0.1, ph - 0.005, p.z), 0.018, C[0]);
+      g.sphere(v3(postX, ph + 0.01, p.z), 0.026, '#c9a05a', 1, 1, 1, 8, 5, true);
+      // Chain links down to the pivot.
+      for (let k = 0; k < 3; k++) {
+        const y = ph - 0.025 - k * 0.032;
+        const lk: Vector3[] = [];
+        for (let j = 0; j < 8; j++) {
+          const a = (j / 8) * Math.PI * 2;
+          lk.push(k % 2 ? v3(p.x + Math.cos(a) * 0.012, y + Math.sin(a) * 0.02, p.z) : v3(p.x, y + Math.sin(a) * 0.02, p.z + Math.cos(a) * 0.012));
+        }
+        g.pipe(lk, 0.006, '#7a7f99', 5, true);
+      }
+    }
+    return g.build();
+  });
+}
+
+export function flavorAnimGeo(f: FlavorKind): BufferGeometry {
+  return cached(`flavanim-${f}`, () => {
+    const g = new Geo();
+    const C = FLAVOR_COLORS[f];
+    if (f === 'spin') {
+      // A swirl lollipop facing +Z, centered on the pivot.
+      const R = 0.11;
+      g.cyl(RX(Math.PI / 2), R, R, 0.04, C[0], 20, C[0], true);
+      const sp: Vector3[] = [];
+      for (let k = 0; k <= 40; k++) {
+        const t = k / 40;
+        const a = t * Math.PI * 4.2;
+        const r = 0.012 + t * (R - 0.022);
+        sp.push(v3(Math.cos(a) * r, Math.sin(a) * r, 0.022));
+      }
+      g.pipe(sp, 0.014, C[1], 6);
+      g.pipe(sp.map((q) => v3(q.x, q.y, -q.z)), 0.014, C[1], 6);
+      g.pipe(arc(24, (t) => v3(Math.cos(t * Math.PI * 2) * R, Math.sin(t * Math.PI * 2) * R, 0)), 0.012, C[2], 6, true);
+      g.sphere(v3(-0.04, 0.05, 0.03), 0.014, '#ffffff', 1, 1, 0.5, 6, 4, true);
+    } else if (f === 'water') {
+      // A fat clay droplet, point up.
+      g.sphere(v3(0, 0, 0), 0.075, C[3], 1, 1, 1, 14, 9, true);
+      g.cyl(M(0, 0.07, 0), 0.06, 0.004, 0.09, C[3], 14, undefined, true);
+      g.sphere(v3(0, -0.005, 0.012), 0.066, C[0], 1, 1, 1, 12, 8, true);
+      g.sphere(v3(-0.028, 0.025, 0.05), 0.02, C[1], 1, 1.4, 0.6, 8, 5, true);
+      g.sphere(v3(-0.012, 0.075, 0.032), 0.01, '#ffffff', 1, 1, 1, 6, 4, true);
+      // Two little sister drops.
+      g.sphere(v3(0.1, -0.05, 0.03), 0.026, C[0], 1, 1.2, 1, 8, 5, true);
+      g.sphere(v3(-0.1, -0.08, 0.02), 0.02, C[0], 1, 1.2, 1, 8, 5, true);
+    } else {
+      // A bat hanging from the chain: feet up, wings spread.
+      const body = C[3];
+      const wing = '#6a45c0';
+      g.sphere(v3(0, -0.06, 0), 0.042, body, 1, 1.25, 0.9, 10, 6, true);
+      g.sphere(v3(0, -0.115, 0.005), 0.034, body, 1, 1, 1, 10, 6, true);
+      for (const sx of [-1, 1]) {
+        // Ears (pointing down: it hangs upside down).
+        g.cyl(new Matrix4().makeRotationZ(Math.PI + sx * 0.3).setPosition(sx * 0.018, -0.15, 0), 0.012, 0.002, 0.03, body, 5);
+        // Eyes.
+        g.sphere(v3(sx * 0.013, -0.11, 0.032), 0.008, C[2], 1, 1, 0.6, 6, 4, true);
+        // Wings: a scalloped clay sheet.
+        const w = [v3(sx * 0.03, -0.035, 0), v3(sx * 0.1, 0.0, -0.005), v3(sx * 0.15, -0.04, -0.01), v3(sx * 0.13, -0.075, -0.01), v3(sx * 0.1, -0.06, -0.006), v3(sx * 0.075, -0.1, -0.004), v3(sx * 0.05, -0.08, 0), v3(sx * 0.03, -0.1, 0)];
+        const c = v3(sx * 0.06, -0.06, -0.003);
+        for (let k = 0; k < w.length - 1; k++) {
+          g.tri(c, w[k], w[k + 1], wing, c.clone().setZ(-1));
+          g.tri(c.clone().setZ(c.z - 0.01), w[k].clone().setZ(w[k].z - 0.01), w[k + 1].clone().setZ(w[k + 1].z - 0.01), shade(wing, -0.15), c.clone().setZ(1));
+        }
+        g.pipe([v3(sx * 0.03, -0.035, 0), v3(sx * 0.1, 0.0, -0.005), v3(sx * 0.15, -0.04, -0.01)], 0.007, body, 5);
+        // Feet gripping the hook.
+        g.pipe([v3(sx * 0.012, -0.03, 0), v3(sx * 0.008, -0.005, 0)], 0.006, body, 5);
+      }
+      g.sphere(v3(0, 0, 0), 0.012, '#7a7f99', 1, 1, 1, 6, 4, true);
+    }
+    return g.build();
+  });
+}
+
 // ---- People ---------------------------------------------------------------------
 
 export interface PersonGeo {
@@ -856,6 +1020,8 @@ export interface Parts {
   ground?: Geo;
   rail?: Geo;
   steel?: Geo;
+  /** Flume water (drawn glossy and see-through). */
+  water?: Geo;
 }
 
 export type Flora = 'meadow' | 'boardwalk' | 'hollow' | 'finale';

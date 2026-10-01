@@ -153,6 +153,13 @@ export class RideAnim {
   /** Per car: where the rider's mouth is, which way the car faces, and its up. */
   private mouths: Vector3[] = [];
   private fwds: Vector3[] = [];
+  /** Per car: the track's direction under it (what the puke is carried along). */
+  private tans: Vector3[] = [];
+  /** Per car: how far round it has whirled (spinning pieces), and the spin's direction. */
+  private spinAng: number[] = [];
+  private spinDir: number[] = [];
+  /** When the last flume splash sounded. */
+  private splashAt = -1e9;
   private ups: Vector3[] = [];
   private pukeUntil: number[] = [];
   /** The timeline event the on-ride photo waits for. */
@@ -182,6 +189,9 @@ export class RideAnim {
     this.mouths = new Array(n).fill(null).map(() => new Vector3());
     this.fwds = new Array(n).fill(null).map(() => new Vector3(0, 0, 1));
     this.ups = new Array(n).fill(null).map(() => new Vector3(0, 1, 0));
+    this.tans = new Array(n).fill(null).map(() => new Vector3(0, 0, 1));
+    this.spinAng = new Array(n).fill(0);
+    this.spinDir = new Array(n).fill(0).map((_, i) => (i % 2 ? -1 : 1));
     this.pukeUntil = new Array(n).fill(0);
     // The photo: the boss's first puke if the boss goes, else the first puke of the ride.
     const pukes = result.timeline.map((e, i) => ({ e, i })).filter(({ e }) => e.kind === 'puke');
@@ -394,7 +404,7 @@ export class RideAnim {
             : {
                 p: this.mouths[car].clone(),
                 dir: this.fwds[car].clone().multiplyScalar(0.9).addScaledVector(this.ups[car], 0.25),
-                carry: this.fwds[car].clone().multiplyScalar(this.v * this.route.dirAt(this.d)),
+                carry: this.tans[car].clone().multiplyScalar(this.v * this.route.dirAt(this.d)),
               },
         ms,
         e.boss,
@@ -539,7 +549,28 @@ export class RideAnim {
       this.r.splash(this.heads[i].clone().setY(this.heads[i].y - 0.15));
       if (i === 0) sfx.splash();
     }
+    if (st.flavor === 'water') {
+      this.r.splash(this.heads[i].clone().setY(this.heads[i].y - 0.2));
+      const now = this.r.gameNow;
+      if (now - this.splashAt > 700) {
+        this.splashAt = now;
+        sfx.splash();
+        if (i === 0) this.r.word('SPLOOSH!', this.heads[0].clone().setY(this.heads[0].y + 0.4), '#8fdcf6', 1.05);
+      }
+    }
+    if (st.flavor === 'spin' && i === 0) {
+      this.r.word('WHIRL!', this.heads[0].clone().setY(this.heads[0].y + 0.4), '#ff7eb6', 1.05);
+      sfx.whistle();
+    }
+    if (st.flavor === 'hang' && i === 0) {
+      this.r.word('HANG ON!', this.heads[0].clone().setY(this.heads[0].y + 0.3), '#c49dff', 1.05);
+      sfx.clack();
+    }
     if (!v) return;
+    if (st.flavor === 'spin' || st.flavor === 'hang') {
+      this.scream[i] = 0.9;
+      if (Math.random() < 0.35) sfx.scream();
+    }
     if (tier >= 3) {
       this.scream[i] = 0.9;
       if (Math.random() < 0.3) {
@@ -548,6 +579,41 @@ export class RideAnim {
       }
     }
     if (PIECES[tier].inversion && Math.random() < 0.3) this.r.hat(this.heads[i], SHIRTS[(v.rider.look.shirt + 3) % SHIRTS.length]);
+  }
+
+  /**
+   * Park pieces move the cars: on a spinning piece each car whirls round (two
+   * turns, eased in and out over the piece); on a hanging piece it swings down
+   * under the rail, sways there, and swings back up on the way out.
+   */
+  private pose(i: number, s: number, cell: number, now: number): { spin?: number; hang?: number; sway?: number } | undefined {
+    const c = this.path.cells[cell];
+    const prev = this.spinAng[i];
+    let spin = 0;
+    let hang = 0;
+    let sway = 0;
+    if (c && !c.station && c.flavor) {
+      const [a, b] = this.path.range(cell);
+      const u = Math.max(0, Math.min(1, (s - a) / Math.max(1e-6, b - a)));
+      if (c.flavor === 'spin') {
+        const e = u * u * (3 - 2 * u);
+        spin = this.spinDir[i] * e * Math.PI * 4;
+      } else if (c.flavor === 'hang') {
+        const ease = (x: number) => x * x * (3 - 2 * x);
+        hang = ease(Math.min(1, u / 0.3)) * (1 - ease(Math.max(0, (u - 0.7) / 0.3)));
+        // The pendulum: swung out by the turn and the speed, then wobbling back.
+        sway = Math.sin(now / 1000 * 4.2 + i * 0.9) * 0.28 * Math.min(1, this.v);
+      }
+    }
+    // Ease out of a spin that ended mid-turn (a shuttle backing up): wind back to straight.
+    if (!spin && Math.abs(prev) > 1e-3) {
+      const wrapped = Math.atan2(Math.sin(prev), Math.cos(prev));
+      spin = wrapped * 0.85;
+      if (Math.abs(spin) < 0.01) spin = 0;
+    }
+    this.spinAng[i] = spin;
+    if (!spin && !hang) return undefined;
+    return { spin, hang, sway };
   }
 
   /** How fast the train is going, 0 (crawling) to 1 (flat out), for the camera to feel it. */
@@ -579,7 +645,8 @@ export class RideAnim {
       const v = this.result.tickets[i];
       const s = this.carS(i);
       const f = this.path.sample(s);
-      const inverted = f.up.y < -0.2;
+      const fl = this.path.cells[f.cell]?.flavor;
+      const inverted = f.up.y < -0.2 || fl === 'hang' || fl === 'spin';
       const shot = this.r.inShot;
       // Wild through drops, inversions and slow-motion shots; each guest in their own way.
       const wild = shot || inverted || this.scream[i] > 0;
@@ -587,11 +654,15 @@ export class RideAnim {
       const face: Face = puking ? 'puke' : this.sick[i] ? 'sick' : v ? rideFace(v.rider, wild) : 'smile';
       const arms = this.sick[i] ? (shot ? 0.6 : 0.15) : v ? rideArms(v.rider, wild) : 0.1;
       const kind = i === 0 ? 'lead' : i === this.cars - 1 ? 'tail' : 'mid';
-      const c = this.r.car(kind, s, aboard && v ? { look: v.rider.look, face, arms } : undefined);
+      const c = this.r.car(kind, s, aboard && v ? { look: v.rider.look, face, arms } : undefined, this.pose(i, s, f.cell, now));
       this.heads[i].copy(c.head);
       this.mouths[i].copy(c.mouth);
       this.fwds[i].copy(c.fwd);
       this.ups[i].copy(c.up);
+      this.tans[i].copy(c.t);
+      if (this.doneAt) continue;
+      // Flumes: the cars plough a wake of spray.
+      if (this.path.cells[f.cell]?.flavor === 'water' && f.up.y > 0.35 && Math.random() < dt * 30 * Math.min(1.5, this.v)) this.r.flumeSpray(f.p, f.t, f.right, this.v * this.route.dirAt(this.d));
       if (i === 0) this.fwd.copy(c.fwd);
     }
   }

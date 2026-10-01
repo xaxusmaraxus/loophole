@@ -2,7 +2,7 @@ import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
 import { SPECIALS, type SpecialId } from '../puzzle/pieces';
 import { BOSSES, BOSS_ROUNDS, type BossId, KINDS, type Look, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
-import { PIECES } from '../puzzle/pieces';
+import { FLAVORS, PIECES } from '../puzzle/pieces';
 import { SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, spun } from '../run/bossday';
 import { PLOT_W } from '../run/plot';
 import { drawPortrait3D } from '../render3d/portrait';
@@ -109,6 +109,10 @@ export class Hud {
     $('statThrill').textContent = String(s.thrill);
     $('statVariety').textContent = String(s.variety);
     $('statInversions').textContent = String(s.inversions);
+    // Park pieces on the track, by kind (only the park's own kinds).
+    const kinds = g.cfg.park.flavors;
+    $('statFlavors').textContent = kinds.map((f) => `${FLAVORS[f].icon}${s.flavors[f]}`).join(' ');
+    $('statFlavorBox').title = kinds.map((f) => `${FLAVORS[f].name}: ${FLAVORS[f].desc}`).join(' ');
     $('statNausea').textContent = String(s.nausea);
     $('bestCombo').textContent = g.bestCombo >= 2 ? `×${g.bestCombo}` : '–';
     const counts = new Map<UpgradeId, number>();

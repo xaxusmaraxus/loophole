@@ -1,5 +1,6 @@
 import { Matrix4, Vector3 } from 'three';
 import { PAL, TIER_RAMPS } from '../render/palette';
+import type { Flavor } from '../puzzle/pieces';
 import { Geo, shade, v3 } from './geo';
 import type { Parts } from './models';
 import type { TrackPath, TrackPt } from './track';
@@ -30,13 +31,19 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
   const gl = parts.gloss!;
   const mt = parts.matte!;
   if (pts.length < 2) return parts;
-  const [rail, spine] = railColor(cell.tier, cell.station);
-  const ups = pts.map((p) => p.up);
-  const rights = pts.map((p) => p.right);
-  for (const side of [-1, 1]) gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.right, side * RAIL_GAP)), rights, ups, RAIL_R, rail, 12);
-  gl.tube(pts.map((p) => p.p.clone().addScaledVector(p.up, -SPINE_DROP)), rights, ups, 0.03, spine, 10);
+  let [rail, spine] = railColor(cell.tier, cell.station);
+  const fl = cell.station ? null : cell.flavor ?? null;
+  if (fl === 'hang') [rail, spine] = [shade(rail, -0.1).getStyle(), HANG_IRON];
+  if (fl === 'water') spine = '#2f8fd0';
+  // Spinning pieces get candy-striped rails: resample evenly so the stripes come out even.
+  const rp = fl === 'spin' ? resample(pts, 0.032) : pts;
+  const ups = rp.map((p) => p.up);
+  const rights = rp.map((p) => p.right);
+  const stripe = (i: number) => (i % 2 ? SPIN_PINK : SPIN_WHITE);
+  for (const side of [-1, 1]) gl.tube(rp.map((p) => p.p.clone().addScaledVector(p.right, side * RAIL_GAP)), rights, ups, RAIL_R * (fl === 'spin' ? 1.15 : 1), fl === 'spin' ? stripe : rail, 12);
+  gl.tube(rp.map((p) => p.p.clone().addScaledVector(p.up, -SPINE_DROP)), rights, ups, 0.03, fl === 'spin' ? SPIN_MINT : spine, 10);
   // Ties: little C-brackets from each rail to the spine, evenly spaced along the arc.
-  const tieCol = cell.station ? '#4a4a5c' : style.tie;
+  const tieCol = cell.station ? '#4a4a5c' : fl === 'spin' ? SPIN_PINK : fl === 'hang' ? HANG_IRON : style.tie;
   forEvery(pts, 0.062, (q) => {
     const sp = q.p.clone().addScaledVector(q.up, -SPINE_DROP);
     for (const side of [-1, 1]) mt.beam(q.p.clone().addScaledVector(q.right, side * RAIL_GAP), sp, 0.013, tieCol);
@@ -49,6 +56,7 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
   });
   if (!cell.station) supports(path, i, pts, mt, style);
   extras(path, i, pts, parts);
+  if (fl) flavorExtras(path, i, pts, parts, fl);
   // Bulbs around the Mega Loop.
   if (cell.tier === 7) {
     parts.glow = new Geo();
@@ -69,6 +77,130 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
     mt.beam(c.clone().addScaledVector(q.up, -0.01), v3(c.x, 0, c.z), 0.025, style.support);
   }
   return parts;
+}
+
+const SPIN_PINK = '#ff7eb6';
+const SPIN_WHITE = '#fbf6ec';
+const SPIN_MINT = '#7fe0c8';
+const HANG_IRON = '#3c3550';
+const FLUME = '#2f8fd0';
+
+/** Samples spaced evenly (about `step` apart) along the arc, end points included. */
+function resample(pts: TrackPt[], step: number): TrackPt[] {
+  const out: TrackPt[] = [pts[0]];
+  forEvery(pts, step, (q) => out.push(q));
+  out.push(pts[pts.length - 1]);
+  return out;
+}
+
+/** Park pieces: a flume trough, candy swirls, or a steel gantry for the hanging run. */
+function flavorExtras(path: TrackPath, i: number, pts: TrackPt[], parts: Parts, fl: Flavor): void {
+  const cell = path.cells[i];
+  const mt = parts.matte!;
+  const gl = parts.gloss!;
+  if (fl === 'water') {
+    // A clay flume: a trough under the rails, full of water. Only where the track is upright.
+    const qs = resample(pts, 0.028).filter((q) => q.up.y > 0.35);
+    const W = 0.165;
+    const floor = -SPINE_DROP - 0.05;
+    const top = 0.035;
+    const wat = (parts.water ??= new Geo());
+    for (let k = 0; k < qs.length - 1; k++) {
+      const a = qs[k];
+      const b = qs[k + 1];
+      if (a.p.distanceTo(b.p) > 0.08) continue;
+      const P = (q: TrackPt, x: number, y: number) => q.p.clone().addScaledVector(q.right, x).addScaledVector(q.up, y);
+      const mid = a.p.clone().add(b.p).multiplyScalar(0.5).addScaledVector(a.up, -0.02);
+      // Floor and outer walls.
+      mt.quad(P(a, -W, floor), P(a, W, floor), P(b, W, floor), P(b, -W, floor), shade(FLUME, -0.1), mid.clone().addScaledVector(a.up, 1));
+      for (const sd of [-1, 1]) {
+        mt.quad(P(a, sd * W, floor), P(a, sd * W, top), P(b, sd * W, top), P(b, sd * W, floor), k % 6 < 3 ? FLUME : shade(FLUME, 0.06), mid);
+        mt.quad(P(a, sd * (W - 0.02), floor), P(a, sd * (W - 0.02), top), P(b, sd * (W - 0.02), top), P(b, sd * (W - 0.02), floor), '#9fe3ff', mid.clone().addScaledVector(a.right, sd * 1));
+      }
+      // The water: ripples of two blues, just under the rails.
+      const y = -0.03;
+      wat.quad(P(a, -W + 0.02, y), P(a, W - 0.02, y), P(b, W - 0.02, y), P(b, -W + 0.02, y), k % 4 < 2 ? '#6fd0f5' : '#8fdcf6', mid.clone().addScaledVector(a.up, -1));
+    }
+    // A rounded white lip along both walls.
+    for (const sd of [-1, 1]) {
+      const run = qs.map((q) => q.p.clone().addScaledVector(q.right, sd * (W - 0.01)).addScaledVector(q.up, top));
+      if (run.length > 1) gl.pipe(run, 0.018, '#e8fbff', 6);
+    }
+    // Foam caps on the water.
+    forEvery(pts, 0.12, (q) => {
+      if (q.up.y < 0.35) return;
+      const off = (Math.round(q.s * 37) % 3) - 1;
+      wat.sphere(q.p.clone().addScaledVector(q.right, off * 0.1).addScaledVector(q.up, -0.025), 0.022, '#fbf6ec', 1.4, 0.4, 1, 8, 4, true);
+    });
+  } else if (fl === 'spin') {
+    // Swirl lollipops either side, and candy dots on the ties.
+    const mids = [pts[Math.floor(pts.length * 0.25)], pts[Math.floor(pts.length * 0.75)]];
+    mids.forEach((q, k) => {
+      const side = k ? 1 : -1;
+      const out = q.right.clone().setY(0);
+      if (out.lengthSq() < 1e-4) return;
+      out.normalize();
+      const base = v3(q.p.x + out.x * side * 0.22, 0, q.p.z + out.z * side * 0.22);
+      const h = Math.max(0.2, q.p.y + 0.08);
+      for (let j = 0; j < 5; j++) mt.post(base.x, (h * j) / 5, base.z, 0.014, h / 5, j % 2 ? SPIN_PINK : SPIN_WHITE, 6);
+      swirl(gl, v3(base.x, h + 0.07, base.z), 0.075, k ? SPIN_MINT : SPIN_PINK);
+    });
+    forEvery(pts, 0.1, (q) => gl.sphere(q.p.clone().addScaledVector(q.up, -SPINE_DROP - 0.025), 0.02, '#ffd23f', 1, 1, 1, 6, 4, true));
+  } else {
+    // A dark steel gantry: portal frames carrying the rail from above.
+    const frames: TrackPt[] = [];
+    forEvery(pts, 0.32, (q) => {
+      if (q.up.y > 0.6) frames.push(q);
+    });
+    if (!frames.length) frames.push(pts[Math.floor(pts.length / 2)]);
+    frames.forEach((q, k) => {
+      const out = q.right.clone().setY(0);
+      if (out.lengthSq() < 1e-4) return;
+      out.normalize();
+      const topY = q.p.y + 0.15;
+      const L = q.p.clone().addScaledVector(out, -0.24).setY(topY);
+      const R = q.p.clone().addScaledVector(out, 0.24).setY(topY);
+      const gy = path.groundAt(cell.x, cell.y);
+      for (const c of [L, R]) {
+        mt.post(c.x, gy, c.z, 0.024, topY - gy + 0.02, HANG_IRON, 6);
+        mt.post(c.x, gy, c.z, 0.05, 0.03, '#2b2140', 8);
+        mt.sphere(v3(c.x, topY + 0.02, c.z), 0.026, '#c9a05a', 1, 1, 1, 6, 4, true);
+      }
+      mt.beam(L, R, 0.04, HANG_IRON);
+      // Cross bracing on one side.
+      mt.beam(L.clone().setY(topY - 0.25), R.clone().setY(topY), 0.012, '#5a5270');
+      // The hanger rod down to the rail.
+      mt.beam(q.p.clone().setY(topY), q.p.clone().addScaledVector(q.up, 0.02), 0.022, HANG_IRON);
+      // A bat roosting on every other frame.
+      if (k % 2 === 0) bat(mt, L.clone().lerp(R, 0.72).setY(topY - 0.02));
+    });
+  }
+}
+
+/** A flat swirl disc facing the camera (+Z, tipped back a touch). */
+function swirl(g: Geo, c: Vector3, R: number, color: string): void {
+  const from = g.count;
+  g.cyl(new Matrix4().makeRotationX(Math.PI / 2), R, R, 0.03, color, 18, color, true);
+  const sp: Vector3[] = [];
+  for (let k = 0; k <= 30; k++) {
+    const t = k / 30;
+    const a = t * Math.PI * 4;
+    const r = 0.01 + t * (R - 0.018);
+    sp.push(v3(Math.cos(a) * r, Math.sin(a) * r, 0.017));
+  }
+  g.pipe(sp, 0.011, SPIN_WHITE, 5);
+  g.transform(new Matrix4().makeTranslation(c.x, c.y, c.z).multiply(new Matrix4().makeRotationX(-0.4)), from);
+}
+
+/** A little bat hanging upside down from a beam. */
+function bat(g: Geo, at: Vector3): void {
+  const body = '#2b2140';
+  g.sphere(at.clone().setY(at.y - 0.045), 0.03, body, 1, 1.3, 0.9, 8, 5, true);
+  g.sphere(at.clone().setY(at.y - 0.085), 0.024, body, 1, 1, 1, 8, 5, true);
+  for (const sx of [-1, 1]) {
+    g.sphere(v3(at.x + sx * 0.01, at.y - 0.085, at.z + 0.021), 0.006, '#ffd23f', 1, 1, 0.6, 5, 3, true);
+    g.beam(v3(at.x + sx * 0.02, at.y - 0.03, at.z), v3(at.x + sx * 0.06, at.y - 0.075, at.z - 0.005), 0.02, '#4a3d6b', 0.008);
+  }
 }
 
 function frame(q: TrackPt, at: Vector3): Matrix4 {
@@ -109,8 +241,9 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
   // Where two passes cross, keep the middle of the cell clear of columns.
   const crossed = path.cells.some((o, j) => j !== i && !o.station && o.x === cell.x && o.y === cell.y);
   const nearMiddle = (q: TrackPt) => crossed && Math.hypot(q.p.x - cell.x - 0.5, q.p.z - cell.y - 0.5) < 0.24;
-  // Plain columns under upright track.
+  // Plain columns under upright track (a hanging run stands on its gantry instead).
   forEvery(pts, 0.3, (q) => {
+    if (cell.flavor === 'hang') return;
     if (q.elem || q.up.y < 0.75 || nearMiddle(q)) return;
     column(base(q));
   });

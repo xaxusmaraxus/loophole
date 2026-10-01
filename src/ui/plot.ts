@@ -45,6 +45,10 @@ const ICON: Partial<Record<AttractionId | UpgradeId, string>> = {
   landscaper: '🌷',
   scenic: '🏞️',
   wrench: '🧰',
+  teacups: '☕',
+  floodgates: '🚰',
+  gantry: '🏗️',
+  blueprints: '📐',
 };
 
 const SHORT: Partial<Record<AttractionId | UpgradeId, string>> = {
@@ -57,6 +61,10 @@ const SHORT: Partial<Record<AttractionId | UpgradeId, string>> = {
   corndogcart: 'Corn Dogs',
   thunder: 'Thunder Mtn',
   crowdpleaser: 'Crowd Pleaser',
+  teacups: 'Teacups',
+  floodgates: 'Flood Gates',
+  gantry: 'Gantry',
+  blueprints: 'Blueprints',
 };
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
