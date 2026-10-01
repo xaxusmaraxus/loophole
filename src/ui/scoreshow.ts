@@ -162,8 +162,11 @@ export class ScoreShow {
         break;
       case 'mult':
         this.bump(this.el.multBox, 'bump');
-        if (at) this.popup(at, { cls: 'mult', text: `+${fmtMult(e.amount)} mult`, sub: 'new piece type' });
-        this.ticker('New piece type: +0.5 mult');
+        {
+          const why = e.why === 'water' ? 'water run' : e.why === 'splash' ? 'splashdown' : 'new piece type';
+          if (at) this.popup(at, { cls: 'mult', text: `+${fmtMult(e.amount)} mult`, sub: why });
+          this.ticker(`${why[0].toUpperCase()}${why.slice(1)}: +${fmtMult(e.amount)} mult`);
+        }
         sfx.mult(n);
         break;
       case 'puke': {

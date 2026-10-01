@@ -1,4 +1,4 @@
-import { type PieceCell, SPLASH_MULT, type StatMods, cellThrill } from '../puzzle/pieces';
+import { type PieceCell, SPLASH_MULT, type StatMods, cellThrill, waterMult } from '../puzzle/pieces';
 import { pukesFor } from '../riders/riders';
 import type { Effect, Score } from './attractions';
 
@@ -36,7 +36,7 @@ interface EventBase extends ScoreState {
 
 export type ScoreEvent =
   | (EventBase & { kind: 'chips'; tier: number; amount: number })
-  | (EventBase & { kind: 'mult'; tier: number; amount: number })
+  | (EventBase & { kind: 'mult'; tier: number; amount: number; why?: 'splash' | 'water' })
   | (EventBase & { kind: 'puke'; car: number; nth: number; worth: number; boss: boolean })
   | (EventBase & { kind: 'attraction'; slot: number; label: string; effect: Effect })
   | (EventBase & { kind: 'slam' });
@@ -99,7 +99,8 @@ export function rideTimeline(input: TimelineInput): ScoreEvent[] {
       types.add(s.tier);
       if (types.size > 1) raw.push({ ...blank, kind: 'mult', at: i + 0.01, stop: i, tier: s.tier, amount: 0.5 });
     }
-    if (s.special === 'splash') raw.push({ ...blank, kind: 'mult', at: i + 0.015, stop: i, tier: s.tier, amount: SPLASH_MULT });
+    if (s.special === 'splash') raw.push({ ...blank, kind: 'mult', at: i + 0.015, stop: i, tier: s.tier, amount: SPLASH_MULT, why: 'splash' });
+    if (s.flavor === 'water') raw.push({ ...blank, kind: 'mult', at: i + 0.018, stop: i, tier: s.tier, amount: waterMult(mods), why: 'water' });
   });
 
   // Pukes: each rider's nausea builds piece by piece; a puke fires on the piece

@@ -51,7 +51,8 @@ interface Profile {
   /** One line for the rider card. */
   trait: string;
   /** How hard each piece tier hits them, as a multiple of its nausea. */
-  hit?: (tier: number) => number;
+  /** `inv`: the piece goes (or counts as going) upside down: a real inversion or a hanging piece. */
+  hit?: (tier: number, inv: boolean) => number;
   /** Points multiplier per puke. */
   worth?: number;
 }
@@ -65,8 +66,6 @@ interface KindDef extends Profile {
   stomach: (day: number) => number;
   look: (rng: Rng) => Partial<Look>;
 }
-
-const inverted = (tier: number) => PIECES[tier].inversion;
 
 export const KINDS: Record<Exclude<RiderKind, 'boss'>, KindDef> = {
   tourist: {
@@ -91,7 +90,7 @@ export const KINDS: Record<Exclude<RiderKind, 'boss'>, KindDef> = {
     weight: 2,
     stomach: () => 8,
     trait: 'Anything upside down hits her triple.',
-    hit: (t) => (inverted(t) ? 3 : 1),
+    hit: (_t, inv) => (inv ? 3 : 1),
     look: () => ({ hairStyle: 'bun', hair: 4, accessory: 'glasses' }),
   },
   kid: {
@@ -117,7 +116,7 @@ export const KINDS: Record<Exclude<RiderKind, 'boss'>, KindDef> = {
     weight: 2,
     stomach: () => 9,
     trait: 'Immune to loops, but everything else hits double.',
-    hit: (t) => (inverted(t) ? 0 : 2),
+    hit: (_t, inv) => (inv ? 0 : 2),
     look: (rng) => ({ hairStyle: 'spiky', hair: rng.pick([6, 7, 3]) }),
   },
   nerd: {
@@ -145,7 +144,7 @@ export const KINDS: Record<Exclude<RiderKind, 'boss'>, KindDef> = {
     weight: 3,
     stomach: () => 9,
     trait: 'Only feels upside-down pieces, but those hit double. Pukes ectoplasm: each one is worth double.',
-    hit: (t) => (inverted(t) ? 2 : 0),
+    hit: (_t, inv) => (inv ? 2 : 0),
     worth: 2,
     look: () => ({ skin: 5, hairStyle: 'bald', shirt: 8, pants: 4, accessory: 'none' }),
   },
@@ -225,7 +224,7 @@ export const BOSSES: Record<BossId, BossDef> = {
     ruleName: 'Rough Seas',
     ruleDesc: 'Every 5 swipes a wave sloshes the whole board one way. Watch the forecast.',
     trait: 'Only Drops and inversions get to her, but those hit double.',
-    hit: (t) => (t === 3 || inverted(t) ? 2 : 0),
+    hit: (t, inv) => (t === 3 || inv ? 2 : 0),
     worth: 8,
     look: { shirt: 1, hairStyle: 'cap', hair: 4 },
   },
@@ -257,13 +256,13 @@ export const BOSSES: Record<BossId, BossDef> = {
   count: {
     name: 'Count Queasy',
     quip: 'Undead for 300 years. Has not felt a thing since.',
-    stomach: 8,
+    stomach: 12,
     composure: 2,
     rule: 'blackout',
     ruleName: 'Lights Out',
     ruleDesc: 'The fog closes in: only tiles right next to your track can be seen.',
     trait: 'Only feels upside-down pieces, but those hit double.',
-    hit: (t) => (inverted(t) ? 2 : 0),
+    hit: (_t, inv) => (inv ? 2 : 0),
     worth: 10,
     look: { skin: 5, hairStyle: 'short', hair: 0, shirt: 8, pants: 0, accessory: 'none' },
   },
@@ -306,8 +305,8 @@ export function riderWorth(r: Rider): number {
 }
 
 /** Nausea one piece gives this rider, before attraction bonuses. */
-export function pieceNausea(r: Rider, tier: number): number {
-  return PIECES[tier].nausea * (profile(r).hit?.(tier) ?? 1);
+export function pieceNausea(r: Rider, tier: number, inv = PIECES[tier].inversion): number {
+  return PIECES[tier].nausea * (profile(r).hit?.(tier, inv) ?? 1);
 }
 
 /** How many times a rider pukes for a given total nausea. */

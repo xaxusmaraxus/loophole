@@ -1,5 +1,5 @@
 import type { Rng } from '../core/rng';
-import type { SpecialId } from '../puzzle/pieces';
+import type { Flavor, SpecialId } from '../puzzle/pieces';
 import { type Board, type ObstacleKind, idx, isWall } from '../puzzle/board';
 import { BOSS_POOL, type BossId, KINDS, type RiderKind } from '../riders/riders';
 import { ATTRACTIONS, type AttractionId, LEGENDARIES } from './attractions';
@@ -8,7 +8,7 @@ import { ATTRACTIONS, type AttractionId, LEGENDARIES } from './attractions';
 //  - Upgrades: permanent, stackable boosts to the park's stats.
 //  - Tools: charges you keep in a toolbar and spend whenever you like.
 
-export type UpgradeId = 'latenight' | 'lumber' | 'hype' | 'fries' | 'billboard' | 'landscaper' | 'scenic' | 'wrench';
+export type UpgradeId = 'latenight' | 'lumber' | 'hype' | 'fries' | 'billboard' | 'landscaper' | 'scenic' | 'wrench' | 'teacups' | 'floodgates' | 'gantry' | 'blueprints';
 export type ToolId = 'coffee' | 'paint' | 'crane' | 'dynamite' | 'megaphone';
 
 export interface UpgradeDef {
@@ -25,6 +25,10 @@ export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   landscaper: { name: 'Landscaper', desc: '2 fewer obstacles in each park.' },
   scenic: { name: 'Scenic Route', desc: 'Flat track is worth +1 thrill.' },
   wrench: { name: 'Toolbox', desc: '+1 undo every day.' },
+  teacups: { name: 'Teacup Works', desc: 'Spinning pieces hit 2× instead of 1.5×.' },
+  floodgates: { name: 'Flood Gates', desc: 'Water pieces are worth +1 more multiplier.' },
+  gantry: { name: 'Steel Gantry', desc: 'Hanging pieces get +3 more thrill.' },
+  blueprints: { name: 'Blueprint Office', desc: 'Park pieces turn up more often: fresh tiles 15% more likely to have the park’s flavor.' },
 };
 
 export interface ToolDef {
@@ -64,6 +68,14 @@ export interface Mods {
   spawns: number;
   daylightBonus: number;
   extraRiders: number;
+  /** Nausea multiplier on spinning pieces. */
+  spinNausea: number;
+  /** Extra multiplier per water piece. */
+  waterMult: number;
+  /** Extra thrill per hanging piece. */
+  hangThrill: number;
+  /** Chance a fresh tile spawns with the park's flavor. */
+  flavorSpawn: number;
 }
 
 export function modsFor(upgrades: readonly UpgradeId[]): Mods {
@@ -78,6 +90,10 @@ export function modsFor(upgrades: readonly UpgradeId[]): Mods {
     spawns: 1,
     daylightBonus: 5 * n('latenight'),
     extraRiders: 2 * n('billboard'),
+    spinNausea: n('teacups') ? 2 : 1.5,
+    waterMult: n('floodgates'),
+    hangThrill: 3 * n('gantry'),
+    flavorSpawn: Math.min(0.6, 0.05 + 0.15 * n('blueprints')),
   };
 }
 
@@ -143,6 +159,8 @@ export interface ParkDef {
   piers: boolean;
   /** Where there are piers: the share of obstacles that are ponds. */
   ponds: number;
+  /** The park's own pieces (the finale mixes them all). */
+  flavors: Flavor[];
 }
 
 export const PARKS: Record<ParkId, ParkDef> = {
@@ -150,12 +168,17 @@ export const PARKS: Record<ParkId, ParkDef> = {
     id: 'meadow',
     name: 'Meadow Park',
     intro: 'A quiet field, a station and a queue. Build your first coasters here.',
-    rules: ['Swipe to merge, tap to build, connect the pennants.', 'The track can cross itself: over flat track on a bridge, under a Bump or Hill through a tunnel.'],
+    rules: [
+      'Swipe to merge, tap to build, connect the pennants.',
+      'The track can cross itself: over flat track on a bridge, under a Bump or Hill through a tunnel.',
+      'Spinning cars: chain reactions of two links or more make 🌀 spinning pieces. The car whirls through them: nausea ×1.5, +2 thrill.',
+    ],
     size: 5,
     soft: 0,
     fog: false,
     piers: false,
     ponds: 1 / 6,
+    flavors: ['spin'],
   },
   boardwalk: {
     id: 'boardwalk',
@@ -165,12 +188,14 @@ export const PARKS: Record<ParkId, ParkDef> = {
       'Sand: a loose tile that ends a swipe on sand sinks one tier. A Bump sinks away completely.',
       'Track built over sand is perfectly safe.',
       'Piers: you can build track out over the water. A pier run is flat, with a sea breeze: +2 thrill.',
+      'Water coaster: chain reactions make 💧 water pieces, flume runs worth +1 multiplier each.',
     ],
     size: 6,
     soft: 0.18,
     fog: false,
     piers: true,
     ponds: 0.45,
+    flavors: ['water'],
   },
   hollow: {
     id: 'hollow',
@@ -180,23 +205,26 @@ export const PARKS: Record<ParkId, ParkDef> = {
       'Fog: tiles far from your track are mystery crates until the track gets close.',
       'Mud works like sand.',
       'Ghosts only feel upside-down pieces, but those hit them double, and a ghost’s puke is worth double.',
+      'Hanging coaster: chain reactions make 🦇 hanging pieces. The train hangs under the rail: +3 thrill, and it counts as upside down.',
     ],
     size: 6,
     soft: 0.14,
     fog: true,
     piers: false,
     ponds: 1 / 6,
+    flavors: ['hang'],
   },
   finale: {
     id: 'finale',
     name: 'The Grand Opening',
     intro: 'The whole town came. The press came. Build the ride of the season.',
-    rules: ['A bigger park with every twist from the season.', 'Beat the target to win the season. Miss it and you try again tomorrow.'],
+    rules: ['A bigger park with every twist from the season: spinning, water and hanging pieces all turn up.', 'Beat the target to win the season. Miss it and you try again tomorrow.'],
     size: 7,
     soft: 0.12,
     fog: true,
     piers: true,
     ponds: 0.3,
+    flavors: ['spin', 'water', 'hang'],
   },
 };
 
@@ -367,6 +395,7 @@ export function generateBoard(cfg: DayConfig, rng: Rng): Board {
       opened: null,
       soft: new Array(n * n).fill(false),
       piers: cfg.park.piers,
+      flav: new Array(n * n).fill(null),
     };
     // Keep the two rows above the platform clear so a first loop is always possible.
     const nearStation = (x: number, y: number) => y >= n - 2 && x >= station.x - 1 && x <= station.x + 2;

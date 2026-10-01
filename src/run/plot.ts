@@ -25,6 +25,10 @@ export const UPGRADE_THEME: Record<UpgradeId, Theme> = {
   landscaper: 'garden',
   scenic: 'garden',
   wrench: 'thrill',
+  teacups: 'food',
+  floodgates: 'garden',
+  gantry: 'thrill',
+  blueprints: 'show',
 };
 
 export type PlotRef = { kind: 'attraction'; id: AttractionId } | { kind: 'upgrade'; id: UpgradeId };

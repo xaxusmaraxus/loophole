@@ -22,7 +22,7 @@ import {
   swipe,
   trackCells,
 } from './puzzle/board';
-import { BRAKES_NAUSEA, MAX_TIER, type RideStats, SPECIALS, type SpecialId, rideStats } from './puzzle/pieces';
+import { BRAKES_NAUSEA, type Flavor, MAX_TIER, type RideStats, SPECIALS, type SpecialId, invertedCell, rideStats } from './puzzle/pieces';
 import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
 import { BOSSES, BOSS_POOL, BOSS_ROUNDS, type BossId, type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { type OwnedAttraction, type Score, scoreRide } from './run/attractions';
@@ -92,6 +92,8 @@ export type GameEvent =
   | { type: 'unlock'; id: UnlockId }
   /** A boss rule kicked in: a wave sloshed the board, the controls spun, or Barry had a snack. */
   | { type: 'boss'; what: 'wave' | 'spin' | 'snack'; dir?: Dir }
+  /** A big combo paid out a free special piece. */
+  | { type: 'combo'; merges: number; special: SpecialId }
   | { type: 'undo' };
 
 export interface RiderTicket {
@@ -135,6 +137,7 @@ interface Snapshot {
   actions: number;
   buzz: number;
   bestCombo: number;
+  comboPrizes: number;
   chainLinks: number;
   selected: End;
   tools: Record<ToolId, number>;
@@ -145,6 +148,8 @@ interface Snapshot {
 }
 
 const HEARTS = 3;
+/** Merges in one swipe that pay a free special piece (each once a day). */
+export const COMBO_PRIZES = [6, 9, 12];
 const BEST_KEY = 'loophole.bestScore';
 /** A walk-in rider arrives every this many swipes. */
 const WALKIN_EVERY = 5;
@@ -181,6 +186,8 @@ export class Game {
   daylight = 0;
   actions = 0;
   bestCombo = 0;
+  /** Combo prizes already paid today. */
+  comboPrizes = 0;
   /** Chain links set off today (Chain Gang counts these). */
   chainLinks = 0;
   /** The track end that keyboard builds extend. */
@@ -320,6 +327,7 @@ export class Game {
     this.actions = 0;
     this.buzz = 0;
     this.bestCombo = 0;
+    this.comboPrizes = 0;
     this.chainLinks = 0;
     this.selected = 0;
     this.aiming = null;
@@ -522,12 +530,21 @@ export class Game {
   }
 
   /** Nausea one piece gives this rider, including attraction bonuses. */
-  nausea(r: Rider, tier: number): number {
+  nausea(r: Rider, tier: number, flavor: Flavor | null = null): number {
     if (tier === 3 && this.has('gravitywell')) return 0;
-    let n = pieceNausea(r, tier) + (tier === 4 && this.has('tilttable') ? 3 : 0);
-    if (tier >= 5 && this.has('gravitywell')) n += 2;
+    const inv = invertedCell({ tier, flavor });
+    let n = pieceNausea(r, tier, inv) + (tier === 4 && this.has('tilttable') ? 3 : 0);
+    if (inv && this.has('gravitywell')) n += 2;
+    // Spinning cars: the car whirls through it.
+    if (flavor === 'spin') n = Math.ceil(n * this.mods.spinNausea);
     return n;
   }
+
+  /** The park's flavor for a fresh park piece (the finale mixes them). */
+  private parkFlavor = (): Flavor | null => {
+    const f = this.cfg.park.flavors;
+    return f.length ? this.rng.pick(f) : null;
+  };
 
   /**
    * Nausea the stop at index i of a ride gives this rider: its piece, doubled right
@@ -538,7 +555,7 @@ export class Game {
     if (s.station) return 0;
     // Granny Grit has seen it all: only the first piece of each type gets to her.
     if (r.boss && this.bossRule === 'seenitall' && stops.slice(0, i).some((o) => !o.station && o.tier === s.tier)) return 0;
-    let n = this.nausea(r, s.tier);
+    let n = this.nausea(r, s.tier, s.flavor ?? null);
     let j = i - 1;
     while (j >= 0 && stops[j].station) j--;
     if (j >= 0 && stops[j].special === 'launch') n *= 2;
@@ -588,6 +605,7 @@ export class Game {
       actions: this.actions,
       buzz: this.buzz,
       bestCombo: this.bestCombo,
+      comboPrizes: this.comboPrizes,
       chainLinks: this.chainLinks,
       selected: this.selected,
       tools: { ...this.tools },
@@ -612,6 +630,8 @@ export class Game {
     const result = swipe(this.board, dir, this.rng, {
       hillChance: this.mods.hillChance,
       spawns: this.mods.spawns,
+      parkFlavor: this.parkFlavor,
+      flavorSpawn: this.mods.flavorSpawn,
     });
     if (!result) {
       // Nothing moved, so nothing changed: drop the snapshot, spend no daylight.
@@ -624,9 +644,26 @@ export class Game {
     this.events.push({ type: 'swipe', result });
     // Chain reactions draw a crowd: one new rider per link.
     for (let i = 0; i < result.chain.waves.length; i++) this.arrive('chain');
+    this.comboPrize(result.mergeCount);
     // Lifeguard Lou: no running! A swipe that merges nothing costs extra.
     if (this.bossRule === 'whistle' && result.mergeCount === 0) this.daylight -= WHISTLE_COST - 1;
     this.tick();
+  }
+
+  /**
+   * Big combos pay out on the spot: 6 or more merges in one swipe hands you a
+   * free special piece (Launch, Water Splash or Brake Run), once per day per tier
+   * of combo: at 6, 9 and 12 merges.
+   */
+  private comboPrize(merges: number): void {
+    const tier = COMBO_PRIZES.filter((n) => merges >= n).length;
+    if (tier <= this.comboPrizes) return;
+    for (let k = this.comboPrizes; k < tier; k++) {
+      const special = this.rng.pick(['launch', 'splash', 'brakes'] as const);
+      this.specials[special]++;
+      this.events.push({ type: 'combo', merges, special });
+    }
+    this.comboPrizes = tier;
   }
 
   /** A tap on the park: aims the active tool, or builds. */
@@ -712,6 +749,7 @@ export class Game {
     this.snapshot();
     const before = [...b.tiles];
     [b.tiles[i], b.tiles[j]] = [b.tiles[j], b.tiles[i]];
+    if (b.flav) [b.flav[i], b.flav[j]] = [b.flav[j], b.flav[i]];
     const moved = [
       { from: a, to: { x, y }, tier: before[j] },
       ...(before[i] ? [{ from: { x, y }, to: a, tier: before[i] }] : []),
@@ -737,7 +775,7 @@ export class Game {
         slides.push({ from: p, to: p, tier: b.tiles[k] || before[k], merged: false });
       }
     const slid = [...b.tiles];
-    const chain = resolveChains(b, seeds);
+    const chain = resolveChains(b, seeds, this.parkFlavor);
     const mergeCount = chain.waves.reduce((a, w) => a + w.length, 0);
     this.bestCombo = Math.max(this.bestCombo, mergeCount);
     this.chainLinks += chain.waves.length;
@@ -817,7 +855,7 @@ export class Game {
       f.wave = this.rng.pick(DIRS);
       this.events.push({ type: 'boss', what: 'wave', dir });
       // The wave slides every loose tile one way. Merges and chains happen as usual; nothing new washes up.
-      const result = swipe(this.board, dir, this.rng, { hillChance: this.mods.hillChance, spawns: 0 });
+      const result = swipe(this.board, dir, this.rng, { hillChance: this.mods.hillChance, spawns: 0, parkFlavor: this.parkFlavor });
       if (result) {
         this.chainLinks += result.chain.waves.length;
         this.events.push({ type: 'swipe', result });
@@ -844,6 +882,7 @@ export class Game {
     this.actions = s.actions;
     this.buzz = s.buzz;
     this.bestCombo = s.bestCombo;
+    this.comboPrizes = s.comboPrizes;
     this.chainLinks = s.chainLinks;
     this.selected = s.selected;
     this.tools = s.tools;

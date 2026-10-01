@@ -1,5 +1,5 @@
 import type { Rng } from '../core/rng';
-import { MAX_TIER, type SpecialId } from './pieces';
+import { type Flavor, MAX_TIER, type SpecialId } from './pieces';
 
 // Two separate actions:
 //  - Swipe: 2048 rules. Loose tiles slide and merge, fresh merges chain.
@@ -37,6 +37,8 @@ export interface TrackCell extends Pt {
   pier?: boolean;
   /** A special piece fitted onto this track. */
   special?: SpecialId;
+  /** A park piece (spinning, water, hanging), from a flavored tile. */
+  flavor?: Flavor | null;
 }
 
 export type ObstacleKind = 'tree' | 'rock' | 'pond' | 'stand';
@@ -56,7 +58,12 @@ export interface Board {
   soft: boolean[];
   /** Track may be built out over ponds (Boardwalk piers). */
   piers?: boolean;
+  /** Park-piece flavor per cell, riding along with its tile (missing = none anywhere). */
+  flav?: (Flavor | null)[];
 }
+
+/** The flavor of the tile at cell i. */
+export const flavorAt = (b: Board, i: number): Flavor | null => b.flav?.[i] ?? null;
 
 /** Track cells needed before the circuit may close (smallest ride is a U: up, across, down). */
 export const MIN_LOOP = 2;
@@ -143,7 +150,7 @@ export function crossable(b: Board, x: number, y: number, from: Pt): boolean {
   const [end, i] = passes[0];
   const c = b.ends[end][i];
   const next = b.ends[end][i + 1];
-  if (c.cross || c.pier || c.special || c.tier > 2 || !next) return false;
+  if (c.cross || c.pier || c.special || c.flavor || c.tier > 2 || !next) return false;
   const prev = prevOf(b, end, i);
   // The crossed piece runs straight through, and the new pass meets it at right angles.
   if (prev.x - c.x !== c.x - next.x || prev.y - c.y !== c.y - next.y) return false;
@@ -209,12 +216,17 @@ export function build(b: Board, end: End, x: number, y: number): TrackCell | nul
   if (!buildTargets(b, end).some((t) => t.x === x && t.y === y)) return null;
   const i = idx(b, x, y);
   const laid: TrackCell = { x, y, tier: b.tiles[i] };
+  const fl = flavorAt(b, i);
+  if (fl) laid.flavor = fl;
+  if (b.flav) b.flav[i] = null;
   if (trackAt(b, x, y)) {
     laid.tier = 0;
     laid.cross = true;
+    delete laid.flavor;
   } else if (b.obstacles[i] === 'pond') {
     laid.tier = 0;
     laid.pier = true;
+    delete laid.flavor;
   }
   b.tiles[i] = 0;
   b.ends[end].push(laid);
@@ -227,6 +239,7 @@ export interface RideStop extends Pt {
   cross?: boolean;
   pier?: boolean;
   special?: SpecialId;
+  flavor?: Flavor | null;
 }
 
 /** The order the train visits cells, from the platform back to the platform. */
@@ -269,6 +282,7 @@ export function cloneBoard(b: Board): Board {
     obstacles: [...b.obstacles],
     station: { ...b.station },
     soft: [...b.soft],
+    flav: b.flav ? [...b.flav] : undefined,
     ends: [b.ends[0].map((c) => ({ ...c })), b.ends[1].map((c) => ({ ...c }))],
   };
 }
@@ -284,6 +298,7 @@ export interface SlideMove {
 
 export interface SlideResult {
   tiles: number[];
+  flav: (Flavor | null)[];
   slides: SlideMove[];
   merges: TrackCell[];
   moved: boolean;
@@ -293,6 +308,7 @@ export function slide(b: Board, dir: Dir): SlideResult {
   const n = b.size;
   const d = DELTA[dir];
   const tiles = new Array<number>(n * n).fill(0);
+  const flav = new Array<Flavor | null>(n * n).fill(null);
   const slides: SlideMove[] = [];
   const merges: TrackCell[] = [];
   const reversed = d.x === 1 || d.y === 1;
@@ -321,12 +337,15 @@ export function slide(b: Board, dir: Dir): SlideResult {
         last.tier = tier + 1;
         last.merged = true;
         tiles[idx(b, q.x, q.y)] = last.tier;
+        // A merge keeps any flavor either tile had.
+        flav[idx(b, q.x, q.y)] ??= flavorAt(b, idx(b, p.x, p.y));
         slides.push({ from: p, to: q, tier, merged: true });
         merges.push({ x: q.x, y: q.y, tier: last.tier });
         moved = true;
       } else {
         const q = line[dest];
         tiles[idx(b, q.x, q.y)] = tier;
+        flav[idx(b, q.x, q.y)] = flavorAt(b, idx(b, p.x, p.y));
         slides.push({ from: p, to: q, tier, merged: false });
         if (!samePt(p, q)) moved = true;
         last = { pos: dest, tier, merged: false };
@@ -334,7 +353,7 @@ export function slide(b: Board, dir: Dir): SlideResult {
       }
     }
   }
-  return { tiles, slides, merges, moved };
+  return { tiles, flav, slides, merges, moved };
 }
 
 export interface ChainStep {
@@ -355,7 +374,7 @@ export interface ChainResult {
  * Cascades: a freshly merged tile grabs a matching orthogonal neighbor and
  * merges again. The result can grab again in the next wave, and so on.
  */
-export function resolveChains(b: Board, seeds: readonly Pt[]): ChainResult {
+export function resolveChains(b: Board, seeds: readonly Pt[], parkFlavor: () => Flavor | null = () => null): ChainResult {
   const waves: ChainStep[][] = [];
   const frames: number[][] = [];
   let frontier: Pt[] = seeds.map((s) => ({ x: s.x, y: s.y }));
@@ -374,6 +393,11 @@ export function resolveChains(b: Board, seeds: readonly Pt[]): ChainResult {
         if (used.has(ni) || b.tiles[ni] !== t) continue;
         b.tiles[ci] = t + 1;
         b.tiles[ni] = 0;
+        // Chain reactions make park pieces: from the second link on, the merged tile takes the park's flavor (or keeps its own).
+        if (b.flav) {
+          b.flav[ci] = b.flav[ci] ?? b.flav[ni] ?? (waves.length >= 1 ? parkFlavor() : null);
+          b.flav[ni] = null;
+        }
         used.add(ci);
         used.add(ni);
         wave.push({ from: n, to: c, tier: t + 1 });
@@ -396,13 +420,14 @@ export function emptyCells(b: Board): Pt[] {
   return out;
 }
 
-export function spawnTile(b: Board, rng: Rng, hillChance: number): TrackCell | undefined {
+export function spawnTile(b: Board, rng: Rng, hillChance: number, flavor: Flavor | null = null): TrackCell | undefined {
   const cells = emptyCells(b);
   if (!cells.length) return undefined;
   const c = rng.pick(cells);
   const tier = rng.chance(hillChance) ? 2 : 1;
   b.tiles[idx(b, c.x, c.y)] = tier;
-  return { ...c, tier };
+  if (b.flav) b.flav[idx(b, c.x, c.y)] = flavor;
+  return { ...c, tier, ...(flavor ? { flavor } : {}) };
 }
 
 export interface SwipeResult {
@@ -424,6 +449,10 @@ export interface SwipeOptions {
   spawns: number;
   /** False on Blackout days: merges don't chain. */
   chains?: boolean;
+  /** The park's flavor, for tiles made by chain reactions (null: none). Called per chain merge. */
+  parkFlavor?: () => Flavor | null;
+  /** Chance a fresh tile spawns with the park's flavor. */
+  flavorSpawn?: number;
 }
 
 /** Applies a swipe in place. Returns null if nothing would move (like 2048). */
@@ -432,12 +461,14 @@ export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeRe
   const s = slide(b, dir);
   if (!s.moved) return null;
   b.tiles = s.tiles;
+  if (b.flav) b.flav = s.flav;
   const slid = [...b.tiles];
-  const chain = opts.chains === false ? { waves: [], frames: [] } : resolveChains(b, s.merges);
+  const chain = opts.chains === false ? { waves: [], frames: [] } : resolveChains(b, s.merges, opts.parkFlavor);
   const sunk = sink(b);
   const spawned: TrackCell[] = [];
   for (let k = 0; k < opts.spawns; k++) {
-    const t = spawnTile(b, rng, opts.hillChance);
+    const fl = opts.parkFlavor && opts.flavorSpawn && rng.chance(opts.flavorSpawn) ? opts.parkFlavor() : null;
+    const t = spawnTile(b, rng, opts.hillChance, fl);
     if (t) spawned.push(t);
   }
   const mergeCount = s.merges.length + chain.waves.reduce((a, w) => a + w.length, 0);
@@ -450,6 +481,7 @@ export function sink(b: Board): TrackCell[] {
   for (let i = 0; i < b.tiles.length; i++)
     if (b.soft[i] && b.tiles[i] > 0) {
       b.tiles[i]--;
+      if (!b.tiles[i] && b.flav) b.flav[i] = null;
       out.push({ x: i % b.size, y: Math.floor(i / b.size), tier: b.tiles[i] });
     }
   return out;
