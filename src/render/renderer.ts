@@ -279,6 +279,8 @@ export class Renderer {
   private words: Word[] = [];
   private wordLayer: HTMLDivElement;
   private goEl: HTMLDivElement;
+  /** The HOME tag over the blue pad, where the red mouth has to come back to. */
+  private homeEl: HTMLDivElement;
   private hover: Pt | null = null;
   private base = { target: new Vector3(), dist: 12 };
   /** The screen area the HUD leaves free (CSS pixels in the canvas). */
@@ -394,6 +396,10 @@ export class Renderer {
     this.goEl.title = 'The ends meet: open the full circuit';
     this.goEl.addEventListener('click', () => this.onOpenMe());
     this.wordLayer.append(this.goEl);
+    this.homeEl = document.createElement('div');
+    this.homeEl.className = 'home3d';
+    this.homeEl.textContent = 'HOME';
+    this.wordLayer.append(this.homeEl);
     for (let k = 0; k < 2; k++) {
       const t = document.createElement('div');
       t.className = 'eat-tag';
@@ -1944,6 +1950,13 @@ export class Renderer {
     // It pops up once the gulps' shouts have had their moment.
     const showGo = meet && this.now - this.goSince > 350;
     this.goEl.hidden = !showGo;
+    // HOME floats over the blue pad while you build (until OPEN ME takes over).
+    const home = this.game.phase === 'build' && !b.opened && !showGo && this.mouths[1]?.ready;
+    this.homeEl.hidden = !home;
+    if (home) {
+      const h = this.local(this.mouths[1].group.position.clone().setY(this.mouths[1].group.position.y + 0.55));
+      this.homeEl.style.transform = `translate(${off.x + h.x}px, ${off.y + h.y + Math.sin(this.now / 260) * 2}px) translate(-50%, -100%)`;
+    }
     if (showGo) {
       const a = this.mouths[0].group.position;
       const c = this.mouths[1].group.position;
@@ -1976,7 +1989,7 @@ export class Renderer {
     };
     if (aim.tool === 'crew') {
       // The crew lays one piece by hand, right next to an end: in that end's color.
-      for (const t of buildTargets(b)) if (!trackAt(b, t.x, t.y)) mark(t.x, t.y, blink ? END_COLORS[t.end] : PAL.white);
+      for (const t of buildTargets(b, 0)) if (!trackAt(b, t.x, t.y)) mark(t.x, t.y, blink ? END_COLORS[t.end] : PAL.white);
       return;
     }
     for (let y = 0; y < b.size; y++)
@@ -2048,6 +2061,8 @@ export class Renderer {
     for (const end of [0, 1] as End[]) {
       const m = this.mouths[end];
       m.group.visible = show;
+      // Only the red end eats; blue is home, a glowing pad where the loop closes.
+      m.body.visible = end === 0;
       if (!show) {
         m.ready = false;
         continue;
@@ -2129,6 +2144,12 @@ export class Renderer {
       const hp = 0.5 + Math.sin(t * 5 + end * 1.3) * 0.5;
       m.haloMat.opacity = fed ? 0.75 : 0.32 + hp * 0.2;
       m.halo.scale.setScalar((fed ? 1.25 : 1) * (0.9 + hp * 0.14));
+      if (end === 1) {
+        // Home: a big, bright landing pad, lifted clear of the canopy's shade, beckoning when the loop can close.
+        m.haloMat.opacity = connect ? 0.95 : 0.6 + hp * 0.35;
+        m.halo.scale.setScalar((connect ? 2.1 : 1.7) * (0.92 + hp * 0.12));
+        m.halo.position.y += 0.03;
+      }
       // "Feed me" chevrons slide into the mouth from each side it can eat from.
       if (!this.preview && !connect && !this.game.aiming)
         for (const d of dirs) {

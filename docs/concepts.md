@@ -290,14 +290,13 @@ The user wanted every park to feel like a different ride: the Boardwalk water-ba
 
 ## The track eats tiles (v0.22): one verb, no turn limit
 The user found building track a chore: once the tiles were merged, tapping a path through them was plain pathfinding with one obvious answer. They asked for one simple, elegant mechanic with endless depth, and then to drop the swipe limit so it plays like Snake.
-- **One verb.** You only swipe. A tile that slides into another tile of the same kind merges, as before. **A tile that slides into an open end of the track gets eaten: it becomes the next piece of track, right where it stopped.** Each end (red and blue, starting on the platform) eats at most one tile per swipe. There's no tap-to-build.
+- **One verb.** You only swipe. A tile that slides into another tile of the same kind merges, as before. **A tile that slides into an open end of the track gets eaten: it becomes the next piece of track, right where it stopped.** There's no tap-to-build. At first both ends ate, but the user found closing a loop with two snakes nearly impossible. Now **only the red end eats** (one tile per swipe), and the blue platform cell is home: bring the red head back next to it to close the loop.
 - **What that does:**
   - Every swipe both merges and feeds.
   - You merge before you feed, because a Drop is a better meal than two Hills.
   - You keep junk away from the mouths.
   - You steer an end by where you feed it from.
   - The track you've built becomes the walls your tiles slide against.
-  - The two ends compete for tiles.
 - **No daylight.** The day runs until you open the ride: the full circuit once the ends touch, or a half-price shuttle any time. Every swipe drops in a tile and the track takes up room, so the board fills. When no swipe can move anything, it's **gridlock** and the ride opens by itself.
 - **Things that used daylight, reworked:**
   - Coffee became the **Track Crew** tool: lay one piece by hand next to an end. It's the escape hatch.

@@ -30,19 +30,28 @@ describe('the track eats tiles', () => {
     return g;
   }
 
-  it('a tile that slides into an open end becomes track, one per end per swipe', () => {
+  it('a tile that slides into the red mouth becomes track, one per swipe; blue is home', () => {
     const g = cleared();
     const b = g.board;
     const s = stationPoint(g.board, 0);
-    // Two tiles stacked in the red end's column, one in the blue end's.
+    // Two tiles stacked in the red end's column, one in the blue column (home doesn't eat).
     b.tiles[idx(b, s.x, 0)] = 3;
     b.tiles[idx(b, s.x, 1)] = 2;
     b.tiles[idx(b, s.x + 1, 2)] = 4;
     g.swipe('down');
     expect(b.ends[0].map((c) => c.tier)).toEqual([2]);
-    expect(b.ends[1].map((c) => c.tier)).toEqual([4]);
+    expect(b.ends[1]).toEqual([]);
+    expect(b.tiles[idx(b, s.x + 1, b.size - 1)]).toBe(4);
     // The Drop stopped right on top of the new red end; the next swipe down feeds it.
     expect(b.tiles[idx(b, s.x, b.size - 2)]).toBe(3);
+    // Red's head isn't next to home yet.
+    expect(g.openKind).toBe('shuttle');
+    // Bring a tile in from the right along the bottom row: it stops against the red head, right above home.
+    b.tiles[idx(b, s.x + 1, b.size - 1)] = 0;
+    b.tiles[idx(b, s.x + 1, b.size - 2)] = 0;
+    b.tiles[idx(b, b.size - 1, b.size - 1)] = 2;
+    g.swipe('left');
+    expect(b.ends[0].map((c) => c.tier)).toEqual([2, 2]);
     expect(g.openKind).toBe('circuit');
   });
 
@@ -58,9 +67,8 @@ describe('the track eats tiles', () => {
     const b = g.board;
     const s = stationPoint(b, 0);
     b.tiles[idx(b, s.x, b.size - 1)] = 2;
-    b.tiles[idx(b, s.x + 1, b.size - 1)] = 2;
     g.swipe('down');
-    expect(g.openKind).toBe('circuit');
+    expect(g.openKind).toBe('shuttle');
     // Fill every free cell with tiles that can't merge with anything.
     for (let i = 0; i < b.tiles.length; i++) {
       const [x, y] = [i % b.size, Math.floor(i / b.size)];

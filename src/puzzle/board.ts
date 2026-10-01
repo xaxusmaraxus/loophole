@@ -62,8 +62,9 @@ export interface Board {
   flav?: (Flavor | null)[];
   /**
    * The track eats tiles: a tile that slides into an open end of the track
-   * becomes the next piece of track, right where it stopped. Each end eats at
-   * most one tile per swipe. (Off for bare test boards.)
+   * becomes the next piece of track, right where it stopped. Only the red end
+   * eats (one tile per swipe); the blue platform cell is home, where the loop
+   * closes. (Off for bare test boards.)
    */
   eat?: boolean;
 }
@@ -335,7 +336,9 @@ export function slide(b: Board, dir: Dir): SlideResult {
   /** The end whose head is the cell at `p`, if it may still eat this swipe. */
   const mouth = (p: Pt): End | null => {
     if (!b.eat || b.opened) return null;
-    for (const e of [0, 1] as End[]) if (!fed.has(e) && samePt(head(b, e), p) && !b.ends[e][b.ends[e].length - 1]?.cross) return e;
+    // One eater: the red end. The blue platform cell is home: bring the red head back next to it to close the loop.
+    const e: End = 0;
+    if (!fed.has(e) && samePt(head(b, e), p) && !b.ends[e][b.ends[e].length - 1]?.cross) return e;
     return null;
   };
 

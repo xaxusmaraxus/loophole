@@ -755,7 +755,7 @@ export class Game {
     }
     if (aim.tool === 'crew') {
       // The track crew lays one piece from whichever end can reach (x, y): the tile there, or flat track.
-      const t = buildTargets(b).find((c) => c.x === x && c.y === y && !trackAt(b, x, y));
+      const t = buildTargets(b, 0).find((c) => c.x === x && c.y === y && !trackAt(b, x, y));
       if (!t) return fail();
       this.snapshot();
       const laid = build(b, t.end, x, y)!;

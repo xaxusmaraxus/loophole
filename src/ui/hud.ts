@@ -146,8 +146,8 @@ export class Hud {
       hint.innerHTML = `<strong>The ends meet!</strong> Open the full circuit now, or keep feeding it for a wilder ride.${g.room <= LOW_ROOM ? ` Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!` : ''}`;
     else if (g.room <= LOW_ROOM)
       hint.innerHTML = `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge to make room, or open the ride before it jams.`;
-    else if (trackLength(g.board) === 0) hint.innerHTML = 'Swipe tiles <strong>into the red and blue mouths</strong>: the track eats them. Merge first, the bigger the piece the wilder the ride. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
-    else hint.innerHTML = 'Feed both mouths and steer them back together to close the loop. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
+    else if (trackLength(g.board) === 0) hint.innerHTML = 'Swipe tiles <strong>into the red mouth</strong>: the track eats them. Merge first, the bigger the piece the wilder the ride. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
+    else hint.innerHTML = 'Feed the red mouth and steer it back home to the <strong>blue pad</strong> to close the loop. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
     hint.classList.toggle('ready', building && canConnect(g.board));
     hint.classList.toggle('tight', building && !aim && g.room <= LOW_ROOM);
     const open = $<HTMLButtonElement>('open');
