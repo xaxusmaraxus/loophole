@@ -31,19 +31,27 @@ import {
   type Dir,
   type End,
   type SwipeResult as MoveResult,
+  type Eaten,
   type Pt,
+  DELTA,
+  DIRS,
   buildTargets,
   canConnect,
+  head,
   idx,
+  inBounds,
   isWall,
   rideOrder,
+  step,
+  trackAt,
 } from '../puzzle/board';
+import { type Mouth, makeBead, makeChevron, makeMouth, makeOutline } from '../render3d/mouths';
 import { RideAnim, parkS } from '../ride/ride';
 import type { Rider } from '../riders/riders';
 import { Geo, rng, shade, v3 } from '../render3d/geo';
 import { GLOW_MAT, GRASS_Y, type Island, WATER_Y, buildIsland } from '../render3d/island';
 import { type CarKind, CRATE_H, FLAVOR_COLORS, FLAVOR_PIVOT, type Face, M, type Parts, carGeo, crateGeo, flavorAnimGeo, flavorBaseGeo, mysteryGeo, personGeo, rope } from '../render3d/models';
-import { type Flavor, SPECIALS } from '../puzzle/pieces';
+import { type Flavor, PIECES, SPECIALS } from '../puzzle/pieces';
 import { Particles, Pool, bubbleMaterial, makeBubble, makeMarker, puddleGeo } from '../render3d/fx';
 import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
 import { MATS, SHARED, toon } from '../render3d/toon';
@@ -62,6 +70,10 @@ import { lineThought, rideThought } from '../riders/thoughts';
 // each day. It only presents: all rules live in the game.
 
 const SLIDE_MS = 100;
+/** An eaten tile squashes down into the track over this long, after its slide. */
+const GULP_MS = 260;
+/** After gridlock, the jam gets its moment before the ride rolls. */
+const GRIDLOCK_MS = 1500;
 const WAVE_MS = 170;
 /** Pennant colors for the two track ends. */
 const END_COLORS = ['#f0584e', '#45a8e0'];
@@ -184,6 +196,8 @@ export class Renderer {
   readonly post = new Post();
   readonly show: ScoreShow;
   onRideDone: () => void = () => {};
+  /** The OPEN ME tag between the two ends was clicked. */
+  onOpenMe: () => void = () => {};
   n = 5;
   path!: TrackPath;
   now = 0;
@@ -223,7 +237,26 @@ export class Renderer {
   private markers: Pool<Mesh>;
   private bubbles: Pool<Sprite>;
   private mists: Pool<Sprite>;
-  private pennants: Group[] = [];
+  /** The two open ends of the track: hungry clay mouths (red end 0, blue end 1). */
+  private mouths: (Mouth & { from: Vector3; to: Vector3; hopAt: number; hold: number; yaw: number; open: number; chompAt: number; ready: boolean })[] = [];
+  private chevrons: Pool<Mesh>;
+  private outlines: Pool<Mesh>;
+  private beads: Pool<Mesh>;
+  /** What the swipe being dragged would feed into the track. */
+  private preview: { dir: Dir; eats: Eaten[]; at: number } | null = null;
+  private previewTags: HTMLElement[] = [];
+  /** Eaten tiles squashing into the track. */
+  private gulps: { tier: number; flavor: Flavor | null; at: Pt; end: End; start: number }[] = [];
+  /** Track cells that wait for their tile to arrive before they rise ("x,y" to time). */
+  private eatHold = new Map<string, number>();
+  private eatenCells = new WeakSet<object>();
+  private gridlockAt = -1e9;
+  private wobbleUntil = 0;
+  /** The ride opened by gridlock: it waits a beat before rolling. */
+  private ridePending = false;
+  /** A mouth is mid-hop or mid-gulp (the OPEN ME tag waits for them). */
+  private mouthsBusy = false;
+  private goSince = -1;
   readonly particles: Particles;
   private sparks: Particles;
   private later: { at: number; fn: () => void }[] = [];
@@ -337,10 +370,14 @@ export class Renderer {
     this.bubbles = new Pool(this.dyn, makeBubble);
     this.mists = new Pool(this.dyn, makeMist);
     for (const end of [0, 1]) {
-      const p = pennant(END_COLORS[end]);
-      this.pennants.push(p);
-      this.dyn.add(p);
+      const m = makeMouth(END_COLORS[end]);
+      this.dyn.add(m.group);
+      m.group.visible = false;
+      this.mouths.push({ ...m, from: new Vector3(), to: new Vector3(), hopAt: 0, hold: 0, yaw: 0, open: 0, chompAt: -1e9, ready: false });
     }
+    this.chevrons = new Pool(this.dyn, makeChevron);
+    this.outlines = new Pool(this.dyn, makeOutline);
+    this.beads = new Pool(this.dyn, makeBead);
     this.particles = new Particles(this.dyn);
     this.sparks = new Particles(this.dyn, true);
     this.sparks.ground = () => -5;
@@ -353,8 +390,17 @@ export class Renderer {
     wrap.append(this.wordLayer);
     this.goEl = document.createElement('div');
     this.goEl.className = 'go3d';
-    this.goEl.textContent = 'GO!';
+    this.goEl.textContent = 'OPEN ME!';
+    this.goEl.title = 'The ends meet: open the full circuit';
+    this.goEl.addEventListener('click', () => this.onOpenMe());
     this.wordLayer.append(this.goEl);
+    for (let k = 0; k < 2; k++) {
+      const t = document.createElement('div');
+      t.className = 'eat-tag';
+      t.hidden = true;
+      this.wordLayer.append(t);
+      this.previewTags.push(t);
+    }
     this.caption = document.createElement('div');
     this.caption.className = 'slowcap';
     this.wordLayer.append(this.caption);
@@ -512,6 +558,11 @@ export class Renderer {
     for (const g of this.cellGroups.values()) this.trackGroup.remove(g);
     this.cellGroups.clear();
     this.riseAt.clear();
+    this.eatHold.clear();
+    this.gulps = [];
+    this.preview = null;
+    this.ridePending = false;
+    for (const m of this.mouths) m.ready = false;
     this.syncTrack(true);
     this.tileAnim = null;
     this.combo = null;
@@ -835,8 +886,13 @@ export class Renderer {
           this.tileAnim = { start: this.now, move: e.result, fired: -1 };
           if (e.result.chain.waves.length) music.combo(e.result.mergeCount);
           this.combo = null;
+          this.startGulps(e.result);
+          // The board is nearly full: the park holds its breath.
+          if (this.game.phase === 'build' && this.game.room <= 3) this.after(SLIDE_MS + 120, () => sfx.heartbeat());
           break;
         case 'build': {
+          // Eaten tiles get their own gulp (see startGulps).
+          if (this.eatenCells.has(e.laid)) break;
           const c = this.cell(e.laid);
           this.dust(c.clone().setY(0.1), 14, PAL.plaza[2]);
           this.sparkle(c.clone().setY(0.3), 10, TIER_RAMPS[Math.max(1, e.laid.tier)][1]);
@@ -858,15 +914,26 @@ export class Renderer {
         }
         case 'undo':
           this.tileAnim = null;
+          this.gulps = [];
+          this.eatHold.clear();
           break;
         case 'open':
-          sfx.open();
-          this.startRide();
+          if (this.now - this.gridlockAt < 1) {
+            // Gridlock opened it: let the jam land first.
+            this.ridePending = true;
+            this.after(GRIDLOCK_MS, () => {
+              this.ridePending = false;
+              sfx.open();
+              this.startRide();
+            });
+          } else {
+            sfx.open();
+            this.startRide();
+          }
           break;
         case 'gridlock':
-          this.word('GRIDLOCK!', this.stationCenter().setY(1.2), PAL.gold, 1.4);
-          this.kick(3, 300);
-          sfx.bell();
+          this.gridlockAt = this.now;
+          this.after(this.gulps.length ? SLIDE_MS + GULP_MS : SLIDE_MS + 40, () => this.gridlockShow());
           break;
         case 'tool': {
           const at = e.at ? this.cell(e.at) : this.stationCenter();
@@ -1173,6 +1240,8 @@ export class Renderer {
     this.foamFlumes(gdt);
     this.drawCrates();
     this.drawTargets();
+    this.drawMouths();
+    this.drawPreview();
     this.drawQueue(dt);
     this.updateThoughts();
     this.updateWalkers(gdt);
@@ -1185,7 +1254,7 @@ export class Renderer {
         this.ride = null;
         this.onRideDone();
       }
-    } else if (this.game.phase !== 'ride') this.drawParkedTrain();
+    } else if (this.game.phase !== 'ride' || this.ridePending) this.drawParkedTrain();
     this.show.tick(dt, now);
     const due = this.later.filter((l) => l.at <= now);
     this.later = this.later.filter((l) => l.at > now);
@@ -1200,6 +1269,9 @@ export class Renderer {
     this.cars.end();
     this.hangers.end();
     this.markers.end();
+    this.chevrons.end();
+    this.outlines.end();
+    this.beads.end();
     this.bubbles.end();
     this.mists.end();
     this.updateCamera(dt);
@@ -1523,7 +1595,11 @@ export class Renderer {
       }
       // A crossing pass shares its cell with the track it crosses: key it apart.
       const k = `${c.x},${c.y}${c.cross ? ',x' : ''}${c.special ? `,${c.special}` : ''}${c.flavor && !c.station ? `,${c.flavor}` : ''}`;
-      if (fresh && !had.has(k)) this.riseAt.set(k, this.now);
+      if (fresh && !had.has(k)) {
+        // An eaten tile's track waits for the tile to slide in and get gulped.
+        const hold = c.cross ? undefined : this.eatHold.get(`${c.x},${c.y}`);
+        this.riseAt.set(k, hold ?? this.now);
+      }
       if (c.flavor === 'water' && !c.station) this.flumes.push(i);
       this.cellGroups.set(k, g);
       this.trackGroup.add(g);
@@ -1548,6 +1624,8 @@ export class Renderer {
     for (const [k, t0] of this.riseAt) {
       const g = this.cellGroups.get(k);
       const t = Math.min(1, (this.now - t0) / 420);
+      if (g) g.visible = t >= 0;
+      if (t < 0) continue;
       if (!g || t >= 1) {
         if (g) {
           g.scale.set(1, 1, 1);
@@ -1567,8 +1645,10 @@ export class Renderer {
 
   // ---- Crates ---------------------------------------------------------------------
 
-  private crate(tier: number, x: number, z: number, cellI: number, flash = 0, lift = 0, squash = 0, flavor: Flavor | null = null): void {
+  private crate(tier: number, x: number, z: number, cellI: number, flash = 0, lift = 0, squash = 0, flavor: Flavor | null = null): Mesh {
     const m = this.crates.get();
+    // Gridlock: everything on the board shudders.
+    if (this.now < this.wobbleUntil) squash += Math.sin(this.now / 35 + cellI * 1.7) * 0.1 * Math.min(1, (this.wobbleUntil - this.now) / 400);
     const fog = this.fogged.has(cellI);
     m.geometry = fog ? mysteryGeo() : crateGeo(tier);
     const pop = 1 + flash * 0.22;
@@ -1578,6 +1658,7 @@ export class Renderer {
     mat.emissive.setScalar(flash * 0.9);
     // The fog keeps a park piece's secret.
     if (flavor && !fog) this.flavorBadge(flavor, m.position, m.scale, cellI);
+    return m;
   }
 
   /** A flavored crate's badge: the lollipop whirls, the droplet bobs, the bat swings. */
@@ -1602,15 +1683,22 @@ export class Renderer {
   }
 
   private drawCrates(): void {
+    this.drawGulps();
     const b = this.board;
     const a = this.tileAnim;
     if (!a) {
+      // Tiles the dragged swipe would feed glow in their mouth's color and lean toward it.
+      const fed = new Map<number, End>();
+      for (const e of this.preview?.eats ?? []) fed.set(idx(b, e.from.x, e.from.y), e.end);
+      const glow = 0.3 + 0.2 * Math.sin(this.now / 110);
       for (let y = 0; y < b.size; y++)
         for (let x = 0; x < b.size; x++) {
           const i = idx(b, x, y);
           const t = b.tiles[i];
           if (!t) continue;
-          this.crate(t, x, y, i, this.flashAt(i), 0, 0, b.flav?.[i] ?? null);
+          const end = fed.get(i);
+          const m = this.crate(t, x, y, i, this.flashAt(i), end !== undefined ? 0.04 + Math.abs(Math.sin(this.now / 120)) * 0.04 : 0, 0, b.flav?.[i] ?? null);
+          if (end !== undefined) (m.material as ReturnType<typeof toon>).emissive.set(END_COLORS[end]).multiplyScalar(glow);
           if (t === 7 && Math.random() < 0.04 && !this.fogged.has(i)) this.sparks.add({ p: v3(x + 0.2 + Math.random() * 0.6, CRATE_H + 0.1 + Math.random() * 0.25, y + 0.2 + Math.random() * 0.6), v: v3(0, 0.25, 0), g: 0, max: 0.5, color: '#fff6c8', size: 0.03, drag: 0 });
         }
       return;
@@ -1850,75 +1938,398 @@ export class Renderer {
       return true;
     });
     const b = this.board;
-    const showGo = this.game.phase === 'build' && canConnect(b) && this.path.pts.length > 1;
+    const meet = this.game.phase === 'build' && canConnect(b) && this.mouths.every((m) => m.ready) && !this.mouthsBusy;
+    if (!meet) this.goSince = -1;
+    else if (this.goSince < 0) this.goSince = this.now;
+    // It pops up once the gulps' shouts have had their moment.
+    const showGo = meet && this.now - this.goSince > 350;
     this.goEl.hidden = !showGo;
     if (showGo) {
-      const a = this.path.pts[0].p;
-      const c = this.path.pts[this.path.pts.length - 1].p;
-      const p = this.local(a.clone().add(c).multiplyScalar(0.5).setY(Math.max(a.y, c.y) + 0.75));
+      const a = this.mouths[0].group.position;
+      const c = this.mouths[1].group.position;
+      const p = this.local(a.clone().add(c).multiplyScalar(0.5).setY(Math.max(a.y, c.y) + 0.95 + (a.distanceTo(c) + 0.64) * 0.1));
       const bob = Math.sin(this.now / 180) * 3;
-      this.goEl.style.transform = `translate(${off.x + p.x}px, ${off.y + p.y + bob}px) translate(-50%, -50%)`;
+      this.goEl.style.transform = `translate(${off.x + p.x}px, ${off.y + p.y + bob}px) translate(-50%, -100%) rotate(${Math.sin(this.now / 260) * 3}deg)`;
     }
   }
 
-  // ---- Build targets and track ends ---------------------------------------------
+  // ---- Tool targets ------------------------------------------------------------
 
+  /** Tools that aim (paint, crane, dynamite, the track crew, special pieces) light up the cells they can use. */
   private drawTargets(): void {
-    const build = this.game.phase === 'build';
-    for (const p of this.pennants) p.visible = false;
-    if (!build) return;
+    const aim = this.game.aiming;
+    if (this.game.phase !== 'build' || !aim) return;
     const b = this.board;
     const blink = Math.floor(this.now / 300) % 2 === 0;
     const pulse = 0.55 + Math.sin(this.now / 160) * 0.25;
-    const sel = this.game.selected;
-    const mark = (x: number, y: number, color: string, strong: boolean) => {
+    const mark = (x: number, y: number, color: string) => {
       const m = this.markers.get();
       const i = idx(b, x, y);
       const top = b.tiles[i] ? CRATE_H + 0.012 : 0.012;
       const hov = !!this.hover && this.hover.x === x && this.hover.y === y;
       m.position.set(x + 0.5, GRASS_Y + this.terrain.cell(x, y) + top, y + 0.5);
-      const s = (strong ? 1 : 0.94) * (hov ? 1.06 : 1) * (b.tiles[i] ? 0.98 : 1);
+      const s = (hov ? 1.06 : 1) * (b.tiles[i] ? 0.98 : 1);
       m.scale.set(s, 1, s);
       const mat = m.material as MeshBasicMaterial;
       mat.color.set(color);
-      mat.opacity = hov ? 1 : strong ? pulse + 0.2 : 0.55;
+      mat.opacity = hov ? 1 : pulse + 0.2;
     };
-    const aim = this.game.aiming;
-    if (aim) {
-      for (let y = 0; y < b.size; y++)
-        for (let x = 0; x < b.size; x++) {
-          const i = idx(b, x, y);
-          const tile = b.tiles[i];
-          const wall = isWall(b, x, y);
-          const special = aim.tool === 'launch' || aim.tool === 'splash' || aim.tool === 'brakes';
-          const ok = special
-            ? b.ends.some((e) => e.some((c) => c.x === x && c.y === y && !c.cross && !c.special))
-            : aim.tool === 'dynamite'
-              ? !!b.obstacles[i]
-              : aim.tool === 'paint'
-                ? !!tile && tile < 7 && !wall
-                : aim.first
-                  ? !wall
-                  : !!tile && !wall;
-          if (ok) mark(x, y, blink ? PAL.heart : PAL.white, true);
-        }
-      if (aim.first) mark(aim.first.x, aim.first.y, PAL.gold, true);
+    if (aim.tool === 'crew') {
+      // The crew lays one piece by hand, right next to an end: in that end's color.
+      for (const t of buildTargets(b)) if (!trackAt(b, t.x, t.y)) mark(t.x, t.y, blink ? END_COLORS[t.end] : PAL.white);
       return;
     }
-    const targets = buildTargets(b);
-    for (const t of targets.filter((t) => t.end !== sel)) mark(t.x, t.y, END_COLORS[t.end], false);
-    for (const t of targets.filter((t) => t.end === sel)) mark(t.x, t.y, blink ? PAL.gold : PAL.white, true);
-    // Pennants on each open end; the selected one waves harder.
+    for (let y = 0; y < b.size; y++)
+      for (let x = 0; x < b.size; x++) {
+        const i = idx(b, x, y);
+        const tile = b.tiles[i];
+        const wall = isWall(b, x, y);
+        const special = aim.tool === 'launch' || aim.tool === 'splash' || aim.tool === 'brakes';
+        const ok = special
+          ? b.ends.some((e) => e.some((c) => c.x === x && c.y === y && !c.cross && !c.special))
+          : aim.tool === 'dynamite'
+            ? !!b.obstacles[i]
+            : aim.tool === 'paint'
+              ? !!tile && tile < 7 && !wall
+              : aim.first
+                ? !wall
+                : !!tile && !wall;
+        if (ok) mark(x, y, blink ? PAL.heart : PAL.white);
+      }
+    if (aim.first) mark(aim.first.x, aim.first.y, PAL.gold);
+  }
+
+  // ---- The mouths: the two open ends eat tiles ------------------------------------
+
+  /** Where an end's mouth sits: on the platform's edge, or on its head cell's deck. */
+  private mouthPos(end: End): Vector3 {
+    const b = this.board;
     const pts = this.path.pts;
-    if (this.path.closed || pts.length < 2) return;
-    for (const end of [0, 1] as End[]) {
+    if (!b.ends[end].length || pts.length < 2) {
       const q = end === 0 ? pts[pts.length - 1] : pts[0];
-      const p = this.pennants[end];
-      p.visible = true;
-      p.position.copy(q.p);
-      p.scale.setScalar(end === sel ? 1.25 : 1);
-      const flag = p.children[1];
-      flag.rotation.y = Math.sin(this.now / (end === sel ? 110 : 260) + end) * (end === sel ? 0.5 : 0.25) + (end === 0 ? Math.PI : 0);
+      return q ? q.p.clone().setY(q.p.y + 0.02) : this.stationCenter();
+    }
+    const h = head(b, end);
+    const ci = end === 0 ? this.path.cells.length - 1 : 0;
+    return v3(h.x + 0.5, this.path.deck(ci) + 0.02, h.y + 0.5);
+  }
+
+  /** The directions an end can eat from: open neighbors a tile can stop in. */
+  private mouthDirs(end: End): Dir[] {
+    const b = this.board;
+    const e = b.ends[end];
+    if (e[e.length - 1]?.cross) return [];
+    const h = head(b, end);
+    return DIRS.filter((d) => {
+      const t = step(h, d);
+      return inBounds(b, t.x, t.y) && !isWall(b, t.x, t.y);
+    });
+  }
+
+  /** The drag being made: show what this swipe would feed into the track (null clears it). */
+  setPreview(dir: Dir | null): void {
+    if (!dir || this.game.phase !== 'build' || this.game.aiming) {
+      this.preview = null;
+      return;
+    }
+    if (this.preview?.dir === dir) return;
+    const eats = this.game.previewEat(dir);
+    if (eats.length) sfx.peek();
+    this.preview = { dir, eats, at: this.now };
+  }
+
+  private drawMouths(): void {
+    const b = this.board;
+    const show = this.game.phase === 'build' && !b.opened;
+    const connect = show && canConnect(b);
+    const pos: Vector3[] = [];
+    const t = this.now / 1000;
+    this.mouthsBusy = this.gulps.length > 0;
+    for (const end of [0, 1] as End[]) {
+      const m = this.mouths[end];
+      m.group.visible = show;
+      if (!show) {
+        m.ready = false;
+        continue;
+      }
+      // Hop to the new head once the tile it ate has been gulped.
+      const want = this.mouthPos(end);
+      if (!m.ready) {
+        m.from.copy(want);
+        m.to.copy(want);
+        m.hopAt = -1e9;
+        m.ready = true;
+      } else if (m.to.distanceToSquared(want) > 1e-4) {
+        m.from.copy(m.group.position);
+        m.to.copy(want);
+        m.hopAt = Math.max(this.now, m.hold);
+      }
+      const k = Math.min(1, Math.max(0, (this.now - m.hopAt) / 300));
+      const e = k * k * (3 - 2 * k);
+      const p = m.from.clone().lerp(m.to, e);
+      p.y += Math.sin(k * Math.PI) * Math.min(0.4, m.from.distanceTo(m.to) * 0.5);
+      // On a board cell it waddles round the cell's edge to face where it's looking (clear of tall pieces).
+      const lean = b.ends[end].length ? 0.3 : 0;
+      p.x += Math.sin(m.yaw) * lean;
+      p.z += Math.cos(m.yaw) * lean;
+      m.group.position.copy(p);
+      pos.push(p);
+      if (k < 1) this.mouthsBusy = true;
+      // Where to look and how wide to open.
+      const dirs = this.mouthDirs(end);
+      const fed = this.preview?.eats.find((x) => x.end === end);
+      let face: Pt | null = null;
+      let open: number;
+      let tremble = 0;
+      if (fed) {
+        // About to eat: turns to the tile and opens wide, quivering.
+        const h = head(b, end);
+        face = { x: fed.cell.x - h.x, y: fed.cell.y - h.y };
+        open = 1;
+        tremble = 1;
+      } else if (connect) {
+        const o = this.mouthPos(end === 0 ? 1 : 0);
+        face = { x: o.x - want.x, y: o.z - want.z };
+        open = 0.15 + Math.abs(Math.sin(t * 3 + end)) * 0.25;
+      } else if (dirs.length) {
+        // Hungry: looks around its open sides and chomps at the air.
+        const d = dirs[Math.floor(t / 1.7 + end * 0.85) % dirs.length];
+        face = DELTA[d];
+        const bite = (t * 1.25 + end * 0.4) % 1;
+        open = bite < 0.32 ? Math.sin((bite / 0.32) * Math.PI) * 0.75 : 0.12;
+      } else {
+        // Boxed in: nothing to eat.
+        face = { x: 0, y: 1 };
+        open = 0.02;
+      }
+      if (this.preview && !fed) open *= 0.3;
+      // Chomp: snaps shut on the tile, then a satisfied bounce.
+      const ca = this.now - m.chompAt;
+      let squash = 0;
+      if (ca > -120 && ca < 0) open = 1.15;
+      else if (ca >= 0 && ca < 420) {
+        open = ca < 90 ? 0 : Math.min(open, 0.3);
+        squash = Math.sin(Math.min(1, ca / 420) * Math.PI * 2) * 0.22 * (1 - ca / 420);
+      }
+      m.open += (open - m.open) * (ca >= 0 && ca < 90 ? 1 : 0.3);
+      const gape = m.open * 0.72 + (tremble ? Math.sin(this.now / 28) * 0.06 : 0);
+      m.jaws[0].rotation.y = gape;
+      m.jaws[1].rotation.y = -gape;
+      const yaw = face ? Math.atan2(face.x, face.y) : 0;
+      let dy = yaw - m.yaw;
+      dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+      m.yaw += dy * 0.18;
+      m.body.rotation.y = m.yaw;
+      const bob = Math.sin(t * 4 + end * 2) * 0.012;
+      m.body.position.set(tremble ? Math.sin(this.now / 21) * 0.008 : 0, bob, 0);
+      const sc = (fed ? 1.2 : 1.05) * (1 + (connect ? Math.sin(t * 6) * 0.04 : 0));
+      m.body.scale.set(sc * (1 + squash), sc * (1 - squash * 1.4), sc * (1 + squash));
+      // The glow pad sits on the ground under it.
+      m.halo.position.y = this.groundAt(p.x, p.z) - p.y + 0.012;
+      const hp = 0.5 + Math.sin(t * 5 + end * 1.3) * 0.5;
+      m.haloMat.opacity = fed ? 0.75 : 0.32 + hp * 0.2;
+      m.halo.scale.setScalar((fed ? 1.25 : 1) * (0.9 + hp * 0.14));
+      // "Feed me" chevrons slide into the mouth from each side it can eat from.
+      if (!this.preview && !connect && !this.game.aiming)
+        for (const d of dirs) {
+          const dl = DELTA[d];
+          for (let c = 0; c < 2; c++) {
+            const ph = (t * 0.9 + c * 0.5 + end * 0.3) % 1;
+            const along = 0.78 - ph * 0.5;
+            const ch = this.chevrons.get();
+            const cx = want.x + dl.x * along;
+            const cz = want.z + dl.y * along;
+            const lid = this.chevronY(cx, cz);
+            ch.position.set(cx, lid, cz);
+            ch.rotation.set(0, Math.atan2(-dl.x, -dl.y), 0);
+            ch.scale.setScalar(1.3 + (1 - ph) * 0.4);
+            const mat = ch.material as MeshBasicMaterial;
+            mat.color.set(END_COLORS[end]);
+            mat.opacity = Math.sin(ph * Math.PI) * 0.95;
+          }
+        }
+    }
+    // The ends meet: a sparkly link between the two mouths, and the OPEN ME tag.
+    if (connect && pos.length === 2) {
+      // A rainbow of beads arching over both of them.
+      const span = pos[1].clone().sub(pos[0]).setY(0).normalize().multiplyScalar(0.32);
+      const a = pos[0].clone().sub(span);
+      const c = pos[1].clone().add(span);
+      const lift = 0.62 + a.distanceTo(c) * 0.1;
+      const N = 13;
+      for (let i = 0; i <= N; i++) {
+        const u = i / N;
+        const bead = this.beads.get();
+        const q = a.clone().lerp(c, u);
+        q.y += Math.sin(u * Math.PI) * lift + 0.12;
+        bead.position.copy(q);
+        bead.quaternion.copy(this.camera.quaternion);
+        const tw = 0.5 + 0.5 * Math.sin(this.now / 90 - i * 0.9);
+        bead.scale.setScalar(0.9 + tw * 0.9);
+        const mat = bead.material as MeshBasicMaterial;
+        mat.color.set(u < 0.34 ? END_COLORS[0] : u > 0.66 ? END_COLORS[1] : PAL.gold).lerp(new Color('#ffffff'), tw * 0.5);
+        mat.opacity = 0.65 + tw * 0.35;
+      }
+      if (Math.random() < 0.35) {
+        const u = Math.random();
+        const q = a.clone().lerp(c, u);
+        q.y += Math.sin(u * Math.PI) * lift + 0.12;
+        this.sparks.add({ p: q, v: v3((Math.random() - 0.5) * 0.5, 0.4 + Math.random() * 0.4, (Math.random() - 0.5) * 0.5), g: 0.6, max: 0.6, color: Math.random() < 0.5 ? PAL.gold : '#fff6c8', size: 0.028, drag: 0.5 });
+      }
+    }
+  }
+
+  /** Height for a floating arrow: just over whatever stands there (a crate lid, the track, or the ground). */
+  private chevronY(x: number, z: number): number {
+    const b = this.board;
+    const cx = Math.floor(x);
+    const cz = Math.floor(z);
+    const g = this.groundAt(x, z);
+    if (!inBounds(b, cx, cz)) return g + 0.03;
+    return g + (b.tiles[idx(b, cx, cz)] ? CRATE_H + 0.05 : trackAt(b, cx, cz) ? 0.32 : 0.03);
+  }
+
+  /** While dragging: the tiles this swipe would feed glow in their mouth's color, with arrows into it. */
+  private drawPreview(): void {
+    const pv = this.preview;
+    const b = this.board;
+    const eats = pv && this.game.phase === 'build' && !this.tileAnim ? pv.eats : [];
+    this.previewTags.forEach((tag, i) => {
+      const e = eats[i];
+      tag.hidden = !e;
+      if (!e) return;
+      const tier = b.tiles[idx(b, e.from.x, e.from.y)] || e.cell.tier;
+      const txt = `+${PIECES[tier].name.toUpperCase()}`;
+      if (tag.textContent !== txt) tag.textContent = txt;
+      tag.style.setProperty('--c', END_COLORS[e.end]);
+      const p = this.local(this.cell(e.from).setY(CRATE_H + 0.55));
+      const bob = Math.sin(this.now / 140 + i) * 2;
+      tag.style.transform = `translate(${this.canvas.offsetLeft + p.x}px, ${this.canvas.offsetTop + p.y + bob}px) translate(-50%, -100%)`;
+    });
+    if (!eats.length) return;
+    const t = this.now / 1000;
+    const pulse = 0.5 + 0.5 * Math.sin(this.now / 110);
+    for (const e of eats) {
+      const color = END_COLORS[e.end];
+      // A glowing outline around the tile...
+      const o = this.outlines.get();
+      const top = GRASS_Y + this.terrain.cell(e.from.x, e.from.y) + CRATE_H + 0.02;
+      o.position.set(e.from.x + 0.5, top, e.from.y + 0.5);
+      o.scale.setScalar(1.02 + pulse * 0.08);
+      const om = o.material as MeshBasicMaterial;
+      om.color.set(color).lerp(new Color('#ffffff'), pulse * 0.3);
+      om.opacity = 0.85;
+      // ...a ghost where it stops (if it travels)...
+      if (e.from.x !== e.cell.x || e.from.y !== e.cell.y) {
+        const g = this.outlines.get();
+        g.position.set(e.cell.x + 0.5, GRASS_Y + this.terrain.cell(e.cell.x, e.cell.y) + 0.02, e.cell.y + 0.5);
+        g.scale.setScalar(0.9);
+        const gm = g.material as MeshBasicMaterial;
+        gm.color.set(color);
+        gm.opacity = 0.35 + pulse * 0.25;
+      }
+      // ...and arrows marching from it into the mouth.
+      const mouth = this.mouths[e.end].group.position;
+      const from = v3(e.from.x + 0.5, 0, e.from.y + 0.5);
+      const to = v3(mouth.x, 0, mouth.z);
+      const len = from.distanceTo(to);
+      const dir = to.clone().sub(from).normalize();
+      const yaw = Math.atan2(dir.x, dir.z);
+      const n = Math.max(2, Math.round(len / 0.28));
+      for (let k = 0; k < n; k++) {
+        const u = ((k + (t * 2.2) % 1) / n) * Math.min(1, (len - 0.15) / len);
+        const q = from.clone().lerp(to, u);
+        const ch = this.chevrons.get();
+        ch.position.set(q.x, Math.max(this.chevronY(q.x, q.z), top + 0.03), q.z);
+        ch.rotation.set(0, yaw, 0);
+        ch.scale.setScalar(0.9);
+        const mat = ch.material as MeshBasicMaterial;
+        mat.color.set(color).lerp(new Color('#ffffff'), 0.25);
+        mat.opacity = Math.min(1, Math.sin(u * Math.PI) * 1.6);
+      }
+    }
+  }
+
+  /** A swipe fed tiles to the track: they slide in, get gulped, and the track rises in their place. */
+  private startGulps(m: MoveResult): void {
+    const eaten = m.eaten ?? [];
+    if (!eaten.length) return;
+    for (const e of eaten) {
+      this.eatenCells.add(e.cell);
+      this.gulps.push({ tier: e.cell.tier, flavor: e.cell.flavor ?? null, at: { x: e.cell.x, y: e.cell.y }, end: e.end, start: this.now });
+      this.eatHold.set(`${e.cell.x},${e.cell.y}`, this.now + SLIDE_MS + GULP_MS * 0.4);
+      const mouth = this.mouths[e.end];
+      mouth.chompAt = this.now + SLIDE_MS;
+      mouth.hold = this.now + SLIDE_MS + GULP_MS * 0.8;
+    }
+    this.after(SLIDE_MS, () => {
+      eaten.forEach((e, i) => this.after(i * 70, () => this.gulpFx(e.cell.tier, e.cell, e.end)));
+      if (eaten.length > 1) {
+        this.after(240, () => {
+          const a = this.cell(eaten[0].cell);
+          const c = this.cell(eaten[1].cell);
+          const el = this.word('DOUBLE!', a.add(c).multiplyScalar(0.5).setY(1.75), PAL.gold, 1.7);
+          el.style.webkitTextStroke = '3px var(--ink)';
+          el.style.textShadow = '0 4px 0 var(--ink)';
+          this.kick(1.6, 160);
+          sfx.hype();
+          sfx.chain(2);
+        });
+      }
+    });
+  }
+
+  private gulpFx(tier: number, at: Pt, end: End): void {
+    const c = this.cell(at);
+    const ramp = TIER_RAMPS[Math.max(1, tier)];
+    this.burst(c.clone().setY(0.3), 10 + tier * 5, [...ramp.slice(0, 3), END_COLORS[end]]);
+    this.dust(c.clone().setY(0.08), 8 + tier * 2, PAL.plaza[2]);
+    const el = this.word(`+${PIECES[tier].name.toUpperCase()}!`, c.clone().setY(0.95 + tier * 0.04), ramp[0], 0.85 + tier * 0.14);
+    if (tier >= 4) {
+      el.style.webkitTextStroke = '2.5px var(--ink)';
+      el.style.textShadow = '0 4px 0 var(--ink)';
+    }
+    this.kick(0.4 + tier * 0.3, 90 + tier * 20);
+    sfx.chomp(tier);
+  }
+
+  /** Eaten crates squash flat into the track as it rises under them. */
+  private drawGulps(): void {
+    const b = this.board;
+    this.gulps = this.gulps.filter((g) => {
+      const el = this.now - g.start;
+      if (el < SLIDE_MS) return true;
+      const k = (el - SLIDE_MS) / GULP_MS;
+      if (k >= 1) return false;
+      // A quick bite (squash), then it's swallowed into the ground.
+      const bite = Math.min(1, k / 0.3);
+      const squash = Math.sin(bite * Math.PI * 0.5) * 0.45;
+      const m = this.crate(g.tier, g.at.x, g.at.y, idx(b, g.at.x, g.at.y), 0, -k * k * CRATE_H * 0.8, squash, g.flavor);
+      const shrink = 1 - Math.max(0, k - 0.3) / 0.7;
+      m.scale.multiplyScalar(Math.max(0.02, shrink));
+      (m.material as ReturnType<typeof toon>).emissive.set(END_COLORS[g.end]).multiplyScalar(0.55 * (1 - k));
+      return true;
+    });
+  }
+
+  /** Gridlock: a honk, the whole board shudders, then the ride opens by itself. */
+  private gridlockShow(): void {
+    const n = this.n;
+    const top = v3(n / 2, 1.6, n / 2 - 0.2);
+    const el = this.word('GRIDLOCK!', top, PAL.gold, 2.3);
+    el.style.webkitTextStroke = '3px var(--ink)';
+    el.style.textShadow = '0 5px 0 var(--ink)';
+    this.after(420, () => {
+      const sub = this.word(this.board.opened === 'circuit' ? 'The ride opens!' : 'Opening as a shuttle', top.clone().setY(1.15), PAL.white, 0.9);
+      sub.style.fontFamily = 'var(--font-body)';
+    });
+    sfx.horn();
+    this.kick(4, 520);
+    this.wobbleUntil = this.now + 1000;
+    this.flash = Math.max(this.flash, 0.22);
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2;
+      this.dust(v3(n / 2 + Math.cos(a) * n * 0.45, 0.1, n / 2 + Math.sin(a) * n * 0.45), 5, PAL.plaza[2]);
     }
   }
 
@@ -2063,7 +2474,7 @@ export class Renderer {
   hoverId: number | null = null;
 
   private drawQueue(dt: number): void {
-    if (this.game.phase !== 'build' && this.game.phase !== 'intro') return;
+    if (this.game.phase !== 'build' && this.game.phase !== 'intro' && !this.ridePending) return;
     const queue = this.game.queue;
     queue.forEach((r, i) => {
       const target = this.slot(i);
@@ -2602,20 +3013,6 @@ function signTexture(): CanvasTexture {
     })
     .catch(() => {});
   return t;
-}
-
-function pennant(color: string): Group {
-  const g = new Group();
-  const pole = new Geo();
-  pole.post(0, 0, 0, 0.012, 0.52, '#2b2140', 6);
-  pole.sphere(v3(0, 0.53, 0), 0.02, PAL.gold, 1, 1, 1, 6, 4, true);
-  g.add(new Mesh(pole.build(), MATS.matte));
-  const flag = new Geo();
-  flag.tri(v3(0, 0.5, 0), v3(0, 0.36, 0), v3(0.2, 0.43, 0), color, v3(0, 0.43, -1));
-  flag.tri(v3(0, 0.5, 0), v3(0, 0.36, 0), v3(0.2, 0.43, 0), color, v3(0, 0.43, 1));
-  g.add(new Mesh(flag.build(), MATS.cloth));
-  g.traverse((o) => (o.castShadow = true));
-  return g;
 }
 
 let mistTex: CanvasTexture | null = null;

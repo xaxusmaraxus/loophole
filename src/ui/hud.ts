@@ -15,6 +15,9 @@ import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, type Reward, SEASON_ORDER, t
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
+/** Free cells at or below which the park starts to feel the squeeze. */
+const LOW_ROOM = 6;
+
 const ARROW = { up: '↑', right: '→', down: '↓', left: '←' } as const;
 
 /** A boss's portrait as an image URL (rendered once per boss). */
@@ -96,8 +99,12 @@ export class Hud {
     const cells = g.board.size * g.board.size;
     const frac = Math.min(1, Math.max(0, g.room / cells));
     $('daylightBar').style.width = `${frac * 100}%`;
+    const tight = g.phase === 'build' && g.room <= LOW_ROOM;
     $('daylightBar').classList.toggle('dusk', g.room <= 4);
-    $('daylightLeft').textContent = g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'} left` : 'Board full: one more move, or gridlock';
+    document.querySelector('.daylight')?.classList.toggle('low', tight);
+    $('daylightLeft').textContent = g.phase !== 'build' ? `${g.room} free cells` : g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'} left` : 'Board full: one more move, or gridlock';
+    // Tension: a vignette closes in as the board fills.
+    $('tension').style.opacity = tight ? String(Math.min(1, (LOW_ROOM + 1 - g.room) / (LOW_ROOM + 1)) * 0.9 + 0.1) : '0';
 
     // Excitement × multiplier.
     const kind = g.openKind;
@@ -135,10 +142,14 @@ export class Hud {
     else if (aim && aim.tool in SPECIALS) hint.textContent = `Tap a piece of your track to fit the ${SPECIALS[aim.tool as SpecialId].name} there. Tap it again to cancel.`;
     else if (aim?.tool === 'crane') hint.textContent = aim.first ? 'Now tap where the tile should go.' : 'Tap the tile the crane should lift.';
     else if (aim?.tool === 'crew') hint.textContent = 'Tap a cell right next to an end of the track: the crew lays it by hand.';
-    else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit now, or keep feeding it for a wilder ride.';
-    else if (trackLength(g.board) === 0) hint.innerHTML = 'Swipe tiles <strong>into the red and blue ends</strong> on the platform: the track eats them. Merge first, the bigger the piece the wilder the ride.';
-    else hint.textContent = 'Feed both ends and bring them back together to close the loop. Get boxed in and it opens by itself.';
+    else if (canConnect(g.board))
+      hint.innerHTML = `<strong>The ends meet!</strong> Open the full circuit now, or keep feeding it for a wilder ride.${g.room <= LOW_ROOM ? ` Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!` : ''}`;
+    else if (g.room <= LOW_ROOM)
+      hint.innerHTML = `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge to make room, or open the ride before it jams.`;
+    else if (trackLength(g.board) === 0) hint.innerHTML = 'Swipe tiles <strong>into the red and blue mouths</strong>: the track eats them. Merge first, the bigger the piece the wilder the ride. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
+    else hint.innerHTML = 'Feed both mouths and steer them back together to close the loop. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
     hint.classList.toggle('ready', building && canConnect(g.board));
+    hint.classList.toggle('tight', building && !aim && g.room <= LOW_ROOM);
     const open = $<HTMLButtonElement>('open');
     open.disabled = !kind;
     open.classList.toggle('circuit', kind === 'circuit');

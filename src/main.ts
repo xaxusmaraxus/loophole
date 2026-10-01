@@ -46,6 +46,7 @@ Object.assign(window, { loopholePlot: plotPanel });
 Object.assign(window, { loophole: game, loopholeRenderer: renderer, loopholeHud: hud });
 
 renderer.onRideDone = () => act(() => game.rideDone());
+renderer.onOpenMe = () => act(() => game.open());
 // Boss days: pips crack as the boss pukes, and the title card waits for "Bring it on!".
 renderer.show.onBossPuke = () => {
   hud.bossCrack();
@@ -114,32 +115,49 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// On the park: a drag is a swipe, a tap builds on the tapped cell.
+// On the park: a drag is a swipe. While dragging, the park shows what the swipe
+// would feed into the track. A tap only aims tools (or, on touch, meets a guest).
 const wrap = document.getElementById('canvasWrap')!;
 let start: { x: number; y: number } | null = null;
+/** How far a drag goes before it counts as a swipe (and shows its preview). */
+const SWIPE_PX = 16;
+const dragDir = (dx: number, dy: number): Dir | null =>
+  Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX ? null : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
 wrap.addEventListener('pointerdown', (e) => {
-  if ((e.target as HTMLElement).closest('.overlay, .boss-card, .plot-panel')) return;
+  if ((e.target as HTMLElement).closest('.overlay, .boss-card, .plot-panel, .go3d')) return;
   if (game.phase === 'ride') {
     renderer.skipRide();
     return;
   }
   start = { x: e.clientX, y: e.clientY };
+  // Keep the drag ours even if it wanders off the park.
+  try {
+    wrap.setPointerCapture(e.pointerId);
+  } catch {
+    // Not capturable (synthetic events): fine.
+  }
+});
+wrap.addEventListener('pointermove', (e) => {
+  if (!start) return;
+  renderer.setPreview(dragDir(e.clientX - start.x, e.clientY - start.y));
 });
 wrap.addEventListener('pointerup', (e) => {
+  renderer.setPreview(null);
   if (!start) return;
-  const dx = e.clientX - start.x;
-  const dy = e.clientY - start.y;
+  const dir = dragDir(e.clientX - start.x, e.clientY - start.y);
   start = null;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) {
-    const cell = renderer.cellAt(e.clientX, e.clientY);
+  if (!dir) {
+    const cell = game.aiming ? renderer.cellAt(e.clientX, e.clientY) : null;
     if (cell) act(() => game.tap(cell.x, cell.y));
     else if (e.pointerType !== 'mouse') showGuest(e.clientX, e.clientY, true);
     return;
   }
-  const dir: Dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : dy > 0 ? 'down' : 'up';
   act(() => game.swipe(dir));
 });
-wrap.addEventListener('pointercancel', () => (start = null));
+wrap.addEventListener('pointercancel', () => {
+  start = null;
+  renderer.setPreview(null);
+});
 
 // Guests: hover one in the park (or tap on a touch screen) to meet them.
 const guestCard = document.getElementById('guestCard')!;

@@ -93,6 +93,25 @@ const note = (n: number) => 392 * 2 ** (LADDER[Math.min(n, LADDER.length - 1)] /
 
 export const sfx = {
   lay: () => tone(140, 0.09, 'square', 0.035, 0, 80),
+  /** The track eats a tile: a crunchy double bite and a gulp. Bigger pieces are deeper and juicier. */
+  chomp(tier: number) {
+    const k = 1 / (1 + Math.max(0, tier - 1) * 0.16);
+    noise(0.07, 0.16, 0, 600 + 2600 * k, 300, 2);
+    noise(0.06, 0.13, 0.085, 500 + 2200 * k, 250, 2);
+    tone(150 * k, 0.1, 'square', 0.03, 0, 90 * k);
+    tone(340 * k, 0.16 + tier * 0.03, 'sine', 0.18, 0.06, 110 * k);
+    if (tier >= 4) noise(0.25 + tier * 0.03, 0.08, 0.1, 900, 120, 6);
+  },
+  /** A drag lines a tile up for a mouth: a hungry little blip. */
+  peek: () => tone(note(3), 0.06, 'triangle', 0.035, 0, note(5)),
+  /** Gridlock: a traffic-jam honk. */
+  horn() {
+    [0, 0.24].forEach((w, i) => {
+      tone(196 - i * 22, 0.42, 'sawtooth', 0.05, w);
+      tone(247 - i * 28, 0.42, 'sawtooth', 0.045, w);
+      tone(98 - i * 11, 0.46, 'square', 0.035, w);
+    });
+  },
   blocked: () => tone(95, 0.12, 'sawtooth', 0.03),
   /** n = how many merges so far this swipe (1-based). */
   merge: (n: number) => {

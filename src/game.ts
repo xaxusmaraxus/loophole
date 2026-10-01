@@ -11,6 +11,8 @@ import {
   build,
   buildTargets,
   canSwipe,
+  type Eaten,
+  slide,
   emptyCells,
   spawnTile,
   trackAt,
@@ -654,6 +656,16 @@ export class Game {
       for (let k = 0; k < WHISTLE_COST - 1; k++) spawnTile(this.board, this.rng, this.mods.hillChance);
     this.tick();
     this.checkGridlock();
+  }
+
+  /**
+   * What a swipe would feed into the track, without doing it: the tiles each
+   * end would eat (and where they come from). For previews while dragging.
+   */
+  previewEat(dir: Dir): Eaten[] {
+    if (this.phase !== 'build') return [];
+    const real = this.fight && this.bossRule === 'spin' ? spun(dir, this.fight.spin) : dir;
+    return slide(cloneBoard(this.board), real).eaten;
   }
 
   /** Free cells on the board: the room you have left to play with. */

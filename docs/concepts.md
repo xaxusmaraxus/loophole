@@ -288,6 +288,29 @@ The user wanted every park to feel like a different ride: the Boardwalk water-ba
   - The cars whirl on spinning pieces, and water pieces spray as the train passes.
 - **Balance** (bot, 200 seasons): park pieces end up as about 1 in 5 tiles. Boss days fail 67%, median day 9, 3 wins. Count Queasy's stomach went from 8 to 12, because hanging pieces count as upside down for him.
 
+## The track eats tiles (v0.22): one verb, no turn limit
+The user found building track a chore: once the tiles were merged, tapping a path through them was plain pathfinding with one obvious answer. They asked for one simple, elegant mechanic with endless depth, and then to drop the swipe limit so it plays like Snake.
+- **One verb.** You only swipe. A tile that slides into another tile of the same kind merges, as before. **A tile that slides into an open end of the track gets eaten: it becomes the next piece of track, right where it stopped.** Each end (red and blue, starting on the platform) eats at most one tile per swipe. There's no tap-to-build.
+- **What that does:**
+  - Every swipe both merges and feeds.
+  - You merge before you feed, because a Drop is a better meal than two Hills.
+  - You keep junk away from the mouths.
+  - You steer an end by where you feed it from.
+  - The track you've built becomes the walls your tiles slide against.
+  - The two ends compete for tiles.
+- **No daylight.** The day runs until you open the ride: the full circuit once the ends touch, or a half-price shuttle any time. Every swipe drops in a tile and the track takes up room, so the board fills. When no swipe can move anything, it's **gridlock** and the ride opens by itself.
+- **Things that used daylight, reworked:**
+  - Coffee became the **Track Crew** tool: lay one piece by hand next to an end. It's the escape hatch.
+  - Late Closing became **Street Sweepers**: every 8 swipes, the smallest tile is swept away.
+  - Twilight Ride became **Open Air**: +5 excitement per free cell when you open.
+  - Storms blow in two tiles a swipe.
+  - Lifeguard Lou's dry swipes drop in two extra tiles.
+  - Boss rematches restock the board.
+  - The Mayor's bridge demand became "a park piece".
+  - The evening light now comes as the board fills.
+- **Dropped for now:** bridges, tunnels and piers. The track only grows into cells where it eats a tile. The rules are still in `board.ts` for later.
+- **Balance** (bot with one-swipe lookahead, 200 seasons): targets are now 2,400 ×1.85 a day, the finale ×2.5, and bosses need 3 pukes to break (the Mayor 4). The bot reaches day 8 at the median, wins 19% of seasons, and fails 30% of boss days. This bot is smarter than the old one, so it isn't a floor any more. Human play decides.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

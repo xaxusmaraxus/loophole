@@ -12,6 +12,7 @@
     <div class="app">
       <div class="canvas-wrap" id="canvasWrap">
         <canvas id="park" aria-label="The park. Swipe to slide and merge tiles, and into the ends of the track to build it. Hover a guest to meet them."></canvas>
+        <div class="tension" id="tension" aria-hidden="true"></div>
         <div class="combo" id="combo" aria-hidden="true"></div>
         <div class="guest-card" id="guestCard" hidden></div>
         <div class="overlay" id="overlay" hidden></div>
@@ -105,8 +106,8 @@
           <ol>
             <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
             <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
-            <li>When the pennants meet, <strong>open the full circuit</strong>. Or cash out any time as a shuttle for half.</li>
-            <li><strong>The track eats tiles.</strong> Swipe a tile into an open end of the track (red or blue) and it becomes the next piece of the coaster. Each end eats one tile per swipe. Merge tiles before you feed them in: bigger pieces make a wilder ride.</li>
+            <li>When the two ends meet, <strong>open the full circuit</strong> (tap OPEN ME). Or cash out any time as a shuttle for half.</li>
+            <li><strong>The track eats tiles.</strong> The two open ends of the track are hungry mouths, one red and one blue. Swipe a tile into a mouth and it becomes the next piece of the coaster (drag slowly to see which tiles a swipe will feed). Each end eats one tile per swipe. Merge tiles before you feed them in: bigger pieces make a wilder ride.</li>
             <li>There's no turn limit. Every swipe drops in a new tile and the track takes up room, so the board fills. Bring the two ends together and open the ride whenever you like; if nothing can move any more, it's gridlock and the ride opens by itself (as a half-price shuttle if the ends don't meet).</li>
             <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
             <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line (hover a guest to meet them). A shuttle hits every piece twice but pays half.</li>
