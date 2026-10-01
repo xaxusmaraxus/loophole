@@ -218,6 +218,51 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Leaving in character.** After the curtain call, pukers wobble off to two porta-potties at the plaza corners and queue up; one by one they go in, the door slams, the potty rocks and burps a green puff. Riders who kept their lunch run back to the line shouting "AGAIN!". Ghosts spin, shrink and float away.
 - **Ride music.** The music switches to a dedicated, faster coaster theme the moment the train leaves, starting with a lift-hill build.
 
+## Boss fights and the park plot (v0.20)
+A playtester got to park 3 and said something was missing: a reason to keep going. Balatro and Slay the Spire hook you with a known threat you plan around, bosses that change the rules, rewards that change your run, and a build you can see getting stronger. This version adds all four.
+- **A pool of bosses per park,** drawn when you arrive and shown on the map from the start, so the whole park is preparation: Meadow has Big Barry or Granny Grit, the Boardwalk Iron-Gut Ivy or Lifeguard Lou, the Hollow Dr. Vertigo or Count Queasy, and the Grand Opening the Mayor.
+- **Every boss bends the rules** (Balatro boss blinds):
+  - *Second Helpings* (Barry): his stomach grows by 1 every 4 swipes, so open early.
+  - *Seen It All* (Granny): only the first piece of each type gets to her, so variety is everything.
+  - *Rough Seas* (Ivy): every 5 swipes a wave slides the whole board one way. The next wave's direction is forecast.
+  - *No Running!* (Lou): a swipe that merges nothing costs 2 daylight.
+  - *Spin Cycle* (Vertigo): every 6 swipes your swipe controls turn a quarter turn. A compass shows where each swipe really goes.
+  - *Lights Out* (Count): the fog closes in, so only tiles next to the track can be seen.
+  - *Inspection Day* (Mayor): three random demands, like 12+ pieces, something upside down, a bridge or tunnel, or no shuttles. If any isn't met, the Mayor won't get on.
+- **Composure and three rides.** A boss has 2–3 composure (pukes it takes to break them). You get up to three rides: after each, the track comes down, the tiles stay, the boss gets back in line, and you go again with half the daylight. Tickets bank across rides. Run out of rides and you lose a heart.
+- **Spectacle:**
+  - A title card slams in with the boss's portrait, a quip, their rule and the goal.
+  - The boss bar shows composure pips (they pulse when the current ride would crack them, and crack live when the boss pukes), the ride count and the rule's live state.
+  - "Ride 2" slams in for rematches.
+  - Boss music plays (a harder, faster minor-key variant of the park's song), with stingers for the intro, each crack and each round.
+- **Park conquered.** Breaking a boss gives a gold-rayed screen with the boss's trophy and a victory fanfare. **The park plot grows a row**, and you pick **1 of 3 legendary attractions**, which only bosses drop. Bosses go on a **trophy shelf** that carries over between seasons and shows on the park intro and the end screens. The season win gets the same treatment.
+- **The park plot** (backpack management). Everything you build for the park, attractions and upgrades alike, sits on a 5-wide grid. It starts 2 rows tall and grows to 5. Shapes:
+
+  | What | Shape |
+  | --- | --- |
+  | Commons and upgrades | 1×1 |
+  | Rares | 2×1, can be turned |
+  | Legendaries | 2×2 |
+
+  - Space is the budget. Things that don't fit wait on a 2-space loading dock, where they don't count.
+  - Attractions score in reading order: top row first, left to right.
+  - Each attraction gets **+1 multiplier for every touching spot of its theme** (Thrills, Food, Shows, Gardens). Upgrades count as neighbors, so where you put them matters too.
+  - Some attractions read their neighbors: the Ferris Wheel, the Hall of Mirrors and the Funnel Cake Stand.
+  - You rearrange, turn, dock or sell between days on the map, shop and reward screens. Dropping a spot onto one of the same shape swaps them. The plot replaces the old 5 attraction slots.
+  - The panel's header shows the boss waiting at the top of this park, so every placement is preparation for that fight.
+- **New attractions:**
+  - Common: Funnel Cake Stand (stomachs 1 smaller per touching Food spot).
+  - Legendary:
+    - Ferris Wheel of Fortune: ×1.3 per touching attraction.
+    - Hall of Mirrors: touching attractions fire twice.
+    - Gravity Well: inversions +2 nausea, but Drops do nothing.
+    - All-You-Can-Eat Buffet: stomachs 3 smaller, but the line holds 3 fewer.
+    - Puke Fountain: +1 multiplier per puke.
+    - Thunder Mountain: ×4 for rides of 12+ pieces.
+  - Each has its own clay landmark; legendaries stand on gold stages with marquee bulbs. The park now has 11 lots, with legendaries behind the board.
+- **Unlocks** now ask for breaking any boss of a park (Launch for the Meadow, Water Splash for the Boardwalk, Brake Run for the Hollow).
+- **Balance** (bot, 200 seasons): boss days fail 73% (was 78%). The bot never builds for bosses, so treat that as a floor. Median day reached 8 (unchanged), 1 win (was 5). By boss, the bot breaks Barry 53% of the time, Ivy 38%, Lou 36%, Granny 34%, Count 12% and Vertigo 4%. It almost never satisfies the Mayor's demands. Human play decides the final numbers.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
@@ -237,7 +282,7 @@ The park is now a **stop-motion clay set**, shot like a miniature.
 - **Multiple stations:** two rides on one board, sharing space. Track crossings need a Tunnel or Bridge piece.
 
 ### Stuff that makes it more awesome
-- **Achievements:** a proper achievement system (first puke, a boss in one ride, five pukes from one guest, a ride with three crossings, 1,000,000 tickets...) with badges, and some unlocks tied to them.
+- **Achievements:** (the boss trophy shelf is the first piece, v0.20) a proper achievement system (first puke, a boss in one ride, five pukes from one guest, a ride with three crossings, 1,000,000 tickets...) with badges, and some unlocks tied to them.
 - *(Built in v0.17, v0.18.)* **An illustrated route map** (Slay the Spire style), with the car token driving along the trail.
 - *(Built in v0.12.)* **On-ride photo:** the classic camera flash on the biggest drop, showing every rider's face. It becomes a shareable card with the ride's stats.
 - *(Built in v0.18.)* **Guest thoughts.**

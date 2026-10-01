@@ -26,7 +26,7 @@ import { sharedAudio } from './sfx';
 
 export type ParkId = 'meadow' | 'boardwalk' | 'hollow' | 'finale';
 export type MusicMode = 'menu' | 'map' | 'build' | 'ride' | 'results';
-export type StingerKind = 'puke' | 'target' | 'boss' | 'lose';
+export type StingerKind = 'puke' | 'target' | 'boss' | 'lose' | 'bossIntro' | 'conquered' | 'crack' | 'round';
 
 const MUTE_KEY = 'loophole.music';
 const LOOKAHEAD = 0.12; // seconds booked ahead of the clock
@@ -79,6 +79,8 @@ interface SongDef {
     block?: string;
   };
   fill: 'toms' | 'roll';
+  /** Boss-day variant: snare rolls into every 4-bar phrase, a low ostinato bass, stabbed lead. */
+  boss?: boolean;
   sections: Record<string, SectionDef>;
   form: string[];
 }
@@ -435,7 +437,7 @@ function parseBass(src: string): (BassTok | undefined)[] {
   const at = new Array<BassTok | undefined>(16).fill(undefined);
   let step = 0;
   for (const tok of src.trim().split(/\s+/)) {
-    const m = /^(R|3|5|7|8|a|r)\/(\d+)$/.exec(tok);
+    const m = /^(R|3|5|7|8|a|b|d|r)\/(\d+)$/.exec(tok);
     if (!m) continue;
     const len = Number(m[2]);
     if (m[1] !== 'r' && step < 16) at[step] = { len: Math.min(len, 16 - step), kind: m[1] };
@@ -549,6 +551,64 @@ const RIDE_SONGS: Record<ParkId, Song> = {
   finale: buildSong(rideDef('finale', 164, 63, 0)),
 };
 
+// ---- Boss days: the same material, minor and menacing. Major parks drop into
+// harmonic minor (chords mapped so the old melody still sits on them: ii -> ii dim,
+// iii -> bIII aug, bVII -> V), the tempo drives harder, four-on-the-floor kicks,
+// snare rolls into every 4-bar phrase and a low phrygian ostinato (root, b2,
+// tritone) growls underneath. Hollow is already minor and keeps its harmony.
+const BOSS_CHORDS: Record<string, string> = { I: 'i', ii: 'iio', iii: 'bIII+', IV: 'iv', vi: 'bVI', bVII: 'V' };
+const BOSS_BASS = {
+  calm: 'R/2 R/2 8/2 R/2 b/2 R/2 8/2 R/2',
+  groove: 'R/1 R/1 8/2 R/1 R/1 b/2 R/1 R/1 8/2 R/2 d/2',
+  busy: 'R/1 R/1 8/1 R/1 R/1 b/1 R/1 8/1 R/1 R/1 8/1 R/1 d/1 5/1 b/1 a/1',
+};
+
+function bossDef(base: SongDef, tempo: number): SongDef {
+  const minor = base.tonic === 'i';
+  const chords = (c: string) => (minor ? c : c.trim().split(/\s+/).map((x) => BOSS_CHORDS[x] ?? x).join(' '));
+  // Harmonic minor already has the raised 7th, so a written #7 would overshoot to the octave.
+  const mel = (m: string) => (minor ? m : m.replace(/#7(?=[',]*\*?\/)/g, '7'));
+  const sections: Record<string, SectionDef> = {};
+  for (const [k, sec] of Object.entries(base.sections)) sections[k] = { chords: sec.chords.map(chords), mel: sec.mel.map(mel) };
+  return {
+    ...base,
+    boss: true,
+    bpm: Math.round(base.bpm * tempo),
+    swing: base.swing8 ? 0.5 + (base.swing - 0.5) * 0.5 : base.swing * 0.4,
+    scale: minor ? base.scale : HARMONIC_MINOR,
+    tonic: 'i',
+    echo: base.echo * 0.5,
+    arp: { ...base.arp, mask: 'x.xxx.xxx.xxx.xx', busy: 'xxxxxxxxxxxxxxxx' },
+    bass: BOSS_BASS,
+    drums: {
+      soft: '..x...x...x...x.',
+      kick: 'x...x...x...x...',
+      snare: '....x.......x...',
+      hat: 'x.o.x.o.x.o.x.o.',
+      kickBusy: 'x...x...x...x.x.',
+      snareBusy: '....x..g....x.gg',
+      hatBusy: 'xxoxxxoxxxoxxxox',
+      block: base.drums.block,
+    },
+    fill: 'roll',
+    sections,
+  };
+}
+
+const BOSS_SONGS: Record<ParkId, Song> = {
+  meadow: buildSong(bossDef(SONG_DEFS.meadow, 1.2)),
+  boardwalk: buildSong(bossDef(SONG_DEFS.boardwalk, 1.18)),
+  hollow: buildSong(bossDef(SONG_DEFS.hollow, 1.22)),
+  finale: buildSong(bossDef(SONG_DEFS.finale, 1.2)),
+};
+
+const BOSS_RIDE_SONGS: Record<ParkId, Song> = {
+  meadow: buildSong(bossDef(rideDef('meadow', 152, 65, 0.06), 1.15)),
+  boardwalk: buildSong(bossDef(rideDef('boardwalk', 160, 64, 0), 1.15)),
+  hollow: buildSong(bossDef(rideDef('hollow', 150, 62, 0.58), 1.15)),
+  finale: buildSong(bossDef(rideDef('finale', 164, 63, 0), 1.15)),
+};
+
 // Which buses are open at each intensity level.
 const MIXES: Mix[] = [
   { bass: 0.8, pad: 1, hats: 0.5, drums: 0, arps: 0, lead: 0, counter: 0 },
@@ -588,6 +648,7 @@ let song: Song = SONGS.meadow;
 let pending: Song | null = null;
 let mode: MusicMode = 'menu';
 let park: ParkId = 'meadow';
+let bossOn = false;
 /** Scripted bars (lift hill, ending hit, results vamp) played before the song's form resumes. */
 let queue: { song: Song; bar: Bar }[] = [];
 let scripted = false;
@@ -628,6 +689,12 @@ function loadMuted(): boolean {
     return false;
   }
 }
+
+/** The song build (or any non-ride mode) should play for a park right now. */
+const homeSong = (id: ParkId) => (bossOn && mode === 'build' ? BOSS_SONGS[id] : SONGS[id]);
+const rideSong = (id: ParkId) => (bossOn ? BOSS_RIDE_SONGS[id] : RIDE_SONGS[id]);
+/** Boss songs open the lead even in build mode (it lands with the song, on a bar line). */
+const baseLevel = () => (song.def.boss && (mode === 'build' || mode === 'ride') ? 2 : BASE_LEVEL[mode]);
 
 const running = () => timer !== undefined && ctx !== null && graph !== null;
 const stepDur = () => 60 / song.def.bpm / 4;
@@ -984,13 +1051,13 @@ function onBarStart(t: number): void {
     loops = 0;
     lastLead = { midi: -1, end: 0 };
     setEcho(t);
-    if (!q && BASE_LEVEL[mode] >= 1) crashBar = barNo;
+    if (!q && baseLevel() >= 1) crashBar = barNo;
   }
   scripted = !!q;
   cur = q ? q.bar : song.bars[barIdx % song.bars.length];
   if (wasLift && !cur.lift) crashBar = barNo; // over the top of the lift hill
   const lifted = barNo < boostUntil ? boost : 0;
-  curLevel = cur.tutti ? 3 : Math.min(3, BASE_LEVEL[mode] + lifted);
+  curLevel = cur.tutti ? 3 : Math.min(3, baseLevel() + lifted);
   shift = barNo >= liftFrom && barNo < liftUntil ? 2 : 0;
   prevMix = curMix;
   curMix = cur.lift ? LIFT_MIX : mixFor(curLevel);
@@ -1153,7 +1220,9 @@ function padChord(c: Chord, t: number, len: number): void {
 function bassStep(b: Bar, s: number, t: number, base: number, ch: Chord): void {
   const gr = graph;
   if (!gr) return;
-  const root = placeIn(song.def.key + ch.root, 40) + shift;
+  const boss = !!song.def.boss;
+  const lo = boss ? 36 : 40;
+  const root = placeIn(song.def.key + ch.root, lo) + shift;
   if (b.tutti) {
     const n = b.at[s];
     if (n) tone({ t, dur: (base + offs(s + n.len) - t) * 0.8, midi: root, wave: 'triangle', vol: 0.32, dest: gr.bus.bass, s: 0.6 });
@@ -1176,14 +1245,25 @@ function bassStep(b: Bar, s: number, t: number, base: number, ch: Chord): void {
     case '8':
       midi = root + 12;
       break;
+    case 'b':
+      midi = root + 1; // phrygian b2
+      break;
+    case 'd':
+      midi = root + 6; // tritone
+      break;
     case 'a': {
       const next = chordAfter(b, s + tok.len);
-      const nr = placeIn(song.def.key + next.root, 40) + shift;
+      const nr = placeIn(song.def.key + next.root, lo) + shift;
       midi = nr === root ? root + 7 : nr - 1;
       break;
     }
   }
   const dur = (base + offs(s + tok.len) - t) * 0.85;
+  if (boss) {
+    // A growly low ostinato: triangle with a filtered pulse for bite.
+    tone({ t, dur, midi, wave: 'triangle', wave2: 'p25', cents2: 5, mix2: 0.35, vol: 0.32, dest: gr.bus.bass, a: 0.003, s: 0.6, r: 0.03, lp: [400, 1400, 350], q: 3 });
+    return;
+  }
   tone({ t, dur, midi, wave: 'triangle', vol: 0.3, dest: gr.bus.bass, a: 0.004, s: 0.7, r: 0.03 });
 }
 
@@ -1252,7 +1332,7 @@ function drumStep(b: Bar, s: number, t: number, drumsOn: boolean): void {
     }
     return;
   }
-  if (b.sectionEnd && s >= 12) {
+  if ((b.sectionEnd || (song.def.boss && !scripted && barIdx % 4 === 3)) && s >= 12) {
     fillStep(s, t, false, dest);
     return;
   }
@@ -1379,6 +1459,10 @@ function leadNote(n: MelNote, t: number, end: number): void {
       brass(d.key + degSemi(d.scale, n.di - 2, 0) + shift, 0.04); // a third below
       break;
     }
+  }
+  if (d.boss && !n.pick) {
+    // The sting: a bright octave blip on every attack.
+    tone({ t, dur: Math.min(dur, 0.05), midi: midi + 12, wave: 'p12', vol: 0.03, dest, a: 0.001, s: 0.2, r: 0.02 });
   }
   lastLead = { midi, end: t + dur };
 }
@@ -1576,6 +1660,166 @@ function stingLose(t: number, dest: AudioNode): void {
   duck(t, 0.25, 2.8);
 }
 
+/** A snare roll in 32nds from t over len seconds, crescendo from v0 to v1. */
+function roll(t: number, len: number, v0: number, v1: number, dest: AudioNode, sub = 0.04): void {
+  const n = Math.max(1, Math.round(len / sub));
+  for (let i = 0; i < n; i++) snare(t + i * sub, v0 + ((v1 - v0) * i) / n, dest);
+}
+
+/** A struck bell: a sine with inharmonic partials and a metallic tick. */
+function bell(t: number, midi: number, vol: number, dest: AudioNode): void {
+  const o = { wave: 'sine' as Wave, dest, a: 0.001, r: 0.15, sagged: false };
+  tone({ ...o, t, dur: 0.75, midi, vol, s: 0.03 });
+  tone({ ...o, t, dur: 0.45, midi: midi + 17.6, vol: vol * 0.5, s: 0.02 });
+  tone({ ...o, t, dur: 0.22, midi: midi + 29.2, vol: vol * 0.3, s: 0.02 });
+  tone({ t, dur: 0.3, midi, wave: 'p12', vol: vol * 0.25, dest, a: 0.001, s: 0.05, r: 0.1, sagged: false });
+  noiseHit(t, 0.03, vol * 0.6, 'bandpass', 5200, dest, 4);
+}
+
+/** Boss title card (~2.6 s): a low boom, a rising dissonant brass swell, then a punchy minor chord. */
+function stingBossIntro(t: number, dest: AudioNode): void {
+  const k = placeIn(song.def.key + shift, 48);
+  // Boom.
+  tone({ t, dur: 0.9, midi: k - 12, bend: k - 22, wave: 'sine', vol: 0.5, dest, a: 0.003, s: 0.15, r: 0.2, sagged: false });
+  noiseHit(t, 0.8, 0.22, 'lowpass', 260, dest, 1, 60);
+  kick(t, 0.5, dest);
+  // Swell: a semitone-and-tritone cluster that crescendos, opens up and creeps upward.
+  const ts = t + 0.15;
+  const len = 1.4;
+  for (const x of [0, 1, 6, 11]) {
+    tone({
+      t: ts,
+      dur: len,
+      midi: k + x,
+      bend: k + x + 2,
+      wave: 'sawtooth',
+      wave2: 'square',
+      cents2: 12,
+      mix2: 0.5,
+      vol: 0.011,
+      dest,
+      a: 0.7,
+      s: 2.4,
+      r: 0.04,
+      lp: [250, 500, 3800],
+      q: 3,
+      vib: 25,
+      vibRate: 7,
+      vibDelay: 0.4,
+      sagged: false,
+    });
+  }
+  tone({ t: ts, dur: len, midi: k - 12, bend: k - 10, wave: 'triangle', vol: 0.12, dest, a: 0.7, s: 2.2, r: 0.04, sagged: false });
+  riser(ts, len, 300, 5500, 0.04, 0.97, dest);
+  roll(t + 0.95, 0.6, 0.04, 0.17, dest);
+  // Hit.
+  const th = ts + len + 0.05;
+  chordHit(th, k, [0, 7, 12, 15, 19], 0.4, 0.03, dest, 'sawtooth', [2600, 6500, 900]);
+  chordHit(th, k + 12, [0, 3, 7], 0.12, 0.02, dest, 'square');
+  tone({ t: th, dur: 0.9, midi: k - 12, wave: 'triangle', vol: 0.36, dest, s: 0.4, sagged: false });
+  kick(th, 0.55, dest);
+  snare(th, 0.2, dest);
+  crash(th, 0.14, dest);
+  duck(t, 0.2, 2.6);
+}
+
+/** Boss beaten (~3.5 s): pickups, bVI-bVII-I, a held major chord and an arpeggio sparkle. */
+function stingConquered(t: number, dest: AudioNode): void {
+  const k = placeIn(song.def.key + shift, 60);
+  const brass = (dt: number, m: number, dur: number, v: number) =>
+    tone({
+      t: t + dt,
+      dur,
+      midi: m,
+      from: m - 1,
+      glide: 0.03,
+      wave: 'square',
+      wave2: 'p25',
+      cents2: 7,
+      mix2: 0.6,
+      vol: v,
+      dest,
+      a: 0.008,
+      s: 0.75,
+      r: 0.1,
+      lp: [900, 4500, 2200],
+      q: 1.5,
+      vib: dur > 0.5 ? 20 : 0,
+      vibDelay: 0.25,
+      sagged: false,
+    });
+  // Ta-ta-ta TAAA.
+  [0, 0.11, 0.22].forEach((dt) => {
+    brass(dt, k + 7, 0.08, 0.055);
+    snare(t + dt, 0.07, dest);
+  });
+  brass(0.33, k + 4, 0.45, 0.06);
+  chordHit(t + 0.33, k - 12, [0, 7, 12, 16], 0.45, 0.022, dest);
+  tone({ t: t + 0.33, dur: 0.45, midi: k - 12, wave: 'triangle', vol: 0.3, dest });
+  kick(t + 0.33, 0.45, dest);
+  crash(t + 0.33, 0.08, dest);
+  // bVI - bVII ...
+  brass(0.84, k + 8, 0.26, 0.06);
+  chordHit(t + 0.84, k - 4, [0, 4, 7, 12], 0.26, 0.022, dest);
+  tone({ t: t + 0.84, dur: 0.26, midi: k - 16, wave: 'triangle', vol: 0.3, dest });
+  brass(1.14, k + 10, 0.26, 0.06);
+  chordHit(t + 1.14, k - 2, [0, 4, 7, 12], 0.26, 0.022, dest);
+  tone({ t: t + 1.14, dur: 0.26, midi: k - 14, wave: 'triangle', vol: 0.3, dest });
+  roll(t + 0.84, 0.58, 0.05, 0.16, dest);
+  // ... I, held.
+  const th = t + 1.44;
+  brass(1.44, k + 12, 1.8, 0.065);
+  chordHit(th, k, [0, 4, 7, 12, 16], 1.8, 0.024, dest);
+  tone({ t: th, dur: 1.8, midi: k - 12, wave: 'triangle', vol: 0.34, dest, s: 0.5 });
+  kick(th, 0.55, dest);
+  snare(th, 0.2, dest);
+  crash(th, 0.16, dest);
+  tom(th + 1.5, 50, 0.3, dest);
+  kick(th + 1.6, 0.4, dest);
+  crash(th + 1.6, 0.08, dest);
+  // Sparkle up the chord and back.
+  const arp = [0, 4, 7, 12, 16, 19, 24, 28, 31, 36, 31, 28, 24, 19, 16, 12, 16, 19, 24];
+  arp.forEach((x, i) => {
+    tone({ t: th + 0.15 + i * 0.06, dur: 0.07, midi: k + 12 + x, wave: 'p12', vol: 0.032, dest, s: 0.3, r: 0.04, sagged: false });
+  });
+  tone({ t: th + 0.15 + arp.length * 0.06, dur: 0.6, midi: k + 36, wave: 'sine', vol: 0.05, dest, s: 0.2, r: 0.3, vib: 30, vibDelay: 0.05, sagged: false });
+  duck(t, 0.2, 3.5);
+}
+
+/** A boss's composure cracks: a glassy crack, then a rising two-note blip. */
+function stingCrack(t: number, dest: AudioNode): void {
+  noiseHit(t, 0.05, 0.14, 'highpass', 5000, dest, 1);
+  noiseHit(t + 0.004, 0.12, 0.06, 'bandpass', 9000, dest, 8, 6000);
+  [100, 105.3, 108.9].forEach((m, i) =>
+    tone({ t: t + i * 0.012, dur: 0.18, midi: m, wave: 'sine', vol: 0.035, dest, a: 0.001, s: 0.05, r: 0.08, sagged: false }),
+  );
+  const k = placeIn(song.def.key + shift, 72);
+  tone({ t: t + 0.1, dur: 0.07, midi: k, wave: 'p25', vol: 0.06, dest, a: 0.002, s: 0.5, r: 0.02, sagged: false });
+  tone({ t: t + 0.18, dur: 0.14, midi: k + 7, bend: k + 7.4, wave: 'p25', vol: 0.065, dest, a: 0.002, s: 0.4, r: 0.06, sagged: false });
+  tone({ t: t + 0.1, dur: 0.07, midi: k - 12, wave: 'triangle', vol: 0.08, dest, s: 0.4, sagged: false });
+  tone({ t: t + 0.18, dur: 0.12, midi: k - 5, wave: 'triangle', vol: 0.08, dest, s: 0.4, sagged: false });
+  duck(t, 0.65, 0.4);
+}
+
+/** "Round 2": ding-ding, then a short drum fill. */
+function stingRound(t: number, dest: AudioNode): void {
+  bell(t, 86, 0.09, dest);
+  bell(t + 0.24, 86, 0.09, dest);
+  const sd = 0.075;
+  const tf = t + 0.62;
+  snare(tf, 0.13, dest);
+  snare(tf + sd, 0.11, dest);
+  tom(tf + sd * 2, 55, 0.3, dest);
+  tom(tf + sd * 3, 48, 0.3, dest);
+  snare(tf + sd * 4, 0.14, dest);
+  snare(tf + sd * 4.5, 0.15, dest);
+  snare(tf + sd * 5, 0.17, dest);
+  snare(tf + sd * 5.5, 0.19, dest);
+  kick(tf + sd * 6, 0.5, dest);
+  crash(tf + sd * 6, 0.11, dest);
+  duck(t, 0.45, 1.2);
+}
+
 // ---------------------------------------------------------------------------
 // Start / stop
 // ---------------------------------------------------------------------------
@@ -1636,7 +1880,7 @@ export const music = {
     safe(() => {
       if (!SONGS[id]) return;
       park = id;
-      const target = mode === 'ride' ? RIDE_SONGS[id] : SONGS[id];
+      const target = mode === 'ride' ? rideSong(id) : homeSong(id);
       if (!running()) {
         song = target;
         pending = null;
@@ -1658,8 +1902,8 @@ export const music = {
       if (m === mode) return;
       const prev = mode;
       mode = m;
-      const ride = RIDE_SONGS[park];
-      const home = SONGS[park];
+      const ride = rideSong(park);
+      const home = homeSong(park);
       if (!running()) {
         queue = [];
         pending = null;
@@ -1689,6 +1933,39 @@ export const music = {
         if (song !== home) pending = home;
       }
     });
+  },
+
+  /**
+   * Boss day on/off. While on, build and ride play the park's boss variant
+   * (minor, faster, four-on-the-floor, low ostinato). The swap lands on the next
+   * bar line; menu/map/results keep the normal song.
+   */
+  setBoss(on: boolean): void {
+    safe(() => {
+      const b = !!on;
+      if (b === bossOn) return;
+      bossOn = b;
+      if (mode !== 'build' && mode !== 'ride') return;
+      const target = mode === 'ride' ? rideSong(park) : homeSong(park);
+      if (!running()) {
+        song = target;
+        pending = null;
+        queue = [];
+        barIdx = 0;
+        loops = 0;
+        return;
+      }
+      if (mode === 'ride' && queue.length && queue.every((q) => q.bar.lift)) {
+        // Still on the lift hill: climb it in the new song's key and tempo.
+        queue = queue.map((q) => ({ song: target, bar: target.lift[q.bar.sectionStart ? 0 : 1] }));
+        return;
+      }
+      pending = target === song ? null : target;
+    });
+  },
+
+  isBoss(): boolean {
+    return bossOn;
   },
 
   /** A quick whoosh on the next beat for big drops and inversions (ride only, subtle). */
@@ -1770,6 +2047,10 @@ export const music = {
       else if (kind === 'boss') stingBoss(t, dest);
       else if (kind === 'puke') stingPuke(t, dest);
       else if (kind === 'lose') stingLose(t, dest);
+      else if (kind === 'bossIntro') stingBossIntro(t, dest);
+      else if (kind === 'conquered') stingConquered(t, dest);
+      else if (kind === 'crack') stingCrack(t, dest);
+      else if (kind === 'round') stingRound(t, dest);
     });
   },
 

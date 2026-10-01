@@ -46,6 +46,9 @@ export class ScoreShow {
   /** An attraction scores: its landmark in the park bounces. */
   onAttraction: (slot: number) => void = () => {};
 
+  /** A boss puked (on a boss day, that cracks their composure). */
+  onBossPuke: (() => void) | null = null;
+
   constructor(private wrap: HTMLElement) {
     this.panel = document.createElement('div');
     this.panel.className = 'scoreshow';
@@ -178,6 +181,7 @@ export class ScoreShow {
           });
         this.ticker(`${who} puked${k > 1 ? ` ×${k}` : ''}: +${fmtNum(e.pay)}`);
         if (e.boss) {
+          this.onBossPuke?.();
           this.doFlash('boss');
           sfx.bossPuke();
           music.stinger('boss');

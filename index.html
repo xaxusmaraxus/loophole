@@ -15,6 +15,8 @@
         <div class="combo" id="combo" aria-hidden="true"></div>
         <div class="guest-card" id="guestCard" hidden></div>
         <div class="overlay" id="overlay" hidden></div>
+        <aside class="plot-panel" id="plotPanel" aria-label="Your park" hidden></aside>
+        <div class="boss-card" id="bossCard" hidden></div>
       </div>
 
       <header class="hud-top" id="hudTop">
@@ -43,8 +45,8 @@
       </header>
 
       <div class="hud-under" id="hudUnder">
-        <p id="dayBanner" class="day-banner" hidden></p>
-        <ul id="attractions" class="attractions" aria-label="Attractions (they score left to right)"></ul>
+        <div id="dayBanner" class="day-banner" hidden></div>
+        <ul id="attractions" class="attractions" aria-label="Attractions (they score in plot order)"></ul>
       </div>
 
       <footer class="hud-bottom" id="hudBottom">
@@ -107,9 +109,9 @@
             <li>Every swipe uses daylight; building is free. After sunset you can't swipe, but you can keep building and open the ride whenever you're ready.</li>
             <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
             <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line (hover a guest to meet them). A shuttle hits every piece twice but pays half.</li>
-            <li><strong>Attractions</strong> (up to 5) add excitement or multiplier, or multiply it, left to right. Targets climb fast, so build combos.</li>
+            <li><strong>Your park plot:</strong> attractions and upgrades sit on a grid you arrange between days. Attractions score top row first, left to right, and each gets +1 multiplier for every touching spot of its theme. Targets climb fast, so build combos.</li>
             <li>The <strong>capsule machine</strong> (in shops and treasure stops) sells eggs. Crack one and pick: attractions, tools, or a <strong>bus tour</strong> that adds a rider type to your line every morning.</li>
-            <li>Each park ends with a <strong>boss</strong>: a huge or seasoned rider with a massive stomach. Make them puke to clear the park.</li>
+            <li>Each park ends with a <strong>boss</strong> who bends the rules for the day. Make them puke enough times to break their composure; you get up to three rides. Breaking a boss grows your plot and drops a legendary attraction.</li>
             <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
           </ol>
           <p class="keys">Keys: arrows or WASD swipe. Shift + arrows build from the waving pennant, Tab switches pennant, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>

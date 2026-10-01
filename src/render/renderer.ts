@@ -28,6 +28,7 @@ import type { Game } from '../game';
 import {
   type Board,
   type ChainStep,
+  type Dir,
   type End,
   type SwipeResult as MoveResult,
   type Pt,
@@ -205,6 +206,9 @@ export class Renderer {
   private puddleMesh: Mesh | null = null;
   private puddleDirty = false;
   private tileAnim: { start: number; move: MoveResult; fired: number } | null = null;
+  /** Ivy's waves play after the swipe that set them off. */
+  private waveQueue: { move: MoveResult; dir: Dir }[] = [];
+  private waveNext: Dir | null = null;
   private combo: { value: number; bumped: number; until: number } | null = null;
   private shake = { until: 0, mag: 0 };
   private comboEl = document.getElementById('combo');
@@ -475,6 +479,8 @@ export class Renderer {
     this.walkers = [];
     this.lineup = [];
     this.potties = [];
+    this.waveQueue = [];
+    this.waveNext = null;
     this.streams = [];
     this.polaroid?.remove();
     this.polaroid = null;
@@ -761,7 +767,27 @@ export class Renderer {
         case 'unlock':
           this.onUnlock(e.id);
           break;
+        case 'boss':
+          if (e.what === 'wave') this.waveNext = e.dir!;
+          else if (e.what === 'spin') {
+            this.word('SPIN!', this.stationCenter().setY(1.4), '#c58cff', 1.3);
+            this.kick(2, 260);
+            sfx.slowOut();
+          } else {
+            const boss = this.game.queue.find((r) => r.boss);
+            const at = boss ? this.riderPos.get(boss.id) : null;
+            this.word('*MUNCH* +1 STOMACH', at ? v3(at.x, 1.2, at.z) : this.stationCenter().setY(1.2), PAL.gold, 0.9);
+            sfx.lay();
+          }
+          break;
         case 'swipe':
+          if (this.waveNext) {
+            const dir = this.waveNext;
+            this.waveNext = null;
+            if (this.tileAnim) this.waveQueue.push({ move: e.result, dir });
+            else this.startWave(e.result, dir);
+            break;
+          }
           this.tileAnim = { start: this.now, move: e.result, fired: -1 };
           if (e.result.chain.waves.length) music.combo(e.result.mergeCount);
           this.combo = null;
@@ -1269,12 +1295,14 @@ export class Renderer {
   private updateFog(): void {
     this.fogged.clear();
     const b = this.board;
-    if (!this.game.cfg.park.fog || this.game.phase === 'ride' || this.game.phase === 'results') return;
+    // Count Queasy's Lights Out: the fog closes in to one cell, in any park.
+    const radius = this.game.bossRule === 'blackout' ? 1 : this.game.cfg.park.fog ? 2 : 0;
+    if (!radius || this.game.phase === 'ride' || this.game.phase === 'results') return;
     const seen = [{ x: b.station.x, y: b.station.y }, { x: b.station.x + 1, y: b.station.y }, ...b.ends[0], ...b.ends[1]];
     const t = this.now / 1000;
     for (let y = 0; y < b.size; y++)
       for (let x = 0; x < b.size; x++) {
-        if (seen.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) <= 2)) continue;
+        if (seen.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) <= radius)) continue;
         this.fogged.add(idx(b, x, y));
         const s = this.mists.get();
         s.position.set(x + 0.5 + Math.sin(t * 0.4 + x * 1.3) * 0.12, 0.42 + Math.sin(t * 0.7 + y) * 0.04, y + 0.5 + Math.cos(t * 0.3 + y * 1.7) * 0.1);
@@ -1307,24 +1335,52 @@ export class Renderer {
     this.structures.clear();
     if (!this.structures.parent) this.scene.add(this.structures);
     const n = this.n;
-    // Attraction lots: left front, left back, behind the board, right back, right front
-    // (the same left-to-right order as the cards).
-    const lots: [number, number][] = [
-      [-0.4, n * 0.72],
-      [-0.4, n * 0.28],
-      [n / 2, -0.4],
-      [n + 0.4, n * 0.28],
-      [n + 0.4, n * 0.72],
-    ];
+    // Attraction lots around the board: down both side strips, along the back,
+    // and beside the station. Commons fill them in card order (left front, left
+    // back, behind the board, right back, right front, then the rest);
+    // legendaries stand bigger and claim the showiest spots first, behind the board.
+    const lotAt: Record<string, { x: number; z: number; back?: boolean }> = {
+      LF: { x: -0.4, z: n * 0.8 }, LM: { x: -0.4, z: n * 0.5 }, LB: { x: -0.4, z: n * 0.2 },
+      RF: { x: n + 0.4, z: n * 0.8 }, RM: { x: n + 0.4, z: n * 0.5 }, RB: { x: n + 0.4, z: n * 0.2 },
+      B0: { x: n / 2, z: -0.42, back: true }, B1: { x: n / 2 - n * 0.36, z: -0.42, back: true }, B2: { x: n / 2 + n * 0.36, z: -0.42, back: true },
+      SL: { x: -0.4, z: n + 0.75 }, SR: { x: n + 0.4, z: n + 0.75 },
+    };
+    const commonOrder = ['LF', 'LB', 'B0', 'RB', 'RF', 'LM', 'RM', 'B1', 'B2', 'SL', 'SR'];
+    const legendOrder = ['B0', 'B1', 'B2', 'LM', 'RM', 'LB', 'RB', 'LF', 'RF', 'SL', 'SR'];
+    const taken = new Set<string>();
+    const lotOf = new Map<number, string>();
+    const legendary = (i: number) => ATTRACTIONS[g.attractions[i].id].rarity === 'legendary';
+    for (const pass of [true, false])
+      g.attractions.forEach((_, i) => {
+        if (legendary(i) !== pass) return;
+        const lot = (pass ? legendOrder : commonOrder).find((l) => !taken.has(l));
+        if (!lot) return;
+        taken.add(lot);
+        lotOf.set(i, lot);
+      });
     const had = this.attrLots.length;
-    this.attrLots = g.attractions.slice(0, lots.length).map((a, i) => {
-      const grp = attractionGroup(a.id, ATTRACTIONS[a.id].rarity === 'rare');
-      grp.position.set(lots[i][0], 0, lots[i][1]);
+    // One group per attraction, index for index (pulseAttraction relies on it); any
+    // past the last lot get an empty stand-in that never joins the scene.
+    this.attrLots = g.attractions.map((a, i) => {
+      const lot = lotOf.get(i);
+      if (!lot) {
+        const ghost = new Group();
+        ghost.position.set(n / 2, 0, -0.42);
+        return ghost;
+      }
+      const big = legendary(i);
+      const at = lotAt[lot];
+      // Push the bigger legendaries out a touch, so they clear the board's edge.
+      const out = big ? 0.22 : 0;
+      const x = at.back ? at.x : at.x < 0 ? at.x - out : at.x + out;
+      const grp = attractionGroup(a.id, ATTRACTIONS[a.id].rarity);
+      grp.position.set(x, 0, at.back ? at.z - out : at.z);
       grp.userData.s = STRUCT_SCALE;
       grp.scale.setScalar(STRUCT_SCALE);
       this.structures.add(grp);
       return grp;
     });
+    const backLots = [...lotOf].filter(([, l]) => lotAt[l].back).map(([i, l]) => ({ x: lotAt[l].x, r: legendary(i) ? 0.7 : 0.45 }));
     // A fresh attraction pops in.
     this.attrPulse = this.attrLots.map((_, i) => (i >= had && had + 1 === this.attrLots.length ? this.now : this.attrPulse[i] ?? -1e9));
     // Upgrades on the free side of the front plaza (the queue has the other side).
@@ -1341,7 +1397,7 @@ export class Renderer {
       k++;
     }
     // Tour buses parked behind the board.
-    const busX = [0.6, n - 0.6, 1.5, n - 1.5].filter((x) => Math.abs(x - n / 2) > 0.95);
+    const busX = [0.6, n - 0.6, 1.5, n - 1.5].filter((x) => backLots.every((l) => Math.abs(x - l.x) > l.r + 0.42));
     tours.slice(0, busX.length).forEach((t, i) => {
       const grp = busGroup(SHIRTS[(t.length * 5 + t.charCodeAt(0)) % SHIRTS.length]);
       grp.scale.setScalar(1.25);
@@ -1524,7 +1580,22 @@ export class Renderer {
         if (a.fired === m.chain.waves.length) this.finishMove(m);
       }
     }
-    if (done) this.tileAnim = null;
+    if (done) {
+      this.tileAnim = null;
+      const next = this.waveQueue.shift();
+      if (next) this.startWave(next.move, next.dir);
+    }
+  }
+
+  /** Iron-Gut Ivy's Rough Seas: a wave sloshes every loose tile one way. */
+  private startWave(move: MoveResult, dir: Dir): void {
+    this.tileAnim = { start: this.now, move, fired: -1 };
+    const n = this.n;
+    const from = { up: v3(n / 2, 0.3, n + 0.5), down: v3(n / 2, 0.3, -0.5), left: v3(n + 0.5, 0.3, n / 2), right: v3(-0.5, 0.3, n / 2) }[dir];
+    this.burst(from, 40, ['#8fdcf6', '#ffffff', '#45a8e0']);
+    this.word('SPLOOSH!', v3(n / 2, 1.3, n / 2), '#8fdcf6', 1.4);
+    this.kick(3, 300);
+    sfx.splash();
   }
 
   private finishMove(m: MoveResult): void {

@@ -16,7 +16,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 | What | How |
 | --- | --- |
 | Web prototype | `npm install`, `npm run dev` |
-| Tests (51, Vitest) | `npm test` |
+| Tests (66, Vitest) | `npm test` |
 | Typecheck and build | `npx tsc --noEmit -p .`, `npm run build` |
 | Balance simulation | `npx vite-node tools/season-bot.ts`: 200 seeded seasons, score percentiles per day vs. targets |
 | Single-file build for the artifact | `npm run build && python3 tools/bundle-artifact.py out/loophole.html`, then publish to the URL above |
@@ -28,7 +28,8 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 - `src/puzzle/pieces.ts`: the piece ladder (thrill, nausea, inversion) and ride stats (chips, mult).
 - `src/riders/riders.ts`: rider kinds (stomach, weakness, worth), bosses, VIPs, puke math.
 - `src/run/run.ts`: parks, route map, day configs and targets, upgrades, tools, rewards, shop, eggs.
-- `src/run/attractions.ts`: attractions and the left-to-right scoring pipeline.
+- `src/run/attractions.ts`: attractions (themes, legendaries) and the scoring pipeline.
+- `src/run/plot.ts`: the park plot grid (shapes, fitting, reading order, districts). `src/run/bossday.ts`: boss-day rules (demands, spin, rounds).
 - `src/game.ts`: the controller: phases, actions, undo, scoring, season flow.
 - `src/render/renderer.ts` + `src/render3d/*`: the Three.js park renderer (procedural models, toon and ink shaders, the 3D track and island). `src/ride/ride.ts`: the ride animation on the 3D track. `src/ui/hud.ts`: HUD, map, tally, shop, egg screens. `src/core/sfx.ts`: synth sound.
 
@@ -46,6 +47,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 - **Balance has never been played by a human.** The bot (a floor, since it never builds for bosses) reaches day 7 at the median, fails about 75% of boss days, and wins about 1% of seasons. The user asked for bosses to be "superhard". Tune after real play: boss stomachs in `riders.ts` (BOSSES), and `BASE_TARGET`/`TARGET_GROWTH` in `run.ts`.
 - **Godot style test:** procedural placeholders with drop-in hooks for `godot/assets/models/<name>.glb`. The recommended camera is the gameplay isometric view (`docs/style-test/03_play_iso_day.png`). Swipes there still need mapping to the board's diagonals, which isn't built yet.
 - **Built since the first handover (see `docs/concepts.md` v0.7–v0.18):** the claymation look, the on-ride photo with sharing, highscores (device + shared board through the artifact's db), a full-screen HUD, guests with personalities and hover cards, hills and high stations, the painted route map, park structures for what you buy, crossings (bridges and tunnels), Boardwalk piers, Hollow ghosts, special pieces (Launch, Water Splash, Brake Run), unlocks across seasons, guest thoughts, and chiptune music.
+- **v0.20, boss fights and the park plot:** boss pools with rule twists, composure over up to three rides, a conquered screen with legendaries and a trophy shelf, and the backpack-style park plot (`src/run/plot.ts`, `src/run/bossday.ts`, `src/ui/plot.ts`). See `docs/concepts.md`.
 - **Not built yet:** the energy budget (Mountain park), Space Park, the daily seed, contracts, board modifiers, unlockable riders and attractions, and the rival park (saved for multiplayer). All are in the roadmap in `docs/concepts.md`.
 - **Balance after v0.18** (`tools/season-bot.ts`, 200 seasons): median run reaches day 8, 5 wins, boss days fail 402 of 514. Crossings and piers made the season a touch easier than before (median day 7, ~1% wins).
 - **Nothing is blocked.**

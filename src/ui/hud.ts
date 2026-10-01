@@ -1,7 +1,10 @@
 import type { Game, RideKind } from '../game';
 import { canConnect, trackLength } from '../puzzle/board';
 import { SPECIALS, type SpecialId } from '../puzzle/pieces';
-import { BOSSES, KINDS, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
+import { BOSSES, BOSS_ROUNDS, type BossId, KINDS, type Look, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
+import { PIECES } from '../puzzle/pieces';
+import { SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, spun } from '../run/bossday';
+import { PLOT_W } from '../run/plot';
 import { drawPortrait3D } from '../render3d/portrait';
 import { mapHtml } from './map';
 import { photoStore } from './photo';
@@ -11,6 +14,32 @@ import { ATTRACTIONS, type Effect, THEMES } from '../run/attractions';
 import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+const ARROW = { up: '↑', right: '→', down: '↓', left: '←' } as const;
+
+/** A boss's portrait as an image URL (rendered once per boss). */
+const bossArt = new Map<BossId, string>();
+export function bossPortrait(id: BossId): string {
+  let url = bossArt.get(id);
+  if (url !== undefined) return url;
+  const c = document.createElement('canvas');
+  const look: Look = { skin: 1, hair: 0, hairStyle: 'short', shirt: 0, pants: 1, accessory: 'none', small: false, ...BOSSES[id].look };
+  url = drawPortrait3D(c, look) ? c.toDataURL() : '';
+  bossArt.set(id, url);
+  return url;
+}
+
+/** Every boss, the ones you've broken in gold. */
+export function trophyShelf(broken: readonly BossId[]): string {
+  const all = Object.keys(BOSSES) as BossId[];
+  return `<div class="trophies" aria-label="Trophy shelf: ${broken.length} of ${all.length} bosses broken">${all
+    .map((id) => {
+      const won = broken.includes(id);
+      const art = bossPortrait(id);
+      return `<figure class="trophy${won ? ' won' : ''}" title="${won ? `${BOSSES[id].name}: broken` : 'Not broken yet'}">${art ? `<img src="${art}" alt="">` : ''}<figcaption>${won ? BOSSES[id].name : '?'}</figcaption></figure>`;
+    })
+    .join('')}</div>`;
+}
 
 const pukeLabel = (n: number, future: boolean) =>
   n > 0 ? `${future ? 'Pukes' : 'Puked'} ${n === 1 ? 'once' : `×${n}`}` : future ? 'Keeps it down' : 'Kept it down';
@@ -58,7 +87,7 @@ export class Hud {
     // Today's twist: boss, storm or VIP.
     const banner = $('dayBanner');
     const node = g.cfg.node;
-    if (g.cfg.boss) banner.innerHTML = `<strong>${node === 'finale' ? 'Grand Opening' : 'Boss day'}: ${BOSSES[g.cfg.boss].name} is in line.</strong> Make them puke to clear the day. ${BOSSES[g.cfg.boss].trait}`;
+    if (g.cfg.boss) this.renderBossBar(banner);
     else if (node === 'storm' || node === 'vip' || node === 'finale') banner.innerHTML = `<strong>${NODE_INFO[node].name}.</strong> ${NODE_INFO[node].desc}`;
     banner.hidden = !(g.cfg.boss || node === 'storm' || node === 'vip' || node === 'finale');
     banner.className = `day-banner ${g.cfg.boss ? 'boss' : node}`;
@@ -118,7 +147,103 @@ export class Hud {
 
     this.renderQueue();
     this.renderOverlay();
+    this.renderBossCard();
+    if (g.phase !== 'ride') this.cracks = 0;
   }
+
+  private lastBoss = '';
+  /** Boss pukes seen so far this ride. */
+  private cracks = 0;
+
+  /** The score show saw the boss puke: crack a pip now. */
+  bossCrack(): void {
+    this.cracks++;
+    this.update();
+  }
+
+  /** The boss bar: who, their composure, the ride count, and their rule as it stands right now. */
+  private renderBossBar(el: HTMLElement): void {
+    const g = this.game;
+    const f = g.fight;
+    const id = g.cfg.boss!;
+    const def = BOSSES[id];
+    const boss = g.queue.find((r) => r.boss);
+    if (!f) return;
+    const building = g.phase === 'build';
+    const hits = building && boss ? Math.min(f.hp, g.pukes(boss)) : 0;
+    // During the ride the pips crack as the boss actually pukes.
+    const r = g.result;
+    const hp = g.phase === 'ride' && r ? Math.max(r.bossHp, r.bossHpBefore - this.cracks) : f.hp;
+    const pips = Array.from({ length: f.max }, (_, i) => {
+      const broken = i >= hp;
+      const due = !broken && i >= f.hp - hits;
+        return `<i class="${broken ? 'broken' : due ? 'due' : ''}${broken && i === hp && g.phase === 'ride' ? ' fresh' : ''}"></i>`;
+    }).join('');
+    const left = (every: number) => every - (g.actions % every);
+    let live = '';
+    if (def.rule === 'seconds' && boss) live = `Stomach <b>${g.stomach(boss)}</b> · next snack in ${left(SECONDS_EVERY)}`;
+    else if (def.rule === 'waves') live = `Next wave <b class="arrow">${ARROW[f.wave]}</b> in ${left(WAVE_EVERY)} swipe${left(WAVE_EVERY) === 1 ? '' : 's'}`;
+    else if (def.rule === 'whistle') live = 'A swipe with no merge costs <b>2</b> daylight';
+    else if (def.rule === 'spin')
+      live = `<span class="compass" aria-label="Swiping up goes ${spun('up', f.spin)}">${(['up', 'right', 'down', 'left'] as const).map((d) => `<span class="c-${d}">${ARROW[spun(d, f.spin)]}</span>`).join('')}</span> turns in ${left(SPIN_EVERY)}`;
+    else if (def.rule === 'seenitall') {
+      const tiers = [...new Set(g.board.ends.flat().map((c) => c.tier).filter((t) => t > 0))].sort();
+      live = tiers.length ? `Counts once each: ${tiers.map((t) => PIECES[t].name).join(', ')}` : 'Every piece type counts once';
+    } else if (def.rule === 'blackout') live = 'You can only see tiles next to your track';
+    else if (def.rule === 'demands') live = `<span class="demands">${g.demands().map((d) => `<span class="${d.met ? 'met' : ''}">${d.met ? '✓' : '✗'} ${d.text}</span>`).join('')}</span>`;
+    const preview = building && boss ? (g.refuses(boss, g.openKind ?? 'circuit') ? 'Won’t get on yet' : hits ? `This ride cracks ${hits}` : 'This ride: no crack yet') : '';
+    const html = `
+      <div class="bb-who">${bossPortrait(id) ? `<img class="bb-face" src="${bossPortrait(id)}" alt="">` : ''}
+        <div class="bb-name"><strong>${def.name}</strong><span>Ride ${f.round} of ${BOSS_ROUNDS}${f.banked ? ` · ${f.banked.toLocaleString()} banked` : ''}</span></div></div>
+      <div class="bb-hp" aria-label="Composure: ${f.hp} of ${f.max} left"><span class="bb-label">Composure</span><span class="pips">${pips}</span><span class="bb-preview">${preview}</span></div>
+      <div class="bb-rule"><span class="bb-rule-name" title="${def.ruleDesc}">${def.ruleName}</span><span class="bb-live">${live}</span></div>`;
+    if (html === this.lastBoss) return;
+    this.lastBoss = html;
+    el.innerHTML = html;
+  }
+
+  /** Which boss title card has been seen (day:round). */
+  private bossSeen = '';
+  private bossTimer = 0;
+
+  /** The boss's title card at the start of the day, and a "Ride 2" slam for rematches. */
+  private renderBossCard(): void {
+    const g = this.game;
+    const el = $('bossCard');
+    const f = g.fight;
+    const key = f ? `${g.seed}:${g.dayNum}:${f.round}` : '';
+    if (!f || g.phase !== 'build' || this.bossSeen === key) {
+      if (g.phase !== 'build') el.hidden = true;
+      return;
+    }
+    this.bossSeen = key;
+    const id = g.cfg.boss!;
+    const def = BOSSES[id];
+    clearTimeout(this.bossTimer);
+    el.hidden = false;
+    if (f.round === 1) {
+      el.className = 'boss-card intro';
+      el.innerHTML = `
+        <div class="bc-inner" role="dialog" aria-label="Boss: ${def.name}">
+          <p class="bc-eyebrow">${g.cfg.node === 'finale' ? 'The Grand Opening' : 'Boss day'}</p>
+          ${bossPortrait(id) ? `<img class="bc-face" src="${bossPortrait(id)}" alt="">` : ''}
+          <h2 class="bc-name">${def.name}</h2>
+          <p class="bc-quip">“${def.quip}”</p>
+          <div class="bc-rule"><strong>${def.ruleName}</strong><span>${def.ruleDesc}</span></div>
+          <p class="bc-goal">Make them puke <b>${def.composure}×</b> to break them. You get up to <b>${BOSS_ROUNDS} rides</b>. Stomach ${def.stomach}. ${def.trait}</p>
+          <button type="button" class="primary bc-go" data-boss-go>Bring it on!</button>
+        </div>`;
+      this.onBossCard?.('intro');
+    } else {
+      el.className = 'boss-card round';
+      el.innerHTML = `<div class="bc-round"><span>Ride ${f.round}</span><small>${def.name} · ${f.hp} more puke${f.hp === 1 ? '' : 's'} to break</small></div>`;
+      this.onBossCard?.('round');
+      this.bossTimer = window.setTimeout(() => (el.hidden = true), 1900);
+    }
+  }
+
+  /** Tells the page a boss card went up (for music). */
+  onBossCard: ((kind: 'intro' | 'round') => void) | null = null;
 
   private renderAttractions(firing: Set<string>): void {
     const g = this.game;
@@ -212,7 +337,7 @@ export class Hud {
   private renderOverlay(): void {
     const g = this.game;
     const el = $('overlay');
-    el.hidden = !['intro', 'map', 'results', 'reward', 'shop', 'egg', 'over', 'won'].includes(g.phase);
+    el.hidden = !['intro', 'map', 'results', 'reward', 'conquered', 'shop', 'egg', 'over', 'won'].includes(g.phase);
     if (el.hidden) {
       this.lastOverlay = '';
       return;
@@ -236,6 +361,7 @@ export class Hud {
           <h2>${park.name}</h2>
           <p>${park.intro}</p>
           <ul class="rules">${park.rules.map((r) => `<li>${r}</li>`).join('')}</ul>
+          ${g.record.bosses.length ? `<p class="eyebrow shelf-label">Trophy shelf</p>${trophyShelf(g.record.bosses)}` : ''}
           <button class="primary" data-action="begin" autofocus>${park.id === 'finale' ? 'Open the gates' : 'See the map'}</button>
         </div>`;
     }
@@ -290,15 +416,42 @@ export class Hud {
     }
     if (g.phase === 'won') {
       return `
-        <div class="card">
+        <div class="card conquered">
+          <div class="conq-rays" aria-hidden="true"></div>
           <p class="eyebrow">Season complete</p>
-          <h2>The Grand Opening was a hit!</h2>
+          <h2 class="conq-title">The Mayor is broken!</h2>
+          <div class="conq-trophy">${bossPortrait('mayor') ? `<img src="${bossPortrait('mayor')}" alt="">` : ''}<span class="plaque">Grand Opening champion</span></div>
+          <p><strong>The Grand Opening was a hit.</strong></p>
           <p>You sold <strong>${g.runScore.toLocaleString()}</strong> tickets over the season.</p>
           <p class="muted">Best run: ${g.best.toLocaleString()} tickets. Seed ${g.seed}.</p>
+          ${trophyShelf(g.record.bosses)}
           <button class="primary" data-action="newrun" autofocus>Start a new season</button>
         </div>`;
     }
     if (g.phase === 'results' && g.result) return this.resultsHtml();
+    if (g.phase === 'conquered') {
+      const id = g.cfg.boss!;
+      const art = bossPortrait(id);
+      return `
+        <div class="card conquered">
+          <div class="conq-rays" aria-hidden="true"></div>
+          <p class="eyebrow">${g.cfg.park.name} · Park conquered</p>
+          <h2 class="conq-title">${BOSSES[id].name} is broken!</h2>
+          <div class="conq-trophy">${art ? `<img src="${art}" alt="">` : ''}<span class="plaque">${BOSSES[id].name}</span></div>
+          <p class="conq-grow"><strong>Your park grew!</strong> The plot is now ${PLOT_W} × ${g.plot.h}: one more row to build on.</p>
+          <p>Pick a <strong>legendary attraction</strong> (2×2). Only bosses drop these.</p>
+          <div class="perks">
+            ${g.offer
+              .map((r, i) => {
+                const { tag, name, desc } = rewardLabel(r);
+                return `<button class="perk legendary kind-${r.kind}" data-action="reward" data-index="${i}" style="--i:${i}" ${g.canTake(r) ? '' : 'disabled'}><span class="tag">${tag}</span><strong>${name}</strong><span>${desc}</span></button>`;
+              })
+              .join('')}
+          </div>
+          ${g.offer.some((r) => !g.canTake(r)) ? '<p class="muted">No room for a 2×2 on your plot or in the stash. Sell something from the plot to make room.</p>' : ''}
+          <button class="ghost-dark" data-action="skip">Take nothing</button>
+        </div>`;
+    }
     if (g.phase === 'reward') {
       const full = g.offer.some((r) => !g.canTake(r));
       return `
@@ -324,6 +477,7 @@ export class Hud {
           <h2>The park closed for good</h2>
           <p>You made it to ${g.cfg.park.name}, day ${g.dayNum} of the season, and sold <strong>${g.runScore.toLocaleString()}</strong> tickets.</p>
           <p class="muted">Best run: ${g.best.toLocaleString()} tickets. Seed ${g.seed}.</p>
+          ${trophyShelf(g.record.bosses)}
           <button class="primary" data-action="newrun" autofocus>Start a new season</button>
         </div>`;
     }
@@ -381,29 +535,48 @@ export class Hud {
           <button type="submit" class="ghost-dark">Post to highscores</button>
           <span class="post-note" aria-live="polite"></span>
         </form>`;
-    const times = r.passed ? Math.floor(r.total / Math.max(1, r.target)) : 0;
+    const times = r.passed ? Math.floor(r.dayTotal / Math.max(1, r.target)) : 0;
+    const bossName = g.cfg.boss ? BOSSES[g.cfg.boss].name : '';
     const headline = r.passed
       ? g.cfg.boss
-        ? `${BOSSES[g.cfg.boss].name} lost their lunch!`
+        ? `${bossName} is broken!`
         : times >= 2
           ? `${times}× the target!`
           : 'Target reached!'
-      : !r.bossPuked
-        ? `${BOSSES[g.cfg.boss!].name} kept it down`
-        : 'Short of the target';
+      : r.refused
+        ? `${bossName} refused to ride`
+        : r.again
+          ? r.bossHits
+            ? `${bossName} is wobbling!`
+            : r.bossPuked
+              ? 'Broken, but short of the target'
+              : `${bossName} held it in`
+          : !r.bossPuked
+            ? `${bossName} kept it down`
+            : 'Short of the target';
+    const f = g.fight;
+    const bossLine = f
+      ? `<div class="boss-result"><span class="pips">${Array.from({ length: f.max }, (_, i) => `<i class="${i >= r.bossHp ? 'broken' : ''}${i >= r.bossHp && i < r.bossHpBefore ? ' fresh' : ''}"></i>`).join('')}</span><span>${
+          r.bossHits ? `${bossName} puked ${r.bossHits === 1 ? 'once' : `×${r.bossHits}`}` : r.refused ? 'The demands weren’t met' : `${bossName} didn’t puke`
+        } · ${r.bossHp ? `${r.bossHp} more to break` : 'composure gone'} · ride ${r.round} of ${BOSS_ROUNDS}</span></div>`
+      : '';
     return `
-      <div class="card results brief ${r.passed ? 'good' : 'bad'}">
+      <div class="card results brief ${r.passed ? 'good' : r.again ? 'again' : 'bad'}">
         <p class="eyebrow">${title[r.kind]}</p>
         <h2>${headline}</h2>
-        <p class="total big"><span>Tickets sold</span><strong>${r.total.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
+        ${bossLine}
+        <p class="total big"><span>Tickets ${f && f.round > 1 ? 'today' : 'sold'}</span><strong>${r.dayTotal.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
+        ${r.dayTotal !== r.total ? `<p class="total"><span>This ride</span><strong>${r.total.toLocaleString()}</strong></p>` : ''}
         <p class="total"><span>${r.score.rating.toLocaleString()} a puke × ${pukes} puke${pukes === 1 ? '' : 's'}</span></p>
-        ${r.passed ? `<p class="total"><span>Into park funds</span><strong>+${(r.total - r.target).toLocaleString()}</strong></p>` : ''}
-        <p class="outcome ${r.passed ? 'good' : 'bad'}">${
+        ${r.passed ? `<p class="total"><span>Into park funds</span><strong>+${(r.dayTotal - r.target).toLocaleString()}</strong></p>` : ''}
+        <p class="outcome ${r.passed ? 'good' : r.again ? 'again' : 'bad'}">${
           r.passed
             ? g.cfg.boss
               ? 'Park cleared!'
               : 'The crowd loved it.'
-            : `The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
+            : r.again
+              ? `Not done yet: the track comes down and ${bossName} gets back in line. Ride ${r.round + 1} of ${BOSS_ROUNDS}, with half the daylight.`
+              : `The park loses a heart${g.cfg.node === 'finale' ? ', and the Grand Opening runs again tomorrow' : ''}.`
         }</p>
         ${photo ? `<figure class="photo-card"><img src="${photo}" alt="On-ride photo of the riders"></figure>` : ''}
         ${share}
@@ -411,7 +584,7 @@ export class Hud {
           <ul class="tally">${steps}<li class="tally-row rating"><span>Every puke pays</span><strong>${r.score.rating.toLocaleString()}</strong></li></ul>
           ${riders ? `<ul class="report">${riders}</ul>` : ''}
         </details>
-        <button class="primary" data-action="continue" autofocus>Continue</button>
+        <button class="primary" data-action="continue" autofocus>${r.again ? `Ride ${r.round + 1} →` : 'Continue'}</button>
       </div>`;
   }
 

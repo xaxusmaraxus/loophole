@@ -1,4 +1,5 @@
 import './style.css';
+import './boss.css';
 import { music } from './core/music';
 import { sfx } from './core/sfx';
 import { Game } from './game';
@@ -11,6 +12,7 @@ import { lastRecord, nameLocal, postScore, setPlayerName } from './ui/scores';
 import { copyShare, shareNative } from './ui/share';
 import { openScores } from './ui/scoreboard';
 import { driveToken } from './ui/map';
+import { PlotPanel } from './ui/plot';
 
 let mapBusy = false;
 import type { SpecialId } from './puzzle/pieces';
@@ -30,14 +32,32 @@ function act(fn: () => void): void {
   saveRecord(game.record);
   syncMusic();
   hud.update();
+  plotPanel.update();
   // The score show stays up through the results, then clears.
   if (renderer.show.active && game.phase !== 'ride' && game.phase !== 'results') renderer.show.end();
 }
+
+// ---- The park plot panel (backpack grid beside the map and shop) ----
+const plotPanel = new PlotPanel(game, document.getElementById('plotPanel')!, () => act(() => {}));
+Object.assign(window, { loopholePlot: plotPanel });
+// ---- end park plot panel ----
 
 // Handy for playtesting from the browser console.
 Object.assign(window, { loophole: game, loopholeRenderer: renderer, loopholeHud: hud });
 
 renderer.onRideDone = () => act(() => game.rideDone());
+// Boss days: pips crack as the boss pukes, and the title card waits for "Bring it on!".
+renderer.show.onBossPuke = () => {
+  hud.bossCrack();
+  music.stinger('crack');
+};
+hud.onBossCard = (kind) => music.stinger(kind === 'intro' ? 'bossIntro' : 'round');
+document.getElementById('bossCard')!.addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('[data-boss-go]')) {
+    (e.currentTarget as HTMLElement).hidden = true;
+    sfx.bell();
+  }
+});
 renderer.onUnlock = (id) => toast(`Unlocked: ${UNLOCKS[id as UnlockId].name}`, UNLOCKS[id as UnlockId].desc);
 document.getElementById('unlocksHelp')!.addEventListener('click', () => {
   (document.getElementById('helpDialog') as HTMLDialogElement).close();
@@ -58,6 +78,16 @@ const KEYS: Record<string, Dir> = {
 
 window.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLElement && e.target.closest('input, textarea')) return;
+  // The boss's title card is up: any key that would play waits until it's dismissed.
+  const bossCard = document.getElementById('bossCard')!;
+  if (!bossCard.hidden && bossCard.classList.contains('intro')) {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+      e.preventDefault();
+      bossCard.hidden = true;
+      sfx.bell();
+    }
+    return;
+  }
   if (game.phase === 'ride') {
     // Fast-forward the scoring show: everything resolves at once, same totals.
     if (e.key === ' ' || e.key === 'Enter' || e.key === 'Escape') {
@@ -91,7 +121,7 @@ window.addEventListener('keydown', (e) => {
 const wrap = document.getElementById('canvasWrap')!;
 let start: { x: number; y: number } | null = null;
 wrap.addEventListener('pointerdown', (e) => {
-  if ((e.target as HTMLElement).closest('.overlay')) return;
+  if ((e.target as HTMLElement).closest('.overlay, .boss-card, .plot-panel')) return;
   if (game.phase === 'ride') {
     renderer.skipRide();
     return;
@@ -265,6 +295,11 @@ const hudResize = new ResizeObserver(() => {
   reframeQueued = true;
   requestAnimationFrame(() => {
     reframeQueued = false;
+    // The banner row hangs just under the top HUD, however many rows that wrapped into.
+    const under = document.getElementById('hudUnder');
+    const top = document.getElementById('hudTop');
+    const host = under?.offsetParent;
+    if (under && top && host) under.style.top = `${top.getBoundingClientRect().bottom - host.getBoundingClientRect().top + 8}px`;
     renderer.reframe();
   });
 });
@@ -302,7 +337,10 @@ function syncMusic(): void {
   music.setPark(game.cfg.park.id);
   // (The ride theme starts at the dispatch bell, from the ride itself, not when Open is pressed.)
   if (p !== 'ride') music.setMode(p === 'intro' ? 'menu' : p === 'build' ? 'build' : p === 'results' || p === 'over' || p === 'won' ? 'results' : 'map');
-  if (p === 'results' && lastPhase !== 'results' && game.result && !game.result.passed) music.stinger('lose');
+  // Boss days get the boss variant of the park's song while you build and ride.
+  music.setBoss(!!game.fight && (p === 'build' || p === 'ride' || p === 'results'));
+  if (p === 'results' && lastPhase !== 'results' && game.result && !game.result.passed && !game.result.again) music.stinger('lose');
+  if ((p === 'conquered' || p === 'won') && lastPhase !== p) music.stinger('conquered');
   lastPhase = p;
 }
 const startMusic = () => music.start();
@@ -347,4 +385,5 @@ function frame(t: number): void {
 }
 
 hud.update();
+plotPanel.update();
 requestAnimationFrame(frame);

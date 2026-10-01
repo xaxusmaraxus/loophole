@@ -1,0 +1,1034 @@
+/* ==== The park plot: a wooden lot of grass plots where your park takes shape ==== */
+.plot-panel {
+  --cell: 60px;
+  --gap: 10px;
+  --pad: 10px;
+  --step: calc(var(--cell) + var(--gap));
+  --wood: #b07a45;
+  --wood-dark: #6e4524;
+  position: absolute;
+  z-index: 7;
+  right: 16px;
+  top: 16px;
+  max-height: calc(100% - 32px);
+  width: 404px;
+  display: flex;
+  flex-direction: column;
+  color: #2b2140;
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(255, 255, 255, 0.7), transparent 70%),
+    #fbf6ec;
+  border-radius: 26px;
+  box-shadow:
+    0 0 0 4px #2b2140,
+    0 10px 0 4px rgba(20, 14, 40, 0.5),
+    0 26px 50px rgba(6, 8, 24, 0.55);
+  animation: pp-in 380ms cubic-bezier(0.2, 1.3, 0.4, 1);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@keyframes pp-in {
+  from {
+    transform: translateX(30px) rotate(1deg);
+    opacity: 0;
+  }
+}
+
+.pp-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 15px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+}
+
+.pp-handle {
+  display: none;
+}
+
+/* ---- Header and legend ---- */
+.pp-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pp-eyebrow {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8a7f9e;
+}
+
+.pp-head h2 {
+  margin: 0;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.05;
+  color: var(--marquee);
+  text-shadow: 0 2px 0 rgba(43, 33, 64, 0.15);
+}
+
+.pp-count {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  padding: 4px 10px 3px;
+  border-radius: 999px;
+  background: #2b2140;
+  color: #fff6d8;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.15), 0 3px 0 rgba(20, 14, 40, 0.3);
+}
+
+.pp-count strong {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--bulb);
+}
+
+.pp-count span {
+  font-family: var(--font-sign);
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.pp-count small {
+  margin-left: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.pp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pp-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 4px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--tc) 18%, #fff);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tc) 55%, #fff);
+  color: color-mix(in srgb, var(--tc) 45%, #2b2140);
+}
+
+/* ---- The lot: a wooden frame, paving paths, grass plots ---- */
+.pp-frame {
+  align-self: center;
+  padding: 6px;
+  border-radius: 22px;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 3px, transparent 3px 11px, rgba(60, 30, 10, 0.08) 11px 13px, transparent 13px 23px),
+    linear-gradient(180deg, #c48d55, var(--wood) 50%, #94602f);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 240, 210, 0.45),
+    inset 0 -3px 0 rgba(60, 30, 10, 0.3),
+    0 5px 0 var(--wood-dark),
+    0 10px 18px rgba(20, 14, 40, 0.28);
+}
+
+.pp-board {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--cols), var(--cell));
+  grid-auto-rows: var(--cell);
+  gap: var(--gap);
+  padding: var(--pad);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.35) 0 1px, transparent 1.5px) 0 0 / 13px 13px,
+    radial-gradient(circle at 70% 60%, rgba(120, 90, 50, 0.18) 0 1px, transparent 1.5px) 0 0 / 17px 17px,
+    linear-gradient(180deg, #eadbb9, #dccaa0);
+  box-shadow: inset 0 3px 6px rgba(70, 45, 20, 0.35), inset 0 0 0 1.5px rgba(70, 45, 20, 0.25);
+}
+
+.pp-cell {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 11px;
+  background:
+    radial-gradient(circle at 25% 30%, rgba(255, 255, 255, 0.18) 0 2px, transparent 2.5px) 0 0 / 11px 9px,
+    radial-gradient(circle at 70% 70%, rgba(30, 80, 20, 0.22) 0 1.5px, transparent 2px) 0 0 / 9px 12px,
+    linear-gradient(180deg, #86c95f, #5fa944);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 0 -3px 0 rgba(30, 70, 20, 0.25), 0 1px 0 rgba(255, 255, 255, 0.4);
+  cursor: default;
+}
+
+.plot-panel:has(.pp-item.selected) .pp-board .pp-cell:not(:disabled) {
+  cursor: pointer;
+}
+
+.plot-panel:has(.pp-board .pp-item.selected) .pp-cell:hover {
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.55) 0 3px, transparent 3.5px),
+    linear-gradient(180deg, #98d672, #6cb850);
+}
+
+.pp-cell:focus-visible {
+  outline: 3px solid #2b2140;
+  outline-offset: 2px;
+}
+
+/* Spots are placed by their cell, spanning their size. */
+.pp-board > .pp-item,
+.pp-foot,
+.pp-seam {
+  position: absolute;
+  left: calc(var(--pad) + var(--x) * var(--step));
+  top: calc(var(--pad) + var(--y) * var(--step));
+}
+
+.pp-item,
+.pp-foot {
+  width: calc(var(--w) * var(--cell) + (var(--w) - 1) * var(--gap));
+  height: calc(var(--h) * var(--cell) + (var(--h) - 1) * var(--gap));
+}
+
+/* ---- Clay tiles ---- */
+.pp-item {
+  appearance: none;
+  z-index: 2;
+  margin: 0;
+  padding: 4px 3px 5px;
+  border: 0;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #fff;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 10.5px;
+  line-height: 1.05;
+  text-shadow: 0 1px 0 rgba(40, 20, 60, 0.45);
+  background:
+    radial-gradient(90% 60% at 50% 0%, rgba(255, 255, 255, 0.35), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--tc) 80%, #fff) 0%, var(--tc) 42%, color-mix(in srgb, var(--tc) 82%, #2b2140) 100%);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -4px 0 rgba(40, 20, 60, 0.2),
+    0 4px 0 color-mix(in srgb, var(--tc) 50%, #2b2140),
+    0 8px 12px rgba(20, 14, 40, 0.3);
+  cursor: grab;
+  touch-action: none;
+  transition: transform 140ms ease, opacity 140ms ease, filter 140ms ease, box-shadow 140ms ease;
+}
+
+.plot-panel.readonly .pp-item {
+  cursor: pointer;
+}
+
+.pp-item:hover {
+  transform: translateY(-2px);
+}
+
+.pp-item:focus-visible {
+  outline: 3px solid #2b2140;
+  outline-offset: 3px;
+}
+
+.pp-icon {
+  font-size: calc(var(--cell) * 0.42);
+  line-height: 1;
+  filter: drop-shadow(0 2px 0 rgba(40, 20, 60, 0.28));
+}
+
+.pp-name {
+  max-width: 100%;
+  padding: 0 2px;
+  text-align: center;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: normal;
+  hyphens: auto;
+}
+
+/* Rares: a silver rim. */
+.pp-item.rare {
+  box-shadow:
+    inset 0 0 0 3px rgba(236, 241, 250, 0.95),
+    inset 0 5px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -5px 0 rgba(40, 20, 60, 0.2),
+    0 4px 0 color-mix(in srgb, var(--tc) 50%, #2b2140),
+    0 8px 12px rgba(20, 14, 40, 0.3);
+}
+
+.pp-item.rare:not(.turned) {
+  flex-direction: row;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.pp-item.rare:not(.turned) .pp-name {
+  text-align: left;
+}
+
+/* Legendaries: a gold rim and a slow shimmer. */
+.pp-item.legendary {
+  font-size: 13px;
+  gap: 4px;
+  box-shadow:
+    inset 0 0 0 3.5px #ffd23f,
+    inset 0 0 0 5px rgba(160, 110, 10, 0.5),
+    inset 0 7px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -6px 0 rgba(40, 20, 60, 0.22),
+    0 5px 0 #b8860b,
+    0 10px 18px rgba(20, 14, 40, 0.35),
+    0 0 16px rgba(255, 210, 63, 0.45);
+}
+
+.pp-item.legendary:not(.docked) .pp-icon {
+  font-size: calc(var(--cell) * 0.85);
+}
+
+.pp-item.legendary:not(.docked) .pp-name {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.pp-item.legendary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 246, 200, 0.55) 50%, transparent 65%) -200% 0 / 250% 100% no-repeat;
+  animation: pp-shimmer 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pp-shimmer {
+  0%,
+  45% {
+    background-position: 160% 0;
+  }
+  100% {
+    background-position: -160% 0;
+  }
+}
+
+/* Upgrades: softer plaques in their theme's tint. */
+.pp-item.upgrade {
+  color: color-mix(in srgb, var(--tc) 40%, #2b2140);
+  text-shadow: none;
+  border-radius: 18px;
+  background:
+    radial-gradient(90% 60% at 50% 0%, rgba(255, 255, 255, 0.6), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--tc) 22%, #fffaf0), color-mix(in srgb, var(--tc) 42%, #fbf3e3));
+  box-shadow:
+    inset 0 0 0 2.5px color-mix(in srgb, var(--tc) 70%, #fff),
+    inset 0 3px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -4px 0 rgba(40, 20, 60, 0.1),
+    0 4px 0 color-mix(in srgb, var(--tc) 45%, #6b5d80),
+    0 8px 12px rgba(20, 14, 40, 0.25);
+}
+
+.pp-up {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-size: 9px;
+  font-weight: 400;
+  color: #fff;
+  background: color-mix(in srgb, var(--tc) 70%, #2b2140);
+  text-shadow: none;
+}
+
+/* Scoring order and district badges. */
+.pp-order {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 1;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--bulb);
+  background: rgba(43, 33, 64, 0.85);
+  text-shadow: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.pp-badge {
+  position: absolute;
+  top: -8px;
+  right: -5px;
+  z-index: 1;
+  padding: 2px 6px 1px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--tc) 55%, #2b2140);
+  background: #fff;
+  text-shadow: none;
+  box-shadow: 0 0 0 2px var(--tc), 0 0 10px 2px color-mix(in srgb, var(--tc) 70%, transparent), 0 2px 0 2px rgba(20, 14, 40, 0.2);
+}
+
+.pp-size {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+/* District seams: glowing clay stitches across the paving between same-theme spots. */
+.pp-seam {
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 6px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tc) 75%, #fff), var(--tc));
+  box-shadow:
+    0 0 0 2.5px #fff,
+    0 0 12px 3px color-mix(in srgb, var(--tc) 75%, transparent),
+    0 2px 0 2px rgba(20, 14, 40, 0.2);
+}
+
+.pp-seam.v {
+  left: calc(var(--pad) + var(--x) * var(--step) - var(--gap) / 2 - 5px);
+  top: calc(var(--pad) + var(--y) * var(--step) + var(--cell) * 0.28);
+  width: 10px;
+  height: calc(var(--cell) * 0.44);
+}
+
+.pp-seam.h {
+  left: calc(var(--pad) + var(--x) * var(--step) + var(--cell) * 0.28);
+  top: calc(var(--pad) + var(--y) * var(--step) - var(--gap) / 2 - 5px);
+  width: calc(var(--cell) * 0.44);
+  height: 10px;
+}
+
+/* Selection, hover and drag states. */
+.pp-item.selected {
+  transform: translateY(-3px);
+  outline: 3px solid var(--bulb);
+  outline-offset: 3px;
+}
+
+.pp-board.hovering .pp-item:not(.hot, .touch, .touch-other) {
+  opacity: 0.5;
+  filter: saturate(0.6);
+}
+
+.pp-board.hovering .pp-seam {
+  opacity: 0.4;
+}
+
+.pp-item.touch {
+  transform: translateY(-2px);
+  outline: 3px solid color-mix(in srgb, var(--tc) 80%, #fff);
+  outline-offset: 2px;
+}
+
+.pp-item.touch-other {
+  outline: 2.5px dashed rgba(43, 33, 64, 0.65);
+  outline-offset: 2px;
+}
+
+.pp-item.lifting {
+  opacity: 0.28;
+  filter: grayscale(0.5);
+  transform: none;
+}
+
+.pp-ghost {
+  --pad: 0px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  pointer-events: none;
+  cursor: grabbing;
+  opacity: 0.9;
+  transition: none;
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -4px 0 rgba(40, 20, 60, 0.2),
+    0 18px 28px rgba(20, 14, 40, 0.45);
+}
+
+.pp-ghost.legendary {
+  box-shadow:
+    inset 0 0 0 3.5px #ffd23f,
+    0 18px 28px rgba(20, 14, 40, 0.45),
+    0 0 20px rgba(255, 210, 63, 0.5);
+}
+
+.pp-ghost .pp-order,
+.pp-ghost .pp-badge {
+  display: none;
+}
+
+.pp-foot {
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 14px;
+  border: 3px dashed;
+}
+
+.pp-foot {
+  outline: 3px solid transparent;
+  outline-offset: 4px;
+}
+
+.pp-foot.ok {
+  outline-color: rgba(43, 138, 62, 0.85);
+  border-color: #2b8a3e;
+  background: rgba(140, 230, 110, 0.45);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7), 0 0 18px rgba(114, 196, 87, 0.8);
+}
+
+.pp-foot.bad {
+  outline-color: rgba(214, 51, 42, 0.85);
+  border-color: #d6332a;
+  background: rgba(240, 88, 78, 0.4);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.6);
+}
+
+/* ---- The locked row: the next strip of land, fenced off until the boss breaks ---- */
+.pp-locked {
+  align-self: center;
+  width: calc(var(--cols, 5) * var(--cell) + 4 * var(--gap) + 2 * var(--pad) + 12px);
+  margin-top: -2px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 14px;
+  border: 2.5px dashed rgba(122, 84, 50, 0.45);
+  background: repeating-linear-gradient(135deg, rgba(122, 84, 50, 0.1) 0 6px, transparent 6px 12px), #f3ead6;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7a5432;
+}
+
+.pp-locked small {
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: #fff;
+  background: #a87a4e;
+}
+
+/* ---- Rules, hint, notes ---- */
+.pp-rules {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #5d5578;
+}
+
+.pp-rules li {
+  line-height: 20px;
+}
+
+.pp-rules li > b {
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+
+.pp-rules strong {
+  white-space: nowrap;
+}
+
+.pp-rules strong {
+  color: #2b2140;
+}
+
+.pp-o {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--bulb);
+  background: #2b2140;
+}
+
+.pp-dist {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 11px;
+  padding: 1px 5px 0;
+  border-radius: 999px;
+  color: #2b8a3e;
+  background: #fff;
+  box-shadow: 0 0 0 1.5px #72c457;
+}
+
+.pp-rules .pp-dist {
+  flex: none;
+}
+
+.pp-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: #6b6285;
+  background: rgba(43, 33, 64, 0.05);
+}
+
+.pp-note {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #b42318;
+  background: #ffe4df;
+}
+
+/* ---- The detail card ---- */
+.pp-detail {
+  position: relative;
+  padding: 10px 12px 12px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow:
+    inset 0 0 0 2px color-mix(in srgb, var(--tc) 45%, #fff),
+    inset 0 -4px 0 rgba(40, 20, 60, 0.06),
+    0 4px 0 rgba(20, 14, 40, 0.12);
+  animation: pp-pop 220ms cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+@keyframes pp-pop {
+  from {
+    transform: translateY(6px) scale(0.97);
+    opacity: 0;
+  }
+}
+
+.pp-detail-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pp-detail-icon {
+  flex: none;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  border-radius: 13px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--tc) 75%, #fff), var(--tc));
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5), 0 3px 0 color-mix(in srgb, var(--tc) 50%, #2b2140);
+}
+
+.pp-detail.legendary .pp-detail-icon {
+  box-shadow: inset 0 0 0 2.5px #ffd23f, inset 0 3px 0 rgba(255, 255, 255, 0.4), 0 3px 0 #b8860b;
+}
+
+.pp-detail-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-detail h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.pp-tags {
+  margin: 3px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pp-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #ece7fb;
+  color: #5d5578;
+}
+
+.pp-tag.rare {
+  background: linear-gradient(180deg, #f4f7fc, #d9e0ec);
+  color: #46506a;
+  box-shadow: inset 0 0 0 1px #b9c3d6;
+}
+
+.pp-tag.legendary {
+  background: linear-gradient(180deg, #ffe680, #ffc928);
+  color: #6d4c00;
+}
+
+.pp-tag.theme {
+  background: color-mix(in srgb, var(--tc) 18%, #fff);
+  color: color-mix(in srgb, var(--tc) 45%, #2b2140);
+}
+
+.pp-x {
+  align-self: flex-start;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  color: #5d5578;
+  background: #f1edf9;
+  cursor: pointer;
+}
+
+.pp-desc {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.pp-facts {
+  margin: 0 0 10px;
+  padding: 0 0 0 16px;
+  font-size: 12.5px;
+  color: #5d5578;
+}
+
+.pp-facts b {
+  color: #2b2140;
+}
+
+.pp-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.pp-actions button {
+  flex: 1;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  font: 600 13px var(--font-body);
+  white-space: nowrap;
+  color: #2b2140;
+  background: #ece7fb;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), 0 3px 0 #c9c0e4;
+  cursor: pointer;
+}
+
+.pp-actions button:hover:not(:disabled) {
+  background: #e2dbf7;
+}
+
+.pp-actions button:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.7), 0 1px 0 #c9c0e4;
+}
+
+.pp-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pp-actions .sell {
+  color: #c2362c;
+}
+
+.pp-actions .sell.armed {
+  color: #fff;
+  background: var(--marquee);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.35), 0 3px 0 #a8322a;
+}
+
+.pp-actions button:focus-visible,
+.pp-x:focus-visible,
+.pp-handle:focus-visible {
+  outline: 3px solid #2b2140;
+  outline-offset: 2px;
+}
+
+/* ---- The loading dock ---- */
+.pp-dock {
+  padding: 8px 10px 10px;
+  border-radius: 16px;
+  background:
+    repeating-linear-gradient(90deg, rgba(110, 69, 36, 0.06) 0 2px, transparent 2px 14px),
+    #f1e6cf;
+  box-shadow: inset 0 2px 4px rgba(110, 69, 36, 0.18);
+}
+
+.pp-dock-title {
+  margin: 0 0 6px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pp-dock-title span {
+  font-family: var(--font-sign);
+  font-size: 12px;
+  color: #7a5432;
+}
+
+.pp-dock-title small {
+  font-size: 11px;
+  color: #9a7d5e;
+}
+
+.pp-slots {
+  display: flex;
+  gap: 8px;
+}
+
+.pp-slot {
+  flex: 1;
+  height: calc(var(--cell) + 12px);
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  border: 2.5px dashed rgba(122, 84, 50, 0.4);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.pp-slot > span {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(122, 84, 50, 0.55);
+}
+
+.pp-slot.full {
+  border-style: solid;
+  border-color: rgba(122, 84, 50, 0.2);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.pp-slot .pp-item {
+  position: relative;
+  width: var(--cell);
+  height: var(--cell);
+}
+
+.pp-slot .pp-item.legendary .pp-icon,
+.pp-slot .pp-item .pp-icon {
+  font-size: calc(var(--cell) * 0.42);
+}
+
+.pp-slot .pp-item.rare {
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+}
+
+.pp-slot .pp-item.legendary {
+  font-size: 10.5px;
+}
+
+.pp-dock.drop .pp-slot:not(.full) {
+  border-color: #2b8a3e;
+  background: rgba(140, 230, 110, 0.35);
+}
+
+.plot-panel.dragging .pp-dock {
+  box-shadow: inset 0 2px 4px rgba(110, 69, 36, 0.18), 0 0 0 2px rgba(122, 84, 50, 0.25);
+}
+
+/* ---- Making room for the panel beside the map and the cards ---- */
+.canvas-wrap.plot-open > .overlay {
+  padding-right: 436px;
+}
+
+.canvas-wrap.plot-open .mapsheet {
+  width: min(calc(100vw - 460px), calc((100dvh - 24px) * 100 / 130), 720px);
+}
+
+@media (max-width: 1000px) and (min-width: 641px) {
+  .plot-panel {
+    --cell: 46px;
+    --gap: 7px;
+    width: 322px;
+    right: 12px;
+  }
+
+  .canvas-wrap.plot-open > .overlay {
+    padding-right: 346px;
+  }
+
+  .canvas-wrap.plot-open .mapsheet {
+    width: min(calc(100vw - 366px), calc((100dvh - 24px) * 100 / 130), 720px);
+  }
+}
+
+/* ---- Phones: a drawer along the bottom ---- */
+@media (max-width: 640px) {
+  .plot-panel {
+    --cell: min(58px, calc((100vw - 104px) / 5));
+    --gap: 7px;
+    --pad: 8px;
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: auto;
+    height: auto;
+    max-height: min(84dvh, calc(100% - 70px));
+    margin: 0;
+    border-radius: 22px;
+    box-shadow:
+      0 0 0 3px #2b2140,
+      0 8px 0 3px rgba(20, 14, 40, 0.5),
+      0 -10px 40px rgba(6, 8, 24, 0.45);
+    animation: pp-up 320ms cubic-bezier(0.2, 1.2, 0.4, 1);
+  }
+
+  @keyframes pp-up {
+    from {
+      transform: translateY(40px);
+      opacity: 0;
+    }
+  }
+
+  .pp-handle {
+    appearance: none;
+    flex: none;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    min-height: 50px;
+    padding: 12px 16px 8px;
+    border: 0;
+    border-radius: 22px 22px 0 0;
+    background: transparent;
+    color: #2b2140;
+    font: 500 14px var(--font-body);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .pp-handle strong {
+    font-family: var(--font-sign);
+    font-weight: 400;
+    color: var(--marquee);
+  }
+
+  .pp-grip {
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    width: 40px;
+    height: 4px;
+    margin-left: -20px;
+    border-radius: 2px;
+    background: rgba(43, 33, 64, 0.25);
+  }
+
+  .pp-chev {
+    font-size: 13px;
+    color: #5d5578;
+    transition: transform 200ms ease;
+  }
+
+  .plot-panel.open .pp-chev {
+    transform: rotate(180deg);
+  }
+
+  .plot-panel:not(.open) .pp-body {
+    display: none;
+  }
+
+  .pp-body {
+    padding-top: 2px;
+  }
+
+  .pp-item {
+    padding: 3px 2px 4px;
+    font-size: 10px;
+  }
+
+  .pp-actions button {
+    font-size: 12.5px;
+    padding: 6px 4px;
+  }
+
+  .pp-head {
+    display: none;
+  }
+
+  .canvas-wrap.plot-open > .overlay {
+    padding-right: 16px;
+    padding-bottom: 76px;
+  }
+
+  .canvas-wrap.plot-open .mapsheet {
+    width: min(calc(100vw - 24px), calc((100dvh - 100px) * 100 / 130), 720px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plot-panel,
+  .pp-detail,
+  .pp-item.legendary::after {
+    animation: none;
+  }
+
+  .pp-item {
+    transition: none;
+  }
+}
+
+.pp-hint kbd {
+  padding: 0 5px;
+  border-radius: 5px;
+  font: 600 11px var(--font-body);
+  background: #fff;
+  box-shadow: 0 2px 0 rgba(43, 33, 64, 0.2);
+}

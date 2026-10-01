@@ -237,7 +237,7 @@ export function mapHtml(g: Game): string {
           const info = NODE_INFO[n.kind];
           const isBoss = n.kind === 'boss' || n.kind === 'finale';
           const name = n.kind === 'boss' ? BOSSES[boss].name : info.name;
-          const desc = isBoss ? `${info.desc} Stomach ${BOSSES[boss].stomach}. ${BOSSES[boss].trait}` : info.desc;
+          const desc = isBoss ? `${BOSSES[boss].ruleName}: ${BOSSES[boss].ruleDesc} Break them with ${BOSSES[boss].composure} pukes. Stomach ${BOSSES[boss].stomach}. ${BOSSES[boss].trait}` : info.desc;
           const art = mapArt(n.kind, id, isBoss ? boss : undefined);
           return `<button type="button" class="mnode ${n.kind} ${state}${isBoss ? ' big' : ''}" style="left:${((s.x / W) * 100).toFixed(2)}%;top:${((s.y / H) * 100).toFixed(2)}%" data-action="node" data-col="${ci}" data-node="${ni}" ${reachable ? '' : 'disabled'} aria-label="${name}. ${desc}">
             <span class="mglow" aria-hidden="true"></span>

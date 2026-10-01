@@ -15,7 +15,7 @@ function freshGame(): Game {
 /** Pretend the current day just ended with this many tickets. */
 function finish(g: Game, total: number): void {
   g.phase = 'results';
-  g.result = { kind: 'circuit', stats: g.stats, score: g.score('circuit'), tickets: [], total, target: g.cfg.target, bossPuked: true, bossHits: 0, bossHp: 0, round: 1, dayTotal: total, refused: false, again: false, passed: total >= g.cfg.target, timeline: [] };
+  g.result = { kind: 'circuit', stats: g.stats, score: g.score('circuit'), tickets: [], total, target: g.cfg.target, bossPuked: true, bossHits: 0, bossHp: 0, bossHpBefore: 0, round: 1, dayTotal: total, refused: false, again: false, passed: total >= g.cfg.target, timeline: [] };
   g.continueFromResults();
 }
 

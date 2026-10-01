@@ -53,6 +53,20 @@ describe('the park plot', () => {
     expect(district(p, c)).toBe(0);
   });
 
+  it('dropping onto a spot of the same shape swaps them', () => {
+    const g = new Game('SWAP');
+    g.gain({ kind: 'attraction', id: 'loopdeloop' });
+    g.gain({ kind: 'upgrade', id: 'hype' });
+    g.phase = 'map';
+    const [a, b] = g.plot.items;
+    expect(g.placeItem(a.uid, 1, 0)).toBe(true);
+    expect([a.x, b.x]).toEqual([1, 0]);
+    // A 1×1 can't swap into a 2×1.
+    g.gain({ kind: 'attraction', id: 'quicktrip' });
+    const rare = g.plot.items[2];
+    expect(g.placeItem(a.uid, rare.x, rare.y)).toBe(false);
+  });
+
   it('new things go on the first free spot, then the stash, then nowhere', () => {
     const g = new Game('PLOT');
     for (let i = 0; i < 10; i++) expect(g.gain({ kind: 'upgrade', id: 'hype' })).toBe(true);

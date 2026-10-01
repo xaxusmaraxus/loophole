@@ -112,8 +112,9 @@ export interface DayResult {
   bossPuked: boolean;
   /** Times the boss puked on this ride. */
   bossHits: number;
-  /** Boss composure left after this ride. */
+  /** Boss composure left after this ride, and before it. */
   bossHp: number;
+  bossHpBefore: number;
   /** Ride number on a boss day (1 otherwise). */
   round: number;
   /** Tickets today, earlier rides included: what the target is measured against. */
@@ -432,7 +433,7 @@ export class Game {
     const it = this.findItem(uid);
     if (!it || !this.canEditPlot) return false;
     const t = turned ?? it.turned;
-    if (!fits(this.plot, it, x, y, t, uid)) return false;
+    if (!fits(this.plot, it, x, y, t, uid)) return this.swapInto(it, x, y, t);
     Object.assign(it, { x, y, turned: t });
     const k = this.plot.stash.indexOf(it);
     if (k >= 0) {
@@ -441,6 +442,37 @@ export class Game {
     }
     this.refreshMods();
     return true;
+  }
+
+  /**
+   * Dropping onto a spot of the same shape swaps the two (from the stash, the
+   * other one goes to the dock instead).
+   */
+  private swapInto(it: PlotItem, x: number, y: number, turned: boolean, dry = false): boolean {
+    const p = this.plot;
+    const mine = cellsOf({ ...it, x, y, turned });
+    const hit = p.items.filter((o) => o !== it && cellsOf(o).some((c) => mine.some((m) => m.x === c.x && m.y === c.y)));
+    const o = hit[0];
+    if (hit.length !== 1 || o.x !== x || o.y !== y || o.turned !== turned) return false;
+    const a = cellsOf({ ...it, x: 0, y: 0, turned });
+    const b = cellsOf({ ...o, x: 0, y: 0 });
+    if (a.length !== b.length || a.some((c, k) => c.x !== b[k].x || c.y !== b[k].y)) return false;
+    if (dry) return true;
+    const inStash = p.stash.indexOf(it);
+    if (inStash >= 0) {
+      p.stash[inStash] = o;
+      p.items = p.items.map((i) => (i === o ? it : i));
+      Object.assign(o, { x: -1, y: -1 });
+    } else Object.assign(o, { x: it.x, y: it.y, turned: it.turned });
+    Object.assign(it, { x, y, turned });
+    this.refreshMods();
+    return true;
+  }
+
+  /** Whether a spot could be dropped at (x, y): it fits, or swaps with a same-shaped spot. */
+  canPlace(uid: number, x: number, y: number, turned: boolean): boolean {
+    const it = this.findItem(uid);
+    return !!it && (fits(this.plot, it, x, y, turned, uid) || this.swapInto(it, x, y, turned, true));
   }
 
   /** Take a spot off the plot into the stash. */
@@ -834,6 +866,7 @@ export class Game {
     const boss = tickets.find((t) => t.rider.boss);
     const f = this.fight;
     const bossHits = boss?.pukes ?? 0;
+    const hpBefore = f?.hp ?? 0;
     if (f) f.hp = Math.max(0, f.hp - bossHits);
     const bossPuked = !f || f.hp <= 0;
     const dayTotal = (f?.banked ?? 0) + total;
@@ -857,6 +890,7 @@ export class Game {
       bossPuked,
       bossHits,
       bossHp: f?.hp ?? 0,
+      bossHpBefore: hpBefore,
       round: f?.round ?? 1,
       dayTotal,
       refused,
