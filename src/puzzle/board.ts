@@ -64,7 +64,8 @@ export interface Board {
    * The track eats tiles: a tile that slides into an open end of the track
    * becomes the next piece of track, right where it stopped. Only the red end
    * eats (one tile per swipe); the blue platform cell is home, where the loop
-   * closes. (Off for bare test boards.)
+   * closes. Only the mouth is solid: tiles hop over the rest of the track.
+   * (Off for bare test boards.)
    */
   eat?: boolean;
 }
@@ -305,6 +306,8 @@ export interface SlideMove {
   flavor?: Flavor | null;
   /** The tile slid into an end of the track and became track. */
   eaten?: End;
+  /** For animation: track cells it hops over on the way (filled in by the renderer). */
+  hops?: number;
 }
 
 export interface Eaten {
@@ -344,14 +347,19 @@ export function slide(b: Board, dir: Dir): SlideResult {
 
   for (let lane = 0; lane < n; lane++) {
     // Leading edge first, so tiles pile up against it.
+    // (The line is built per lane, so the mouth's position is read fresh after any eat in an earlier lane.)
     const line: Pt[] = [];
     for (let k = 0; k < n; k++) {
       const s = reversed ? n - 1 - k : k;
-      line.push(d.x !== 0 ? { x: s, y: lane } : { x: lane, y: s });
+      const p = d.x !== 0 ? { x: s, y: lane } : { x: lane, y: s };
+      // Where the track eats tiles, only the mouth is solid: tiles hop straight over the
+      // rest of the track (they can't stop on it), so the track never cuts the board apart.
+      if (b.eat && trackAt(b, p.x, p.y) && !samePt(head(b, 0), p)) continue;
+      line.push(p);
     }
     let dest = 0;
     let last: { pos: number; tier: number; merged: boolean } | null = null;
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < line.length; i++) {
       const p = line[i];
       if (isWall(b, p.x, p.y)) {
         dest = i + 1;
@@ -373,7 +381,8 @@ export function slide(b: Board, dir: Dir): SlideResult {
       } else {
         const q = line[dest];
         // The first tile of a run stops against whatever is ahead of it: if that's an open end of the track, it's eaten.
-        const stopper = dest === 0 ? { x: line[0].x + d.x, y: line[0].y + d.y } : line[dest - 1];
+        // What's right ahead of where it stops (with hop-over track, not always the previous cell in the line).
+        const stopper = { x: q.x + d.x, y: q.y + d.y };
         const end = last ? null : mouth(stopper);
         if (end !== null) {
           const fl = flavorAt(b, idx(b, p.x, p.y));
@@ -533,6 +542,15 @@ export function swipe(b: Board, dir: Dir, rng: Rng, opts: SwipeOptions): SwipeRe
   }
   const mergeCount = s.merges.length + chain.waves.reduce((a, w) => a + w.length, 0);
   return { dir, slides: s.slides, merges: s.merges, slid, slidFlav, chain, spawned, sunk, mergeCount, eaten: s.eaten };
+}
+
+/** The mouth (the red end) has no free neighbor left: nothing can ever reach it again. */
+export function boxedIn(b: Board): boolean {
+  const h = head(b, 0);
+  return DIRS.every((d) => {
+    const t = step(h, d);
+    return !inBounds(b, t.x, t.y) || !!b.obstacles[idx(b, t.x, t.y)] || !!trackAt(b, t.x, t.y);
+  });
 }
 
 /** Can any swipe still move something (or feed the track)? If not, it's gridlock. */

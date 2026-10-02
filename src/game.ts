@@ -10,6 +10,7 @@ import {
   type TrackCell,
   build,
   buildTargets,
+  boxedIn,
   canSwipe,
   type Eaten,
   slide,
@@ -92,8 +93,8 @@ export type GameEvent =
   | { type: 'blocked' }
   | { type: 'arrive'; rider: Rider; reason: ArrivalReason }
   | { type: 'open'; kind: RideKind }
-  /** No swipe can move anything: the ride opens by itself. */
-  | { type: 'gridlock' }
+  /** No swipe can move anything (or the mouth boxed itself in): the ride opens by itself. */
+  | { type: 'gridlock'; boxed?: boolean }
   | { type: 'tool'; tool: ToolId; at?: Pt }
   | { type: 'special'; special: SpecialId; at: Pt }
   | { type: 'unlock'; id: UnlockId }
@@ -679,8 +680,11 @@ export class Game {
    * circuit if the ends meet, else a shuttle (or nothing at all).
    */
   private checkGridlock(): void {
-    if (this.phase !== 'build' || canSwipe(this.board)) return;
-    this.events.push({ type: 'gridlock' });
+    if (this.phase !== 'build') return;
+    // Like Snake: the mouth boxed itself in (every neighbor is track, rock or edge), so nothing can feed it again.
+    const boxed = boxedIn(this.board) && !canConnect(this.board);
+    if (!boxed && canSwipe(this.board)) return;
+    this.events.push({ type: 'gridlock', boxed });
     const kind = this.openKind;
     if (kind) return this.open(kind);
     // Not a single piece of track: nobody rides.
@@ -761,6 +765,7 @@ export class Game {
       const laid = build(b, t.end, x, y)!;
       this.spend('crew', { x, y });
       this.events.push({ type: 'build', laid, end: t.end });
+      this.checkGridlock();
       return;
     }
     if (aim.tool === 'dynamite') {

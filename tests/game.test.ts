@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
-import { idx, stationPoint, trackAt } from '../src/puzzle/board';
+import { boxedIn, idx, stationPoint, trackAt } from '../src/puzzle/board';
 import { dayConfig, modsFor, parkFor } from '../src/run/run';
 
 /** A new game, past the intro card, on the first day node. */
@@ -53,6 +53,39 @@ describe('the track eats tiles', () => {
     g.swipe('left');
     expect(b.ends[0].map((c) => c.tier)).toEqual([2, 2]);
     expect(g.openKind).toBe('circuit');
+  });
+
+  it('tiles hop over the track (only the mouth is solid), and can merge across it', () => {
+    const g = cleared();
+    const b = g.board;
+    const s = stationPoint(b, 0);
+    // A track running up the red column, three pieces tall.
+    for (let k = 1; k <= 3; k++) b.ends[0].push({ x: s.x, y: b.size - k, tier: 1 });
+    // A Hill left of the track, a Hill right of it, in the same row (below the mouth).
+    const row = b.size - 2;
+    if (s.x === 0) b.tiles[idx(b, s.x + 1, row)] = 2;
+    else b.tiles[idx(b, s.x - 1, row)] = 2;
+    b.tiles[idx(b, b.size - 1, row)] = 2;
+    g.swipe('left');
+    // They met across the rails and merged into a Drop at the left edge.
+    expect(b.tiles.filter((t) => t === 3)).toHaveLength(1);
+    expect(b.tiles[idx(b, 0, row)]).toBe(s.x === 0 ? 0 : 3);
+  });
+
+  it('a mouth that boxes itself in ends the day', () => {
+    const g = cleared();
+    const b = g.board;
+    const n = b.size;
+    b.station = { x: 0, y: n };
+    // Up the left edge, right along the top of a hook, down, then back left: the head at (1, n-2)
+    // is walled in by its own track on three sides and a rock below.
+    for (const [x, y] of [[0, n - 1], [0, n - 2], [0, n - 3], [1, n - 3], [2, n - 3], [2, n - 2], [1, n - 2]]) b.ends[0].push({ x, y, tier: 1 });
+    b.obstacles[idx(b, 1, n - 1)] = 'rock';
+    expect(boxedIn(b)).toBe(true);
+    b.tiles[idx(b, n - 1, 0)] = 2;
+    g.swipe('left');
+    expect(g.phase).toBe('ride');
+    expect(g.events.some((e) => e.type === 'gridlock' && e.boxed)).toBe(true);
   });
 
   it('tapping the park no longer builds', () => {

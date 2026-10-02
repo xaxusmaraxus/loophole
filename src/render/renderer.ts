@@ -939,7 +939,10 @@ export class Renderer {
           break;
         case 'gridlock':
           this.gridlockAt = this.now;
-          this.after(this.gulps.length ? SLIDE_MS + GULP_MS : SLIDE_MS + 40, () => this.gridlockShow());
+          {
+            const boxed = !!e.boxed;
+            this.after(this.gulps.length ? SLIDE_MS + GULP_MS : SLIDE_MS + 40, () => this.gridlockShow(boxed));
+          }
           break;
         case 'tool': {
           const at = e.at ? this.cell(e.at) : this.stationCenter();
@@ -1717,7 +1720,10 @@ export class Renderer {
       for (const s of mv.slides) {
         const x = s.from.x + (s.to.x - s.from.x) * e;
         const y = s.from.y + (s.to.y - s.from.y) * e;
-        this.crate(s.tier, x, y, idx(b, s.to.x, s.to.y), 0, 0, Math.sin(e * Math.PI) * 0.06, s.flavor ?? null);
+        // Tiles hop over the track on their way (only the mouth is solid): a little arc over the rails.
+        const hops = s.hops ?? (s.hops = this.trackBetween(s.from, s.to));
+        const lift = hops ? Math.sin(e * Math.PI) * (0.42 + 0.08 * hops) : 0;
+        this.crate(s.tier, x, y, idx(b, s.to.x, s.to.y), 0, lift, hops ? 0 : Math.sin(e * Math.PI) * 0.06, s.flavor ?? null);
       }
       return;
     }
@@ -1742,6 +1748,15 @@ export class Renderer {
       // The grabbed tile hops over into the merged one.
       this.crate(w.tier - 1, x, y, ti, 0, Math.sin(t * Math.PI) * 0.45, 0, w.fromFlavor ?? null);
     }
+  }
+
+  /** Track cells strictly between two cells in a line (the rails a sliding tile hops over). */
+  private trackBetween(a: Pt, c: Pt): number {
+    const dx = Math.sign(c.x - a.x);
+    const dy = Math.sign(c.y - a.y);
+    let n = 0;
+    for (let x = a.x + dx, y = a.y + dy; x !== c.x || y !== c.y; x += dx, y += dy) if (trackAt(this.board, x, y) && !(x === c.x && y === c.y)) n++;
+    return n;
   }
 
   private flashAt(i: number): number {
@@ -2334,10 +2349,10 @@ export class Renderer {
   }
 
   /** Gridlock: a honk, the whole board shudders, then the ride opens by itself. */
-  private gridlockShow(): void {
+  private gridlockShow(boxed = false): void {
     const n = this.n;
     const top = v3(n / 2, 1.6, n / 2 - 0.2);
-    const el = this.word('GRIDLOCK!', top, PAL.gold, 2.3);
+    const el = this.word(boxed ? 'BOXED IN!' : 'GRIDLOCK!', top, PAL.gold, 2.3);
     el.style.webkitTextStroke = '3px var(--ink)';
     el.style.textShadow = '0 5px 0 var(--ink)';
     this.after(420, () => {
