@@ -194,11 +194,11 @@ export const BOSSES: Record<BossId, BossDef> = {
   barry: {
     name: 'Big Barry',
     quip: 'Has never puked. Not once. Not even at the chili festival.',
-    stomach: 14,
+    stomach: 8,
     composure: 3,
     rule: 'seconds',
     ruleName: 'Second Helpings',
-    ruleDesc: 'Barry snacks while you build: his stomach grows by 1 every 4 swipes. Open early!',
+    ruleDesc: 'Barry snacks while you play: his stomach grows by 1 every 4 moves (up to +6). Break him early!',
     trait: 'Huge. Everything hits him, just not very hard.',
     worth: 8,
     look: { shirt: 0, pants: 2, hairStyle: 'short', hair: 0, accessory: 'corndog' },
@@ -206,7 +206,7 @@ export const BOSSES: Record<BossId, BossDef> = {
   granny: {
     name: 'Granny Grit',
     quip: 'Rode the first wooden coaster in 1952. Was bored.',
-    stomach: 6,
+    stomach: 5,
     composure: 3,
     rule: 'seenitall',
     ruleName: 'Seen It All',
@@ -218,7 +218,7 @@ export const BOSSES: Record<BossId, BossDef> = {
   ivy: {
     name: 'Iron-Gut Ivy',
     quip: 'Forty years at sea. Ate a storm once.',
-    stomach: 8,
+    stomach: 10,
     composure: 3,
     rule: 'waves',
     ruleName: 'Rough Seas',
@@ -231,7 +231,7 @@ export const BOSSES: Record<BossId, BossDef> = {
   lou: {
     name: 'Lifeguard Lou',
     quip: 'NO RUNNING. NO DIVING. NO FUN.',
-    stomach: 10,
+    stomach: 12,
     composure: 3,
     rule: 'whistle',
     ruleName: 'No Running!',
@@ -243,7 +243,7 @@ export const BOSSES: Record<BossId, BossDef> = {
   vertigo: {
     name: 'Dr. Vertigo',
     quip: 'Wrote the textbook on motion sickness. Immune, allegedly.',
-    stomach: 12,
+    stomach: 10,
     composure: 3,
     rule: 'spin',
     ruleName: 'Spin Cycle',
@@ -256,7 +256,7 @@ export const BOSSES: Record<BossId, BossDef> = {
   count: {
     name: 'Count Queasy',
     quip: 'Undead for 300 years. Has not felt a thing since.',
-    stomach: 12,
+    stomach: 8,
     composure: 3,
     rule: 'blackout',
     ruleName: 'Lights Out',

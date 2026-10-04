@@ -55,7 +55,7 @@ describe('the always-running ride', () => {
     expect(g.openKind).toBe('circuit');
     expect(g.actions).toBe(1);
     expect(g.trainPos).toBe(1);
-    // A tile dropped in for the move.
+    // Both tiles went into the track; growing drops in no tile (only because the board went empty does one appear).
     expect(b.tiles.filter((t) => t > 0)).toHaveLength(1);
   });
 

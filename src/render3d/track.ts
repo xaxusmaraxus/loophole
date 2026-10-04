@@ -246,7 +246,8 @@ export class TrackPath {
       st(0),
       ...A.map((c) => ({ ...c, station: false })),
     ];
-    return new TrackPath(cells, b.opened === 'circuit', ground, lift);
+    // The always-running loop (v0.23) is closed from the start: the last piece runs back down into the platform.
+    return new TrackPath(cells, b.opened === 'circuit' || !!b.loop, ground, lift);
   }
 
   /** Ground height under a board cell (hills). */

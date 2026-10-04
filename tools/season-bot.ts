@@ -16,7 +16,7 @@ function playDay(g: Game, rnd: () => number, greed: number) {
   while (g.phase === 'build' && guard++ < 400) {
     const b = g.board;
     const sure = g.banked + g.projected('circuit');
-    if (sure >= g.cfg.target * (1 + greed / 20) || (g.room <= 2 && sure >= g.cfg.target) || guard > 300) { g.open('circuit'); break; }
+    if (!process.env.MAXOUT && sure >= g.cfg.target * (1 + greed / 20) || (g.room <= 2 && sure >= g.cfg.target) || guard > 300) { g.open('circuit'); break; }
     // Grow: the best bulge by the tiles it takes in.
     let grow: { x: number; y: number; v: number } | null = null;
     for (const c of g.growCells) {
@@ -47,7 +47,7 @@ const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
 const perDay: Record<number, number[]> = {};
 const targets: Record<number, number> = {};
 let wins = 0, reached: number[] = []; let bossFails = 0, bossDays = 0; const rounds: Record<number, number> = {}; const perBoss: Record<string, number[]> = {};
-for (let run = 0; run < 200; run++) {
+for (let run = 0; run < Number(process.env.RUNS ?? 200); run++) {
   const g = new Game('B' + run);
   const greed = 8 + Math.floor(rnd() * 14);
   let guard = 0;
@@ -65,7 +65,7 @@ for (let run = 0; run < 200; run++) {
     if (g.phase === 'build') {
       playDay(g, rnd, greed);
       const r = g.result!;
-      (perDay[g.dayNum] ??= []).push(r.total);
+      (perDay[g.dayNum] ??= []).push(r.dayTotal);
       if (g.cfg.boss && !r.again) { bossDays++; if (!r.bossPuked) bossFails++; rounds[r.round] = (rounds[r.round] ?? 0) + (r.passed ? 1 : 0); const pb = (perBoss[g.cfg.boss] ??= [0, 0, 0]); pb[0]++; if (r.bossPuked) pb[1]++; if (r.passed) pb[2]++; }
       targets[g.dayNum] = g.cfg.node === 'boss' ? targets[g.dayNum] ?? r.target : r.target;
       g.continueFromResults();

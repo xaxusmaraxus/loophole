@@ -310,6 +310,34 @@ The user found building track a chore: once the tiles were merged, tapping a pat
 - **Dropped for now:** bridges, tunnels and piers. The track only grows into cells where it eats a tile. The rules are still in `board.ts` for later.
 - **Balance** (bot with one-swipe lookahead, 200 seasons): targets are now 2,400 ×1.85 a day, the finale ×2.5, and bosses need 3 pukes to break (the Mayor 4). The bot reaches day 8 at the median, wins 19% of seasons, and fails 30% of boss days. This bot is smarter than the old one, so it isn't a floor any more. Human play decides.
 
+## The ride is always running (v0.23)
+The eating versions took away control: the user missed choosing where the track goes. They asked for an incremental, escalating mechanic instead.
+- **The ride is open from the first move.** Each day starts with the smallest loop (up from the platform, across, back down) with the train on it.
+- **Tap to grow.** Tap a tile touching the loop and the loop bulges out sideways over that tile and the cell beside it. Both become track (an empty partner cell is flat track). You choose where the ride grows, it's always a closed circuit, and there's no pathfinding. The Track Crew tool can bulge into empty cells.
+- **Every move rolls the train one stop.** A move is a swipe that moved something, or a grow. When the train passes the station, a lap is done:
+  - Everyone in line rides the loop as it is now and pays for every puke.
+  - The tickets go into the day's bank.
+  - The riders get off. An unbroken boss gets straight back in line, so bosses take hits every lap and there are no more rematch rounds.
+  - Bigger, wilder rides draw bigger crowds, so laps pay more and more: that's the escalation.
+- **The tension:**
+  - A longer loop pays more per lap, but laps come round less often.
+  - Swipes drop in tiles. Growing turns two cells into track (and drops none).
+  - The board fills, and the day ends when you **close the park** (a last, fully animated ride that pays like a lap) or when it **jams** (nothing can slide and the loop can't grow).
+  - Tiles hop over the track, so the board never gets cut into pieces.
+- **The look:**
+  - The train sits on the loop and glides one stop per move.
+  - At the station, the riders who puked do so from the cars, each gets a "+N", "LAP 3 · +1,764" lands, and the bank ticks up. A lap where nobody pukes says so, so you learn the ride must get wilder.
+  - Tiles you can grow into glow, with chevrons marching into the ride.
+  - The top bar shows the lap, the day's tickets against the target, and free room.
+- **Balance:** targets are now a per-day table measured from the bot, because the bigger Boardwalk board is a big jump:
+
+  | Day | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | Finale |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Target | 2,800 | 3,800 | 7,000 | 50,000 | 70,000 | 120,000 | 180,000 | 220,000 | 300,000 | 1,600,000 |
+
+  Shop prices follow the targets. Big Barry's snacking stops at +6, and some boss stomachs were lowered. The bot reaches day 9 at the median and wins about 30% of seasons.
+- **The eating rules** (`Board.eat`) and the mouths are still in the code but switched off.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

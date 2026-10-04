@@ -293,20 +293,27 @@ export interface DayConfig {
  * attractions that multiply each other to keep up. Day 1 sits near what a simple
  * bot scores with no attractions at all.
  */
-export const BASE_TARGET = 2400;
-export const TARGET_GROWTH = 1.85;
+export const BASE_TARGET = 2800;
+/** Ticket targets per season day (days 1 to 9; the finale has its own). */
+export const DAY_TARGETS = [2800, 3800, 7000, 50000, 70000, 120000, 180000, 220000, 300000];
+export const FINALE_TARGET = 1600000;
+export const TARGET_GROWTH = 1.4;
 
 /** Funds, prices and payouts scale with the targets. */
 export function priceScale(day: number): number {
-  return (BASE_TARGET / 300) * TARGET_GROWTH ** (day - 1);
+  const target = DAY_TARGETS[day - 1] ?? DAY_TARGETS[DAY_TARGETS.length - 1] * TARGET_GROWTH ** (day - DAY_TARGETS.length);
+  return target / 300;
 }
 
 export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day', parkBoss: BossId | null = null): DayConfig {
   const park = parkFor(day);
   const d = Math.min(DAYS_PER_PARK, ((day - 1) % DAYS_PER_PARK) + 1);
   const boss = node === 'boss' || node === 'finale' ? parkBoss ?? BOSS_POOL[park.id][0] : null;
-  let target = BASE_TARGET * TARGET_GROWTH ** (day - 1);
-  if (node === 'finale') target *= 2.5;
+  // The always-running ride: a day lasts until you close the park or it jams, so
+  // targets come from what a day can yield (bot-measured, then set a notch below
+  // it). The bigger Boardwalk board is a big jump. Past the table, keep growing.
+  let target = DAY_TARGETS[day - 1] ?? DAY_TARGETS[DAY_TARGETS.length - 1] * TARGET_GROWTH ** (day - DAY_TARGETS.length);
+  if (node === 'finale') target = Math.max(target, FINALE_TARGET);
   return {
     day,
     park,

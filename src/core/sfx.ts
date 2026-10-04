@@ -242,6 +242,31 @@ export const sfx = {
     noise(0.5, 0.12, 0, 3000, 300, 0.7);
     tone(520, 0.12, 'sine', 0.04, 0.02, 220);
   },
+  /** The loop swells out to take in new pieces: a stretchy rising boing. */
+  grow() {
+    tone(180, 0.22, 'triangle', 0.12, 0, 520);
+    tone(360, 0.18, 'square', 0.025, 0.05, 900);
+    noise(0.18, 0.05, 0, 500, 2400, 2);
+  },
+  /** The train whooshes through the station. */
+  swoosh() {
+    noise(0.35, 0.09, 0, 400, 3600, 1.5);
+    tone(220, 0.3, 'sine', 0.05, 0, 440);
+  },
+  /** A lap pays out: a cash-register ka-ching that climbs with the lap number. */
+  register(lap: number) {
+    const k = Math.min(lap - 1, 14);
+    noise(0.05, 0.14, 0, 5000, 2500, 3);
+    tone(semi(988, k), 0.08, 'square', 0.03, 0.04);
+    tone(semi(1319, k), 0.35, 'triangle', 0.09, 0.08);
+    tone(semi(1976, k), 0.4, 'triangle', 0.05, 0.12);
+    tone(semi(165, k), 0.2, 'sine', 0.18, 0.02, semi(110, k));
+  },
+  /** A lap that paid nothing: a deflated two-note honk. */
+  dud() {
+    tone(220, 0.18, 'triangle', 0.08, 0, 200);
+    tone(165, 0.32, 'triangle', 0.08, 0.16, 140);
+  },
   isMuted: () => muted,
   setMuted(m: boolean) {
     muted = m;

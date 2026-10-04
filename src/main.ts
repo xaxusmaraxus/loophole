@@ -43,10 +43,12 @@ Object.assign(window, { loopholePlot: plotPanel });
 // ---- end park plot panel ----
 
 // Handy for playtesting from the browser console.
-Object.assign(window, { loophole: game, loopholeRenderer: renderer, loopholeHud: hud });
+Object.assign(window, { loophole: game, loopholeRenderer: renderer, loopholeHud: hud, loopholeAct: act });
 
 renderer.onRideDone = () => act(() => game.rideDone());
 renderer.onOpenMe = () => act(() => game.open());
+// The always-running ride: a lap paid out at the station, so the bank ticks up.
+renderer.onLap = (lap, total, bossHits) => hud.lapPaid(lap, total, bossHits);
 // Boss days: pips crack as the boss pukes, and the title card waits for "Bring it on!".
 renderer.show.onBossPuke = () => {
   hud.bossCrack();
@@ -147,8 +149,10 @@ wrap.addEventListener('pointerup', (e) => {
   const dir = dragDir(e.clientX - start.x, e.clientY - start.y);
   start = null;
   if (!dir) {
-    const cell = game.aiming ? renderer.cellAt(e.clientX, e.clientY) : null;
-    if (cell) act(() => game.tap(cell.x, cell.y));
+    // A tap aims a tool, or grows the always-running loop over a tile next to it.
+    const cell = game.aiming || game.board.loop ? renderer.cellAt(e.clientX, e.clientY) : null;
+    const grows = !!cell && !game.aiming && game.growCells.some((c) => c.x === cell.x && c.y === cell.y);
+    if (cell && (game.aiming || grows)) act(() => game.tap(cell.x, cell.y));
     else if (e.pointerType !== 'mouse') showGuest(e.clientX, e.clientY, true);
     return;
   }
@@ -193,7 +197,10 @@ function showGuest(x: number, y: number, sticky = false): boolean {
 }
 wrap.addEventListener('pointermove', (e) => {
   if (e.pointerType !== 'mouse' || start || (e.target as HTMLElement).closest('.overlay')) return;
-  showGuest(e.clientX, e.clientY);
+  if (showGuest(e.clientX, e.clientY)) return;
+  // Tiles that grow the loop are clickable.
+  const cell = game.phase === 'build' && game.board.loop && !game.aiming ? renderer.cellAt(e.clientX, e.clientY) : null;
+  wrap.style.cursor = cell && game.growCells.some((c) => c.x === cell.x && c.y === cell.y) ? 'pointer' : '';
 });
 wrap.addEventListener('pointerleave', () => {
   guestCard.hidden = true;

@@ -11,7 +11,7 @@
   <body>
     <div class="app">
       <div class="canvas-wrap" id="canvasWrap">
-        <canvas id="park" aria-label="The park. Swipe to slide and merge tiles, and into the ends of the track to build it. Hover a guest to meet them."></canvas>
+        <canvas id="park" aria-label="The park. Swipe to slide and merge tiles; tap a tile next to the ride to grow the loop. Hover a guest to meet them."></canvas>
         <div class="tension" id="tension" aria-hidden="true"></div>
         <div class="combo" id="combo" aria-hidden="true"></div>
         <div class="guest-card" id="guestCard" hidden></div>
@@ -29,8 +29,12 @@
         <div class="hud-mid">
           <span id="quota" class="pill quota"></span>
           <div class="daylight" aria-live="off">
+            <div class="bank-line" id="bankLine" title="Tickets banked from today's laps, out of the day's target">
+              <span class="bank-num"><b id="bankNum">0</b><span id="bankTarget"></span></span>
+              <span id="daylightLeft" class="daylight-left"></span>
+            </div>
+            <div class="bank-track" id="bankTrack"><span class="bank-ghost" id="bankGhost"></span><span class="bank-fill" id="bankBar"></span></div>
             <div class="daylight-track"><span id="daylightBar"></span></div>
-            <span id="daylightLeft" class="daylight-left"></span>
           </div>
         </div>
         <div class="hud-right">
@@ -106,18 +110,19 @@
           <ol>
             <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
             <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
-            <li>When the two ends meet, <strong>open the full circuit</strong> (tap OPEN ME). Or cash out any time as a shuttle for half.</li>
-            <li><strong>The track eats tiles.</strong> The end of the track is a hungry red mouth. Swipe a tile into it and it becomes the next piece of the coaster (drag slowly to see which tile a swipe will feed); it eats one tile per swipe. Bring the mouth back next to the blue pad on the platform to close the loop. Tiles hop straight over the rest of the track, so the board never gets cut apart; only the mouth stops them. Steer the mouth into a corner where it can't reach any free cell and you're boxed in: the ride opens with what you've built. Merge tiles before you feed them in: bigger pieces make a wilder ride.</li>
-            <li>There's no turn limit. Every swipe drops in a new tile and the track takes up room, so the board fills. Bring the two ends together and open the ride whenever you like; if nothing can move any more, it's gridlock and the ride opens by itself (as a half-price shuttle if the ends don't meet).</li>
+            <li><strong>The ride is always running.</strong> Every day starts with a tiny loop over the station, already open, and a train on it.</li>
+            <li><strong>Tap a tile next to the ride to grow it.</strong> The loop bulges out over that tile and the cell beside it, and both become track (an empty cell becomes flat track). Merge tiles first: bigger pieces make a wilder ride. Glowing tiles are the ones you can grow into. Tiles hop over the track, so it never cuts the board apart.</li>
+            <li><strong>Every move rolls the train one stop on.</strong> When it comes back through the station, that's a <strong>lap</strong>: everyone in line rides the loop as it is right now and pays for every puke. The tickets go in the bank, the riders get off, and a bigger, wilder ride draws a bigger crowd. If a lap pays nothing, the loop needs to get wilder.</li>
+            <li><strong>Close the park</strong> whenever you're happy: the last ride runs in full and pays like a lap. Every swipe drops in a new tile, so the board fills; if nothing can slide and the loop can't grow, it's gridlock and the park closes by itself. Today's bank plus the last ride has to reach the target.</li>
             <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
             <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line (hover a guest to meet them). A shuttle hits every piece twice but pays half.</li>
             <li><strong>Your park plot:</strong> attractions and upgrades sit on a grid you arrange between days. Attractions score top row first, left to right, and each gets +1 multiplier for every touching spot of its theme. Targets climb fast, so build combos.</li>
             <li>The <strong>capsule machine</strong> (in shops and treasure stops) sells eggs. Crack one and pick: attractions, tools, or a <strong>bus tour</strong> that adds a rider type to your line every morning.</li>
             <li><strong>Park pieces:</strong> chain reactions of two links or more make the park's own pieces: 🌀 spinning cars in the Meadow (nausea ×1.5), 💧 water flumes on the Boardwalk (+1 multiplier), 🦇 hanging track in the Hollow (+3 thrill, counts as upside down). Big combos (6, 9, 12 merges in one swipe) pay a free special piece.</li>
-            <li>Each park ends with a <strong>boss</strong> who bends the rules for the day. Make them puke enough times to break their composure; you get up to three rides. Breaking a boss grows your plot and drops a legendary attraction.</li>
+            <li>Each park ends with a <strong>boss</strong> who bends the rules for the day. Make them puke enough times to break their composure: they ride every lap until they break. Breaking a boss grows your plot and drops a legendary attraction.</li>
             <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
           </ol>
-          <p class="keys">Keys: arrows or WASD swipe, 1–5 use tools, Esc cancels a tool, Enter opens the ride, Z undoes. Seed <span id="seed"></span></p>
+          <p class="keys">Keys: arrows or WASD swipe, click or tap a glowing tile to grow the ride, 1–5 use tools, Esc cancels a tool, Enter closes the park, Z undoes. Seed <span id="seed"></span></p>
           <div class="help-actions">
             <button type="button" class="ghost-dark" id="unlocksHelp">Unlocks</button>
             <button type="button" class="ghost-dark" id="newRunHelp">Start a new season</button>

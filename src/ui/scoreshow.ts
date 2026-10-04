@@ -31,6 +31,8 @@ export class ScoreShow {
   private result: DayResult | null = null;
   private shown = 0;
   private total = 0;
+  /** Tickets already banked today before this ride (the always-running ride's laps): the odometer starts there. */
+  private base = 0;
   private milestone = 0;
   private lastRoll = 0;
   private streak = 0;
@@ -100,7 +102,10 @@ export class ScoreShow {
     this.result = result;
     this.shown = 0;
     this.total = 0;
+    this.base = Math.max(0, result.dayTotal - result.total);
+    // Milestones the bank already passed don't cheer again.
     this.milestone = 0;
+    while (this.milestone < MILESTONES.length && this.base / Math.max(1, result.target) >= MILESTONES[this.milestone]) this.milestone++;
     this.streak = 0;
     this.riderPukes.clear();
     this.pukedYet = false;
@@ -111,10 +116,10 @@ export class ScoreShow {
     this.el.mult.textContent = '1';
     this.el.rating.textContent = '0';
     this.el.pukes.textContent = '0';
-    this.el.total.textContent = '0';
+    this.el.total.textContent = fmtNum(this.base);
     this.el.ticker.textContent = result.kind === 'shuttle' ? 'Shuttle: every puke pays half' : 'All aboard!';
-    this.el.goal.textContent = `Target ${fmtNum(result.target)}`;
-    this.el.fill.style.width = '0%';
+    this.el.goal.textContent = this.base ? `${fmtNum(this.base)} banked · target ${fmtNum(result.target)}` : `Target ${fmtNum(result.target)}`;
+    this.el.fill.style.width = `${Math.min(100, (this.base / Math.max(1, result.target)) * 100)}%`;
     this.panel.hidden = false;
     document.querySelector('.app')?.classList.add('riding');
     this.layout();
@@ -323,14 +328,14 @@ export class ScoreShow {
     if (diff > 0) {
       // Fast when far behind, easing into the final digits.
       this.shown = this.reduce ? this.total : Math.min(this.total, this.shown + Math.max(diff * Math.min(1, dt * 7), 3 * dt * 60));
-      this.el.total.textContent = fmtNum(this.shown);
+      this.el.total.textContent = fmtNum(this.base + this.shown);
       if (now - this.lastRoll > 55) {
         this.lastRoll = now;
         sfx.roll(this.streak);
         this.el.totalBox.classList.add('rolling');
       }
     } else this.el.totalBox.classList.remove('rolling');
-    const frac = this.shown / Math.max(1, r.target);
+    const frac = (this.base + this.shown) / Math.max(1, r.target);
     this.el.fill.style.width = `${Math.min(100, frac * 100)}%`;
     this.panel.classList.toggle('cleared', frac >= 1);
     this.panel.style.setProperty('--glow', Math.min(1, frac / 5).toFixed(2));

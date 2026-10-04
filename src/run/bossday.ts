@@ -9,6 +9,8 @@ import type { RideStats } from '../puzzle/pieces';
 
 /** Swipes between the boss's rule kicking in. */
 export const SECONDS_EVERY = 4;
+/** Big Barry can only eat so much: his stomach grows by at most this. */
+export const SECONDS_CAP = 6;
 export const WAVE_EVERY = 5;
 export const SPIN_EVERY = 6;
 /** Tiles a dry swipe drops in on Lifeguard Lou's day. */

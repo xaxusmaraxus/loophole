@@ -1,4 +1,5 @@
 import type { Game, RideKind } from '../game';
+import { sfx } from '../core/sfx';
 import { canConnect, trackLength } from '../puzzle/board';
 import { SPECIALS, type SpecialId } from '../puzzle/pieces';
 import { BOSSES, BOSS_ROUNDS, type BossId, KINDS, type Look, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
@@ -83,7 +84,7 @@ export class Hud {
     $('day').innerHTML = park.id === 'finale' ? park.name : `<span class="pn">${park.name} · </span>Day ${g.dayNum}<span class="of"> of ${FINALE_DAY}</span>`;
     $('hearts').innerHTML = Array.from({ length: 3 }, (_, i) => `<span class="heart${i < g.hearts ? '' : ' lost'}" aria-hidden="true"></span>`).join('');
     $('hearts').setAttribute('aria-label', `${g.hearts} of 3 park reputation left`);
-    $('quota').textContent = `Sell ${g.cfg.target.toLocaleString()} tickets`;
+    this.renderBank();
     $('funds').textContent = `Funds ${g.funds.toLocaleString()}`;
     $('seed').textContent = g.seed;
 
@@ -102,7 +103,7 @@ export class Hud {
     const tight = g.phase === 'build' && g.room <= LOW_ROOM;
     $('daylightBar').classList.toggle('dusk', g.room <= 4);
     document.querySelector('.daylight')?.classList.toggle('low', tight);
-    $('daylightLeft').textContent = g.phase !== 'build' ? `${g.room} free cells` : g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'} left` : 'Board full: one more move, or gridlock';
+    $('daylightLeft').textContent = g.phase !== 'build' ? `${g.room} free cells` : g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'}` : 'Board full!';
     // Tension: a vignette closes in as the board fills.
     $('tension').style.opacity = tight ? String(Math.min(1, (LOW_ROOM + 1 - g.room) / (LOW_ROOM + 1)) * 0.9 + 0.1) : '0';
 
@@ -141,20 +142,34 @@ export class Hud {
     else if (aim?.tool === 'dynamite') hint.textContent = 'Tap a tree, rock, pond or stand to blow it up.';
     else if (aim && aim.tool in SPECIALS) hint.textContent = `Tap a piece of your track to fit the ${SPECIALS[aim.tool as SpecialId].name} there. Tap it again to cancel.`;
     else if (aim?.tool === 'crane') hint.textContent = aim.first ? 'Now tap where the tile should go.' : 'Tap the tile the crane should lift.';
+    else if (aim?.tool === 'crew' && g.board.loop) hint.textContent = 'Tap any free cell beside the ride: the crew swells the loop out over it by hand.';
     else if (aim?.tool === 'crew') hint.textContent = 'Tap a cell right next to an end of the track: the crew lays it by hand.';
-    else if (canConnect(g.board))
-      hint.innerHTML = `<strong>The ends meet!</strong> Open the full circuit now, or keep feeding it for a wilder ride.${g.room <= LOW_ROOM ? ` Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!` : ''}`;
-    else if (g.room <= LOW_ROOM)
-      hint.innerHTML = `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge to make room, or open the ride before it jams.`;
-    else if (trackLength(g.board) === 0) hint.innerHTML = 'Swipe tiles <strong>into the red mouth</strong>: the track eats them. Merge first, the bigger the piece the wilder the ride. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
-    else hint.innerHTML = 'Feed the red mouth and steer it back home to the <strong>blue pad</strong> to close the loop. <span class="soft">Drag slowly to see what a swipe will feed.</span>';
-    hint.classList.toggle('ready', building && canConnect(g.board));
+    else if (g.board.loop) {
+      const grow = g.growCells.length;
+      const stuck = !grow ? ' <strong>Nothing touches the ride:</strong> slide a tile up next to it.' : '';
+      hint.innerHTML =
+        g.room <= LOW_ROOM
+          ? `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge or grow to make room, or close the park before it jams.${stuck}`
+          : g.lap > 0 && this.lastLap === 0
+            ? `<strong>Nobody puked on lap ${g.lap}.</strong> The ride needs to get wilder: tap a glowing tile to grow it with a bigger piece.${stuck}`
+            : g.lap === 0 && trackLength(g.board) <= 2
+            ? `<strong>Tap a tile next to the ride to grow it.</strong> Every move rolls the train on; each lap pays. Close the park when you're happy, or keep growing.${stuck}`
+            : `Lap ${g.lap + 1} in ${g.lapLength - g.trainPos} move${g.lapLength - g.trainPos === 1 ? '' : 's'}. <strong>Tap a glowing tile</strong> to grow the ride, or close the park when you're happy.${stuck}`;
+    } else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit now, or keep building for a wilder ride.';
+    else hint.innerHTML = 'Swipe to merge tiles: the bigger the piece, the wilder the ride.';
+    hint.classList.toggle('ready', building && !g.board.loop && canConnect(g.board));
     hint.classList.toggle('tight', building && !aim && g.room <= LOW_ROOM);
     const open = $<HTMLButtonElement>('open');
     open.disabled = !kind;
     open.classList.toggle('circuit', kind === 'circuit');
-    open.innerHTML = kind ? `${kind === 'circuit' ? 'Open the ride' : 'Open as shuttle'} <span class="count">${g.projected(kind).toLocaleString()}</span>` : 'Open the ride';
-    open.title = kind === 'shuttle' ? 'Out and back along the track, at half the rating' : '';
+    if (g.board.loop) {
+      // The always-running ride: the button ends the day with one last full ride.
+      open.innerHTML = `Close the park <span class="count">+${g.projected('circuit').toLocaleString()}</span>`;
+      open.title = 'Run the last ride in full (it pays like a lap) and end the day';
+    } else {
+      open.innerHTML = kind ? `${kind === 'circuit' ? 'Open the ride' : 'Open as shuttle'} <span class="count">${g.projected(kind).toLocaleString()}</span>` : 'Open the ride';
+      open.title = kind === 'shuttle' ? 'Out and back along the track, at half the rating' : '';
+    }
 
     $<HTMLButtonElement>('undo').disabled = !building || g.undos === 0;
     $('undoCount').textContent = String(g.undos);
@@ -165,6 +180,104 @@ export class Hud {
     this.renderOverlay();
     this.renderBossCard();
     if (g.phase !== 'ride') this.cracks = 0;
+  }
+
+  /** The bank as shown: it waits for the train to come round, then ticks up. */
+  private bankShown = 0;
+  private bankKey = '';
+  private bankAnim = 0;
+  private bankHit = false;
+  private bankTimer = 0;
+
+  /** Today's tickets so far against the target, and the lap count. */
+  private renderBank(): void {
+    const g = this.game;
+    const target = g.cfg.target;
+    const key = `${g.seed}:${g.dayNum}:${g.cfg.node}`;
+    const live = !!g.board.loop && (g.phase === 'build' || g.phase === 'ride');
+    if (key !== this.bankKey || g.banked < this.bankShown || g.phase !== 'build') {
+      // A new day, an undo, or the build is over: no tick-up, just the number.
+      if (key !== this.bankKey) {
+        this.bankHit = g.banked >= target;
+        this.lastLap = null;
+      }
+      this.bankKey = key;
+      cancelAnimationFrame(this.bankAnim);
+      this.bankShown = g.banked;
+    } else if (g.banked > this.bankShown) {
+      // A lap is on its way round: if the show never calls it in, catch up anyway.
+      clearTimeout(this.bankTimer);
+      this.bankTimer = window.setTimeout(() => this.lapPaid(-1, 0, 0), 5000);
+    }
+    const quota = $('quota');
+    if (!live) {
+      quota.textContent = `Sell ${target.toLocaleString()} tickets`;
+      $('bankLine').hidden = true;
+      $('bankTrack').hidden = true;
+      return;
+    }
+    $('bankLine').hidden = false;
+    $('bankTrack').hidden = false;
+    quota.textContent = `Lap ${g.lap}`;
+    this.paintBank();
+  }
+
+  private paintBank(): void {
+    const g = this.game;
+    const target = g.cfg.target;
+    const shown = Math.round(this.bankShown);
+    $('bankNum').textContent = shown.toLocaleString();
+    $('bankTarget').textContent = ` / ${target.toLocaleString()} tickets`;
+    const frac = Math.min(1, shown / Math.max(1, target));
+    $('bankBar').style.width = `${frac * 100}%`;
+    // The ghost: where closing the park right now would get you.
+    const proj = g.phase === 'build' ? g.projected('circuit') : 0;
+    $('bankGhost').style.width = `${Math.min(1, (shown + proj) / Math.max(1, target)) * 100}%`;
+    $('bankTrack').classList.toggle('hit', shown >= target);
+    $('bankLine').classList.toggle('hit', shown >= target);
+  }
+
+  /** What the last lap paid (null before the first, or after a catch-up). */
+  private lastLap: number | null = null;
+
+  /** A lap paid out at the station: the bank ticks up with a bump. */
+  lapPaid(lap: number, total: number, bossHits: number): void {
+    const g = this.game;
+    if (lap === g.lap) {
+      // Remember a dud lap for the hint (and boss hits crack the pips on the bar).
+      this.lastLap = total;
+      this.update();
+    }
+    clearTimeout(this.bankTimer);
+    const from = this.bankShown;
+    const to = g.banked;
+    $('quota').textContent = `Lap ${g.lap}`;
+    if (to <= from) return;
+    const t0 = performance.now();
+    const ms = Math.min(1100, 450 + (to - from) / 40);
+    const quota = $('quota');
+    const line = $('bankLine');
+    for (const el of [quota, line]) {
+      el.classList.remove('bump');
+      void el.offsetWidth;
+      el.classList.add('bump');
+    }
+    cancelAnimationFrame(this.bankAnim);
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / ms);
+      this.bankShown = from + (to - from) * (1 - (1 - k) ** 3);
+      this.paintBank();
+      if (k < 1) this.bankAnim = requestAnimationFrame(tick);
+      else if (!this.bankHit && to >= g.cfg.target) {
+        // First time over the line today: a fanfare.
+        this.bankHit = true;
+        line.classList.remove('bump');
+        void line.offsetWidth;
+        line.classList.add('bump', 'hit');
+        sfx.target();
+      }
+    };
+    this.bankAnim = requestAnimationFrame(tick);
   }
 
   private lastBoss = '';
@@ -207,10 +320,12 @@ export class Hud {
       live = tiers.length ? `Counts once each: ${tiers.map((t) => PIECES[t].name).join(', ')}` : 'Every piece type counts once';
     } else if (def.rule === 'blackout') live = 'You can only see tiles next to your track';
     else if (def.rule === 'demands') live = `<span class="demands">${g.demands().map((d) => `<span class="${d.met ? 'met' : ''}">${d.met ? '✓' : '✗'} ${d.text}</span>`).join('')}</span>`;
-    const preview = building && boss ? (g.refuses(boss, g.openKind ?? 'circuit') ? 'Won’t get on yet' : hits ? `This ride cracks ${hits}` : 'This ride: no crack yet') : '';
+    const ride = g.board.loop ? 'Each lap' : 'This ride';
+    const preview = building && boss ? (g.refuses(boss, g.openKind ?? 'circuit') ? 'Won’t get on yet' : hits ? `${ride} cracks ${hits}` : `${ride}: no crack yet`) : '';
+    const roundTxt = g.board.loop ? `Rides every lap · lap ${g.lap}` : `Ride ${f.round} of ${BOSS_ROUNDS}`;
     const html = `
       <div class="bb-who">${bossPortrait(id) ? `<img class="bb-face" src="${bossPortrait(id)}" alt="">` : ''}
-        <div class="bb-name"><strong>${def.name}</strong><span>Ride ${f.round} of ${BOSS_ROUNDS}${f.banked ? ` · ${f.banked.toLocaleString()} banked` : ''}</span></div></div>
+        <div class="bb-name"><strong>${def.name}</strong><span>${roundTxt}${f.banked ? ` · ${f.banked.toLocaleString()} banked` : ''}</span></div></div>
       <div class="bb-hp" aria-label="Composure: ${f.hp} of ${f.max} left"><span class="bb-label">Composure</span><span class="pips">${pips}</span><span class="bb-preview">${preview}</span></div>
       <div class="bb-rule"><span class="bb-rule-name" title="${def.ruleDesc}">${def.ruleName}</span><span class="bb-live">${live}</span></div>`;
     if (html === this.lastBoss) return;
@@ -246,7 +361,7 @@ export class Hud {
           <h2 class="bc-name">${def.name}</h2>
           <p class="bc-quip">“${def.quip}”</p>
           <div class="bc-rule"><strong>${def.ruleName}</strong><span>${def.ruleDesc}</span></div>
-          <p class="bc-goal">Make them puke <b>${def.composure}×</b> to break them. You get up to <b>${BOSS_ROUNDS} rides</b>. Stomach ${def.stomach}. ${def.trait}</p>
+          <p class="bc-goal">Make them puke <b>${def.composure}×</b> to break them. ${g.board.loop ? 'They ride <b>every lap</b> until they break.' : `You get up to <b>${BOSS_ROUNDS} rides</b>.`} Stomach ${def.stomach}. ${def.trait}</p>
           <button type="button" class="primary bc-go" data-boss-go>Bring it on!</button>
         </div>`;
       this.onBossCard?.('intro');
@@ -574,7 +689,7 @@ export class Hud {
     const bossLine = f
       ? `<div class="boss-result"><span class="pips">${Array.from({ length: f.max }, (_, i) => `<i class="${i >= r.bossHp ? 'broken' : ''}${i >= r.bossHp && i < r.bossHpBefore ? ' fresh' : ''}"></i>`).join('')}</span><span>${
           r.bossHits ? `${bossName} puked ${r.bossHits === 1 ? 'once' : `×${r.bossHits}`}` : r.refused ? 'The demands weren’t met' : `${bossName} didn’t puke`
-        } · ${r.bossHp ? `${r.bossHp} more to break` : 'composure gone'} · ride ${r.round} of ${BOSS_ROUNDS}</span></div>`
+        } · ${r.bossHp ? `${r.bossHp} more to break` : 'composure gone'}${g.board.loop ? '' : ` · ride ${r.round} of ${BOSS_ROUNDS}`}</span></div>`
       : '';
     return `
       <div class="card results brief ${r.passed ? 'good' : r.again ? 'again' : 'bad'}">
@@ -582,7 +697,13 @@ export class Hud {
         <h2>${headline}</h2>
         ${bossLine}
         <p class="total big"><span>Tickets ${f && f.round > 1 ? 'today' : 'sold'}</span><strong>${r.dayTotal.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
-        ${r.dayTotal !== r.total ? `<p class="total"><span>This ride</span><strong>${r.total.toLocaleString()}</strong></p>` : ''}
+        ${
+          g.board.loop
+            ? `<p class="total"><span>${g.lap} lap${g.lap === 1 ? '' : 's'} banked</span><strong>${(r.dayTotal - r.total).toLocaleString()}</strong></p><p class="total"><span>Last ride</span><strong>${r.total.toLocaleString()}</strong></p>`
+            : r.dayTotal !== r.total
+              ? `<p class="total"><span>This ride</span><strong>${r.total.toLocaleString()}</strong></p>`
+              : ''
+        }
         <p class="total"><span>${r.score.rating.toLocaleString()} a puke × ${pukes} puke${pukes === 1 ? '' : 's'}</span></p>
         ${r.passed ? `<p class="total"><span>Into park funds</span><strong>+${(r.dayTotal - r.target).toLocaleString()}</strong></p>` : ''}
         <p class="outcome ${r.passed ? 'good' : r.again ? 'again' : 'bad'}">${

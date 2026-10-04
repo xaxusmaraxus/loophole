@@ -24,7 +24,7 @@ import {
 } from 'three';
 import { music } from '../core/music';
 import { sfx } from '../core/sfx';
-import type { Game } from '../game';
+import type { Game, GameEvent } from '../game';
 import {
   type Board,
   type ChainStep,
@@ -36,12 +36,14 @@ import {
   DELTA,
   DIRS,
   buildTargets,
+  bulgeFor,
   canConnect,
   head,
   idx,
   inBounds,
   isWall,
   rideOrder,
+  samePt,
   step,
   trackAt,
 } from '../puzzle/board';
@@ -312,6 +314,17 @@ export class Renderer {
   private bars: HTMLDivElement[] = [];
   /** Riders lined up after the ride, by car index. */
   private lineup: Walker[] = [];
+  /** The always-running ride (v0.23): the parked train's position in stops (0 = the station), and the stops' cells. */
+  private loopTrain = { shown: 0, keys: [] as string[] };
+  /** Laps waiting for the train to come round, then paying out (riders stay seated until they get off). */
+  private laps: { e: Extract<GameEvent, { type: 'lap' }>; riders: Rider[]; at: number; paying: boolean }[] = [];
+  /** Who sits in the parked train's cars right now, and where their heads are. */
+  private seatRiders: Rider[] = [];
+  private seatPts: { head: Vector3; mouth: Vector3; fwd: Vector3; carry: Vector3 }[] = [];
+  /** Close the park: the train rolls home to the station first, then this starts the ride. */
+  private homeRun: (() => void) | null = null;
+  /** A lap paid out (the HUD ticks its bank up). */
+  onLap: (lap: number, total: number, bossHits: number) => void = () => {};
   /** Test hook (?fixeddt=ms): advance a fixed step per frame, however slow the frames are. */
   private fixed = Number(new URLSearchParams(location.search).get('fixeddt') ?? 0);
   private vnow = 0;
@@ -568,6 +581,11 @@ export class Renderer {
     this.gulps = [];
     this.preview = null;
     this.ridePending = false;
+    this.loopTrain = { shown: this.game.trainPos, keys: [] };
+    this.laps = [];
+    this.seatRiders = [];
+    this.seatPts = [];
+    this.homeRun = null;
     for (const m of this.mouths) m.ready = false;
     this.syncTrack(true);
     this.tileAnim = null;
@@ -899,6 +917,10 @@ export class Renderer {
         case 'build': {
           // Eaten tiles get their own gulp (see startGulps).
           if (this.eatenCells.has(e.laid)) break;
+          if (this.board.loop) {
+            this.growFx(e.laid);
+            break;
+          }
           const c = this.cell(e.laid);
           this.dust(c.clone().setY(0.1), 14, PAL.plaza[2]);
           this.sparkle(c.clone().setY(0.3), 10, TIER_RAMPS[Math.max(1, e.laid.tier)][1]);
@@ -918,25 +940,44 @@ export class Renderer {
           if (e.reason !== 'walkin') this.word(e.reason === 'chain' ? 'WOW' : 'OOH', s.clone().setY(0.7), PAL.gold);
           break;
         }
+        case 'lap':
+          this.laps.push({ e, riders: e.tickets.map((t) => t.rider), at: this.now, paying: false });
+          break;
         case 'undo':
+          // Undo puts the train back where it was, at once; laps it undid never pay.
+          this.laps = this.laps.filter((l) => l.paying);
+          this.syncTrack();
+          this.loopTrain.shown = this.game.trainPos;
           this.tileAnim = null;
           this.gulps = [];
           this.eatHold.clear();
           break;
-        case 'open':
-          if (this.now - this.gridlockAt < 1) {
-            // Gridlock opened it: let the jam land first.
-            this.ridePending = true;
-            this.after(GRIDLOCK_MS, () => {
+        case 'open': {
+          // The always-running ride: the train rolls home to the station before the last ride.
+          const go = () => {
+            if (!this.board.loop) {
               this.ridePending = false;
               sfx.open();
               this.startRide();
-            });
-          } else {
-            sfx.open();
-            this.startRide();
-          }
+              return;
+            }
+            this.ridePending = true;
+            this.homeRun = () => {
+              this.homeRun = null;
+              this.ridePending = false;
+              this.laps = [];
+              this.seatRiders = [];
+              sfx.open();
+              this.startRide();
+            };
+          };
+          if (this.now - this.gridlockAt < 1) {
+            // Gridlock opened it: let the jam land first.
+            this.ridePending = true;
+            this.after(GRIDLOCK_MS, go);
+          } else go();
           break;
+        }
         case 'gridlock':
           this.gridlockAt = this.now;
           {
@@ -1168,9 +1209,9 @@ export class Renderer {
     this.particles.add({ p: at.clone(), v: v3((Math.random() - 0.5) * 1.2, 1.8, (Math.random() - 0.5) * 0.8), g: 4, max: 1.6, color, size: 0.07 });
   }
 
-  word(text: string, at: Vector3, color: string, big = 1): HTMLElement {
+  word(text: string, at: Vector3, color: string, big = 1, ms = 1100, solo = false): HTMLElement {
     // The same shout again nearby just counts up ("OOH ×3").
-    const same = this.words.find((w) => w.base === text && this.now - w.born < 900 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 1.6);
+    const same = solo ? null : this.words.find((w) => w.base === text && this.now - w.born < 900 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 1.6);
     if (same) {
       same.count = (same.count ?? 1) + 1;
       same.el.textContent = `${text} ×${same.count}`;
@@ -1181,7 +1222,7 @@ export class Renderer {
       return same.el;
     }
     // Stack different shouts that land on the same spot instead of piling them up.
-    const near = this.words.filter((w) => this.now - w.born < 700 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 0.9).length;
+    const near = solo ? 0 : this.words.filter((w) => this.now - w.born < 700 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 0.9).length;
     at = at.clone().setY(at.y + near * 0.22);
     const el = document.createElement('span');
     el.className = 'w3d';
@@ -1189,7 +1230,7 @@ export class Renderer {
     el.style.color = color;
     el.style.setProperty('--s', String(big));
     this.wordLayer.append(el);
-    this.words.push({ el, at: at.clone(), born: this.now, max: 1100, base: text });
+    this.words.push({ el, at: at.clone(), born: this.now, max: ms, base: text });
     return el;
   }
 
@@ -1249,6 +1290,7 @@ export class Renderer {
     this.foamFlumes(gdt);
     this.drawCrates();
     this.drawTargets();
+    this.drawGrow();
     this.drawMouths();
     this.drawPreview();
     this.drawQueue(dt);
@@ -1263,7 +1305,8 @@ export class Renderer {
         this.ride = null;
         this.onRideDone();
       }
-    } else if (this.game.phase !== 'ride' || this.ridePending) this.drawParkedTrain();
+    } else if (this.board.loop && (this.game.phase === 'build' || this.ridePending)) this.drawLoopTrain(gdt);
+    else if (this.game.phase !== 'ride' || this.ridePending) this.drawParkedTrain();
     this.show.tick(dt, now);
     const due = this.later.filter((l) => l.at <= now);
     this.later = this.later.filter((l) => l.at > now);
@@ -1567,12 +1610,13 @@ export class Renderer {
 
   private syncTrack(force = false): void {
     const b = this.board;
-    const key = JSON.stringify([b.ends, b.opened === 'circuit']);
+    const key = JSON.stringify([b.ends, b.opened === 'circuit', !!b.loop]);
     if (!force && key === this.trackKey) return;
     const had = new Set(this.cellGroups.keys());
     const fresh = this.trackKey !== '' && !force;
     this.trackKey = key;
     this.path = TrackPath.fromBoard(b, this.terrain.cell, this.terrain.lift);
+    this.remapTrain();
     for (const g of this.cellGroups.values()) {
       this.trackGroup.remove(g);
       g.traverse((o) => (o as Mesh).geometry?.dispose());
@@ -1700,6 +1744,8 @@ export class Renderer {
       const fed = new Map<number, End>();
       for (const e of this.preview?.eats ?? []) fed.set(idx(b, e.from.x, e.from.y), e.end);
       const glow = 0.3 + 0.2 * Math.sin(this.now / 110);
+      // The always-running loop: tiles you can tap to grow it hop now and then, and glow.
+      const grow = this.growable();
       for (let y = 0; y < b.size; y++)
         for (let x = 0; x < b.size; x++) {
           const i = idx(b, x, y);
@@ -1708,6 +1754,11 @@ export class Renderer {
           const end = fed.get(i);
           const m = this.crate(t, x, y, i, this.flashAt(i), end !== undefined ? 0.04 + Math.abs(Math.sin(this.now / 120)) * 0.04 : 0, 0, b.flav?.[i] ?? null);
           if (end !== undefined) (m.material as ReturnType<typeof toon>).emissive.set(END_COLORS[end]).multiplyScalar(glow);
+          const gk = grow.get(i);
+          if (gk) {
+            m.position.y += gk.lift;
+            (m.material as ReturnType<typeof toon>).emissive.set(TIER_RAMPS[t][1]).multiplyScalar(gk.glow);
+          }
           if (t === 7 && Math.random() < 0.04 && !this.fogged.has(i)) this.sparks.add({ p: v3(x + 0.2 + Math.random() * 0.6, CRATE_H + 0.1 + Math.random() * 0.25, y + 0.2 + Math.random() * 0.6), v: v3(0, 0.25, 0), g: 0, max: 0.5, color: '#fff6c8', size: 0.03, drag: 0 });
         }
       return;
@@ -1959,14 +2010,14 @@ export class Renderer {
       return true;
     });
     const b = this.board;
-    const meet = this.game.phase === 'build' && canConnect(b) && this.mouths.every((m) => m.ready) && !this.mouthsBusy;
+    const meet = this.game.phase === 'build' && !b.loop && canConnect(b) && this.mouths.every((m) => m.ready) && !this.mouthsBusy;
     if (!meet) this.goSince = -1;
     else if (this.goSince < 0) this.goSince = this.now;
     // It pops up once the gulps' shouts have had their moment.
     const showGo = meet && this.now - this.goSince > 350;
     this.goEl.hidden = !showGo;
     // HOME floats over the blue pad while you build (until OPEN ME takes over).
-    const home = this.game.phase === 'build' && !b.opened && !showGo && this.mouths[1]?.ready;
+    const home = this.game.phase === 'build' && !b.opened && !b.loop && !showGo && this.mouths[1]?.ready;
     this.homeEl.hidden = !home;
     if (home) {
       const h = this.local(this.mouths[1].group.position.clone().setY(this.mouths[1].group.position.y + 0.55));
@@ -2002,6 +2053,11 @@ export class Renderer {
       mat.color.set(color);
       mat.opacity = hov ? 1 : pulse + 0.2;
     };
+    if (aim.tool === 'crew' && b.loop) {
+      // The crew swells the loop out by hand: into any free cell beside it, tile or not.
+      for (let y = 0; y < b.size; y++) for (let x = 0; x < b.size; x++) if (bulgeFor(b, x, y, true)) mark(x, y, blink ? PAL.gold : PAL.white);
+      return;
+    }
     if (aim.tool === 'crew') {
       // The crew lays one piece by hand, right next to an end: in that end's color.
       for (const t of buildTargets(b, 0)) if (!trackAt(b, t.x, t.y)) mark(t.x, t.y, blink ? END_COLORS[t.end] : PAL.white);
@@ -2056,7 +2112,7 @@ export class Renderer {
 
   /** The drag being made: show what this swipe would feed into the track (null clears it). */
   setPreview(dir: Dir | null): void {
-    if (!dir || this.game.phase !== 'build' || this.game.aiming) {
+    if (!dir || this.game.phase !== 'build' || this.game.aiming || this.board.loop) {
       this.preview = null;
       return;
     }
@@ -2068,7 +2124,8 @@ export class Renderer {
 
   private drawMouths(): void {
     const b = this.board;
-    const show = this.game.phase === 'build' && !b.opened;
+    // The always-running loop has no mouths: it grows by tapping (kept for the old eat mode).
+    const show = this.game.phase === 'build' && !b.opened && !b.loop;
     const connect = show && canConnect(b);
     const pos: Vector3[] = [];
     const t = this.now / 1000;
@@ -2356,7 +2413,7 @@ export class Renderer {
     el.style.webkitTextStroke = '3px var(--ink)';
     el.style.textShadow = '0 5px 0 var(--ink)';
     this.after(420, () => {
-      const sub = this.word(this.board.opened === 'circuit' ? 'The ride opens!' : 'Opening as a shuttle', top.clone().setY(1.15), PAL.white, 0.9);
+      const sub = this.word(this.board.loop ? 'Closing the park: last ride!' : this.board.opened === 'circuit' ? 'The ride opens!' : 'Opening as a shuttle', top.clone().setY(1.15), PAL.white, 0.9);
       sub.style.fontFamily = 'var(--font-body)';
     });
     sfx.horn();
@@ -2512,7 +2569,12 @@ export class Renderer {
   private drawQueue(dt: number): void {
     if (this.game.phase !== 'build' && this.game.phase !== 'intro' && !this.ridePending) return;
     const queue = this.game.queue;
-    queue.forEach((r, i) => {
+    // The always-running ride: riders sitting in the parked train aren't in the line.
+    const seated = new Set(this.board.loop ? this.seatRiders.map((r) => r.id) : []);
+    let li = 0;
+    queue.forEach((r) => {
+      if (seated.has(r.id)) return;
+      const i = li++;
       const target = this.slot(i);
       let p = this.riderPos.get(r.id);
       if (!p) {
@@ -2653,6 +2715,278 @@ export class Renderer {
     const h = this.hangers.get();
     h.matrix.copy(carM).multiply(new Matrix4().makeRotationZ(th + Math.PI)).multiply(new Matrix4().makeScale(1, Math.max(0.01, r), 1));
     h.matrixWorldNeedsUpdate = true;
+  }
+
+  // ---- The always-running ride (v0.23) ------------------------------------------------
+
+  /** After the track changed: keep the parked train on the same piece (the loop may have grown behind it). */
+  private remapTrain(): void {
+    const b = this.board;
+    const T = this.loopTrain;
+    const keys = b.loop ? ['st', ...b.ends[0].map((c) => `${c.x},${c.y}`)] : [];
+    if (T.keys.length && keys.length) {
+      const i = Math.floor(T.shown);
+      const j = keys.indexOf(T.keys[i] ?? '');
+      if (j >= 0) T.shown = j + (T.shown - i);
+      else T.shown = this.game.trainPos;
+    }
+    T.keys = keys;
+    if (T.shown >= keys.length) T.shown = 0;
+  }
+
+  /** Arc length of stop k (0 = the station; past the last stop it wraps round to the station again). */
+  private stopS(k: number): number {
+    const L = this.loopTrain.keys.length;
+    const lap = Math.floor(k / L);
+    const i = k - lap * L;
+    let s = this.path.parkAt;
+    if (i > 0) {
+      // Stop i is board piece ends[0][i - 1]: chain cell i + 1 (after the two station cells).
+      const r = this.path.range(i + 1);
+      s = r ? (r[0] + r[1]) / 2 : s;
+    }
+    return s + lap * this.path.length;
+  }
+
+  /**
+   * The train on the always-running loop: it glides one stop on with every move,
+   * swooshes through the station when a lap comes round (and the lap pays out there),
+   * and carries the first few riders in line.
+   */
+  private drawLoopTrain(dt: number): void {
+    const path = this.path;
+    const T = this.loopTrain;
+    const L = T.keys.length;
+    if (!path || path.pts.length < 2 || !L || !path.closed) return;
+    const target = this.homeRun ? 0 : Math.min(L - 1, this.game.trainPos);
+    let d = (((target - T.shown) % L) + L) % L;
+    if (d > L - 1e-4) d = 0;
+    const lap = this.laps[0];
+    let speed = 0;
+    if (d > 1e-4) {
+      // Quick off the mark, easing into the stop; the long run round the station is a swoosh.
+      const v = Math.max(2.4, d * 5.5);
+      const step = d - v * dt < 1e-3 ? d : v * dt;
+      const before = T.shown;
+      T.shown += step;
+      speed = step / Math.max(1e-4, dt);
+      if (Math.floor(before) < L - 1 && T.shown >= L - 1 && T.shown < L - 1e-6) sfx.swoosh();
+      if (T.shown >= L - 1e-6) {
+        T.shown = Math.max(0, T.shown - L);
+        // Home through the station: that's a lap.
+        const sc = this.stationCenter();
+        this.dust(sc.clone().setY(sc.y + 0.05), 10, PAL.plaza[2]);
+        if (lap && !lap.paying) this.payLap(lap);
+      }
+    }
+    // A lap that never saw the train come round (undo, a new day...) still pays out.
+    if (lap && !lap.paying && this.now - lap.at > 1600) this.payLap(lap);
+    if (this.homeRun && d <= 1e-4 && !this.laps.some((l) => l.paying)) {
+      this.homeRun();
+      return;
+    }
+    const i0 = Math.floor(T.shown);
+    const a = this.stopS(i0);
+    const lead = a + (this.stopS(i0 + 1) - a) * (T.shown - i0);
+    const riders = this.laps[0]?.riders ?? this.game.queue;
+    const n = Math.min(6, Math.max(3, riders.length));
+    this.seatRiders = riders.slice(0, n);
+    this.seatPts = [];
+    const moving = speed > 0.3;
+    const paying = this.laps[0]?.paying ? this.laps[0] : null;
+    for (let i = 0; i < n; i++) {
+      const r = this.seatRiders[i];
+      const willPuke = !!r && this.game.phase === 'build' && this.game.pukes(r) > 0;
+      const puked = !!r && !!paying && (paying.e.tickets.find((t) => t.rider.id === r.id)?.pukes ?? 0) > 0;
+      const face = puked ? 'puke' : moving ? 'joy' : r ? lineFace(r, willPuke) : 'smile';
+      const q = this.car(i === 0 ? 'lead' : i === n - 1 ? 'tail' : 'mid', lead - i * CAR_GAP, r ? { look: r.look, face, arms: puked ? 0.35 : moving ? 0.9 : 0.15 } : undefined);
+      this.seatPts.push({ head: q.head, mouth: q.mouth, fwd: q.fwd, carry: q.t.clone().multiplyScalar(moving ? 1 : 0) });
+      // Seated guests can still be hovered (and think out loud) where they sit.
+      if (r && this.game.queue.includes(r)) this.riderPos.set(r.id, { x: q.head.x, z: q.head.z, moving: false, ph: 0 });
+    }
+  }
+
+  /** The train came round: pukers puke, each pops their tickets, and the lap's total lands over the station. */
+  private payLap(l: (typeof this.laps)[number]): void {
+    l.paying = true;
+    const e = l.e;
+    const sc = this.stationCenter();
+    const pukers = e.tickets.filter((t) => t.pukes > 0);
+    const GAP = Math.max(45, Math.min(120, 600 / Math.max(1, pukers.length)));
+    pukers.forEach((t, j) => {
+      const seat = this.seatRiders.findIndex((r) => r.id === t.rider.id);
+      const src = () => {
+        const q = seat >= 0 ? this.seatPts[seat] : null;
+        if (q) return { p: q.mouth.clone(), dir: q.fwd.clone().multiplyScalar(0.5).add(v3(0, 0.55, 0.45)) };
+        const p = this.riderPos.get(t.rider.id);
+        return p ? { p: v3(p.x, 0.4, p.z + 0.06), dir: v3(0, -0.3, 1) } : null;
+      };
+      this.after(j * GAP, () => {
+        const s0 = src();
+        if (!s0) return;
+        this.pukeStream(src, 380 + Math.min(500, t.pukes * 90), t.pukes >= 4 || !!t.rider.boss);
+        // Over each rider's own head (staggered so neighbours don't collide).
+        const el = this.word(`+${t.paid.toLocaleString()}`, s0.p.clone().setY(s0.p.y + 0.32 + (j % 2) * 0.2), PAL.gold, 0.7 + Math.min(0.4, t.pukes * 0.07), 1300, true);
+        el.classList.add('w3d-pay');
+        sfx.puke(j);
+        if (t.rider.boss) {
+          this.flashScreen(0.7);
+          sfx.bossPuke();
+          this.kick(2.6, 280);
+        }
+      });
+    });
+    const end = pukers.length * GAP + 260;
+    this.after(end, () => {
+      const top = sc.clone().setY(sc.y + 1.05);
+      if (e.total > 0) {
+        const el = this.word(`LAP ${e.lap} · +${e.total.toLocaleString()}`, top, PAL.gold, Math.min(2.8, 1.9 + e.lap * 0.1) * (this.compact ? 0.5 : 1), 2000, true);
+        el.classList.add('w3d-lap');
+        sfx.register(e.lap);
+        this.kick(1 + Math.min(2, e.lap * 0.15), 220);
+        this.burst(sc.clone().setY(sc.y + 0.5), Math.min(70, 24 + e.lap * 4), [PAL.gold, '#fff6c8', PAL.heart, PAL.gold]);
+        this.sparkle(top.clone().setY(top.y - 0.2), 16, PAL.gold);
+        if (e.bossHits) {
+          const c = this.word(`CRACK${e.bossHits > 1 ? ` ×${e.bossHits}` : ''}!`, top.clone().setY(top.y + 0.5), PAL.heart, this.compact ? 1 : 1.6, 1700, true);
+          c.classList.add('w3d-lap');
+        }
+      } else {
+        const el = this.word(`LAP ${e.lap} · nobody puked`, top, '#d5d0e2', 1.1, 1900, true);
+        el.classList.add('w3d-dud');
+        sfx.dud();
+      }
+      this.onLap(e.lap, e.total, e.bossHits);
+    });
+    this.after(end + 650, () => this.lapOff(l));
+  }
+
+  /** After a lap the riders get off and wander away (an unbroken boss stays in line). */
+  private lapOff(l: (typeof this.laps)[number]): void {
+    const i = this.laps.indexOf(l);
+    if (i < 0) return;
+    const st = this.board.station;
+    l.riders.forEach((r, k) => {
+      if (this.game.queue.some((q) => q.id === r.id)) return;
+      const seat = this.seatRiders.findIndex((x) => x.id === r.id);
+      const sp = seat >= 0 ? this.seatPts[seat]?.head : null;
+      const lp = this.riderPos.get(r.id);
+      this.riderPos.delete(r.id);
+      const from = sp ? v3(sp.x, 0, sp.z + 0.25) : lp ? v3(lp.x, 0, lp.z) : null;
+      if (!from) return;
+      const pukes = l.e.tickets.find((t) => t.rider.id === r.id)?.pukes ?? 0;
+      const side = from.x < this.n / 2 ? -1 : 1;
+      this.addWalker({
+        look: r.look,
+        x: from.x,
+        z: from.z,
+        tx: side > 0 ? this.n + 1.1 : -1.1,
+        tz: st.y + 1.6 + Math.random() * 0.9,
+        speed: pukes ? 1.15 : 1.7,
+        delay: k * 50,
+        sick: pukes > 0,
+        mood: pukes ? 'sick' : 'meh',
+        rider: r,
+        pukes,
+      });
+    });
+    this.laps.splice(i, 1);
+  }
+
+  /** A new piece of the loop: it swells up out of the ground with a burst and its name. */
+  private lastGrow = -1e9;
+  private growFx(laid: { x: number; y: number; tier: number }): void {
+    const c = this.cell(laid);
+    const tier = laid.tier;
+    const ramp = TIER_RAMPS[Math.max(1, tier)];
+    this.burst(c.clone().setY(0.3), 12 + tier * 5, [...ramp.slice(0, 3), PAL.gold]);
+    this.dust(c.clone().setY(0.08), 10 + tier * 2, PAL.plaza[2]);
+    this.flashes.set(idx(this.board, laid.x, laid.y), this.now + 150);
+    const el = this.word(tier ? `+${PIECES[tier].name.toUpperCase()}!` : '+TRACK', c.clone().setY(0.95 + tier * 0.04), tier ? ramp[0] : PAL.white, tier ? 0.85 + tier * 0.14 : 0.7);
+    if (tier >= 4) {
+      el.style.webkitTextStroke = '2.5px var(--ink)';
+      el.style.textShadow = '0 4px 0 var(--ink)';
+    }
+    this.kick(0.5 + tier * 0.3, 110 + tier * 20);
+    if (this.now - this.lastGrow > 80) sfx.grow();
+    this.lastGrow = this.now;
+    if (tier) this.after(90, () => sfx.chomp(tier));
+  }
+
+  /** Growable tiles this frame (cell index to hop lift and glow), and the bulge the hovered one would make. */
+  private growable(): Map<number, { lift: number; glow: number; on: boolean }> {
+    const out = new Map<number, { lift: number; glow: number; on: boolean }>();
+    const g = this.game;
+    const b = this.board;
+    if (!b.loop || g.phase !== 'build' || g.aiming || this.ride || this.tileAnim) return out;
+    const hv = this.hover;
+    const cells = g.growCells;
+    const hov = hv && cells.some((c) => c.x === hv.x && c.y === hv.y) ? bulgeFor(b, hv.x, hv.y) : null;
+    cells.forEach((c, k) => {
+      const on = !!hov && (samePt(hov.c, c) || samePt(hov.d, c));
+      // A little hop every couple of seconds, rippling across the growable tiles.
+      const ph = ((this.now / 1000 - k * 0.12) % 1.8) / 0.32;
+      const hop = ph < 1 ? Math.sin(ph * Math.PI) * 0.09 : 0;
+      const pulse = 0.5 + 0.5 * Math.sin(this.now / 230 - k * 0.8);
+      out.set(idx(b, c.x, c.y), { lift: on ? 0.1 + Math.abs(Math.sin(this.now / 140)) * 0.04 : hop, glow: on ? 0.6 : 0.22 + pulse * 0.28, on });
+    });
+    return out;
+  }
+
+  /** Tiles you can tap to grow the loop glow in their own track color; hovering shows both cells the bulge takes. */
+  private drawGrow(): void {
+    const g = this.game;
+    const b = this.board;
+    if (!b.loop || g.phase !== 'build' || g.aiming || this.ride || this.tileAnim) return;
+    const cells = g.growCells;
+    if (!cells.length) return;
+    const hv = this.hover;
+    const hov = hv && cells.some((c) => c.x === hv.x && c.y === hv.y) ? bulgeFor(b, hv.x, hv.y) : null;
+    const white = new Color('#ffffff');
+    const lifts = this.growable();
+    const onLoop = new Set([...b.ends[0], { x: b.station.x, y: b.station.y }, { x: b.station.x + 1, y: b.station.y }].map((c) => `${c.x},${c.y}`));
+    const t = this.now / 1000;
+    const ring = (x: number, y: number, on: boolean, k: number) => {
+      const i = idx(b, x, y);
+      const tile = b.tiles[i];
+      const ground = GRASS_Y + this.terrain.cell(x, y);
+      const lid = ground + (tile ? CRATE_H + 0.02 + (lifts.get(i)?.lift ?? 0) : 0.02);
+      const pulse = 0.5 + 0.5 * Math.sin(this.now / 230 - k * 0.8);
+      const color = TIER_RAMPS[Math.max(1, tile)][1];
+      // A bright pad on the ground, wider than the crate...
+      const pad = this.outlines.get();
+      pad.position.set(x + 0.5, ground + 0.015, y + 0.5);
+      pad.scale.setScalar(on ? 1.42 : 1.22 + pulse * 0.1);
+      const pm = pad.material as MeshBasicMaterial;
+      pm.color.set(PAL.gold).lerp(white, on ? 0.6 : pulse * 0.35);
+      pm.opacity = on ? 1 : 0.55 + pulse * 0.4;
+      // ...a ring round the lid in the piece's own track color...
+      const o = this.outlines.get();
+      o.position.set(x + 0.5, lid, y + 0.5);
+      o.scale.setScalar(on ? 1.1 : 0.98 + pulse * 0.06);
+      const mat = o.material as MeshBasicMaterial;
+      mat.color.set(color).lerp(white, on ? 0.6 : 0.2 + pulse * 0.3);
+      mat.opacity = on ? 1 : 0.65 + pulse * 0.35;
+      // ...and arrows marching over it into the ride.
+      const to = DIRS.map((d) => DELTA[d]).find((dl) => onLoop.has(`${x + dl.x},${y + dl.y}`));
+      if (!to) return;
+      for (let c = 0; c < 2; c++) {
+        const ph = (t * 1.1 + c * 0.5 + k * 0.17) % 1;
+        const along = -0.3 + ph * 0.75;
+        const ch = this.chevrons.get();
+        ch.position.set(x + 0.5 + to.x * along, lid + 0.02, y + 0.5 + to.y * along);
+        ch.rotation.set(0, Math.atan2(to.x, to.y), 0);
+        ch.scale.setScalar(on ? 1.25 : 1.05);
+        const cm = ch.material as MeshBasicMaterial;
+        cm.color.set(on ? PAL.white : PAL.gold);
+        cm.opacity = Math.sin(ph * Math.PI) * 0.95;
+      }
+    };
+    cells.forEach((c, k) => {
+      const on = !!hov && (samePt(hov.c, c) || samePt(hov.d, c));
+      ring(c.x, c.y, on, k);
+    });
+    // The partner cell the bulge takes along (flat track if it's empty).
+    if (hov) for (const p of [hov.c, hov.d]) if (!cells.some((c) => samePt(c, p))) ring(p.x, p.y, true, 0);
   }
 
   private drawParkedTrain(): void {

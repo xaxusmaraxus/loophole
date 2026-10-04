@@ -3674,3 +3674,124 @@ body {
     animation: none;
   }
 }
+
+/* ---- The always-running ride (v0.23): the bank, laps and payouts ---- */
+.bank-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  line-height: 1;
+  transform-origin: left center;
+}
+
+.bank-line[hidden],
+.bank-track[hidden] {
+  display: none;
+}
+
+.bank-num {
+  font-size: 12px;
+  color: var(--paper-edge);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.bank-num b {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  color: var(--bulb);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+}
+
+.bank-line.hit .bank-num b {
+  color: #9dff7a;
+}
+
+.bank-line.bump {
+  animation: bank-bump 520ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+.pill.quota.bump {
+  animation: bank-bump 520ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+@keyframes bank-bump {
+  30% {
+    transform: scale(1.14);
+    filter: brightness(1.4);
+  }
+}
+
+.bank-track {
+  position: relative;
+  flex: none;
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(8, 10, 30, 0.6);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.bank-track span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 6px;
+}
+
+.bank-fill {
+  background: linear-gradient(90deg, #ffb13c, var(--bulb));
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45);
+}
+
+.bank-track.hit .bank-fill {
+  background: linear-gradient(90deg, #4fc46a, #9dff7a);
+}
+
+/* Where closing the park right now would get you. */
+.bank-ghost {
+  background: repeating-linear-gradient(-45deg, rgba(255, 210, 63, 0.4) 0 5px, rgba(255, 210, 63, 0.18) 5px 10px);
+  transition: width 200ms ease;
+}
+
+.daylight .daylight-track:has(+ *),
+.bank-track + .daylight-track {
+  height: 4px;
+  opacity: 0.75;
+}
+
+.w3d.w3d-lap {
+  -webkit-text-stroke: 3px var(--ink);
+  text-shadow: 0 5px 0 var(--ink);
+  animation: w3d-slam 420ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+@keyframes w3d-slam {
+  from {
+    font-size: calc(32px * var(--s, 1));
+  }
+}
+
+.w3d.w3d-dud {
+  font-family: var(--font-body);
+  font-weight: 700;
+  -webkit-text-stroke: 1px rgba(30, 20, 50, 0.8);
+  text-shadow: 0 2px 0 rgba(30, 20, 50, 0.6);
+}
+
+.w3d.w3d-pay {
+  -webkit-text-stroke: 2px var(--ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bank-line.bump,
+  .pill.quota.bump,
+  .w3d.w3d-lap {
+    animation: none;
+  }
+}

@@ -37,7 +37,7 @@ import { BRAKES_NAUSEA, type Flavor, MAX_TIER, type RideStats, SPECIALS, type Sp
 import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
 import { BOSSES, BOSS_POOL, BOSS_ROUNDS, type BossId, type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { type OwnedAttraction, type Score, scoreRide } from './run/attractions';
-import { type BossFight, DEMANDS, SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, WHISTLE_COST, pickDemands, spun } from './run/bossday';
+import { type BossFight, DEMANDS, SECONDS_CAP, SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, WHISTLE_COST, pickDemands, spun } from './run/bossday';
 import {
   PLOT_MAX_H,
   type Plot,
@@ -556,7 +556,7 @@ export class Game {
     // Funnel Cake Stands: 1 smaller for each Food spot touching one.
     for (const it of this.plot.items) if (it.kind === 'attraction' && it.id === 'funnelcake') s -= neighbors(this.plot, it).filter((o) => themeOf(o) === 'food').length;
     // Big Barry snacks while you build.
-    if (r.boss && this.bossRule === 'seconds') s += Math.floor(this.actions / SECONDS_EVERY);
+    if (r.boss && this.bossRule === 'seconds') s += Math.min(SECONDS_CAP, Math.floor(this.actions / SECONDS_EVERY));
     return s;
   }
 
@@ -697,8 +697,7 @@ export class Game {
 
   /**
    * Tap a tile touching the ride: the loop bulges out to take it in, along with
-   * the cell beside it (both become track). A move like a swipe: a tile drops in
-   * and the train rolls on.
+   * the cell beside it (both become track). A move like a swipe: the train rolls on.
    */
   grow(x: number, y: number, anyCell = false): boolean {
     if (this.phase !== 'build') return false;
@@ -712,8 +711,7 @@ export class Game {
     // The train keeps its place on the track if the bulge went in behind it.
     if (g.at < this.trainPos) this.trainPos += cells.length;
     for (const laid of cells) this.events.push({ type: 'build', laid, end: 0 });
-    const fl = this.rng.chance(this.mods.flavorSpawn) ? this.parkFlavor() : null;
-    spawnTile(this.board, this.rng, this.mods.hillChance, fl);
+    // (No new tile on a grow: the loop already takes up two more cells.)
     this.tick();
     this.rollTrain();
     this.checkGridlock();
@@ -776,6 +774,8 @@ export class Game {
     if (this.phase !== 'build') return;
     if (this.board.loop) {
       // The always-running ride: the park jams when nothing can slide and the ride can't grow.
+      // (An empty board isn't a jam: a fresh tile drops in.)
+      if (!this.board.tiles.some((t) => t > 0)) spawnTile(this.board, this.rng, this.mods.hillChance);
       if (canSwipe(this.board) || bulgeCells(this.board).length) return;
       this.events.push({ type: 'gridlock' });
       return this.open('circuit');
