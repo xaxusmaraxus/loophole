@@ -10,7 +10,11 @@ import {
   type TrackCell,
   build,
   buildTargets,
+  applyBulge,
   boxedIn,
+  bulgeCells,
+  bulgeFor,
+  startLoop,
   canSwipe,
   type Eaten,
   slide,
@@ -100,6 +104,8 @@ export type GameEvent =
   | { type: 'unlock'; id: UnlockId }
   /** A boss rule kicked in: a wave sloshed the board, the controls spun, or Barry had a snack. */
   | { type: 'boss'; what: 'wave' | 'spin' | 'snack'; dir?: Dir }
+  /** The train came round: everyone on board rode a lap and paid. */
+  | { type: 'lap'; lap: number; total: number; tickets: RiderTicket[]; bossHits: number }
   /** A big combo paid out a free special piece. */
   | { type: 'combo'; merges: number; special: SpecialId }
   | { type: 'undo' };
@@ -145,6 +151,9 @@ interface Snapshot {
   buzz: number;
   bestCombo: number;
   comboPrizes: number;
+  banked: number;
+  lap: number;
+  trainPos: number;
   chainLinks: number;
   selected: End;
   tools: Record<ToolId, number>;
@@ -199,6 +208,12 @@ export class Game {
   bestCombo = 0;
   /** Combo prizes already paid today. */
   comboPrizes = 0;
+  /** The ride is always running: tickets from today's laps so far. */
+  banked = 0;
+  /** Laps run today. */
+  lap = 0;
+  /** Where the train is: stops along the loop since it last left the station. */
+  trainPos = 0;
   /** Chain links set off today (Chain Gang counts these). */
   chainLinks = 0;
   /** The track end that keyboard builds extend. */
@@ -329,6 +344,11 @@ export class Game {
     this.cfg = dayConfig(this.dayNum, this.mods, node, this.parkBoss);
     if (this.has('buffet')) this.cfg.maxQueue -= 3;
     this.board = generateBoard(this.cfg, this.rng);
+    // The ride starts as the smallest loop, already open: up, across, down.
+    startLoop(this.board);
+    this.banked = 0;
+    this.lap = 0;
+    this.trainPos = 0;
     this.queue = [];
     for (let i = 0; i < this.cfg.startRiders; i++) this.queue.push(this.newRider());
     for (const kind of this.crowd) this.queue.push(makeRider(this.rng, this.dayNum, this.nextId++, this.cfg.park.id, kind));
@@ -616,6 +636,9 @@ export class Game {
       buzz: this.buzz,
       bestCombo: this.bestCombo,
       comboPrizes: this.comboPrizes,
+      banked: this.banked,
+      lap: this.lap,
+      trainPos: this.trainPos,
       chainLinks: this.chainLinks,
       selected: this.selected,
       tools: { ...this.tools },
@@ -656,7 +679,77 @@ export class Game {
     if (this.bossRule === 'whistle' && result.mergeCount === 0)
       for (let k = 0; k < WHISTLE_COST - 1; k++) spawnTile(this.board, this.rng, this.mods.hillChance);
     this.tick();
+    this.rollTrain();
     this.checkGridlock();
+  }
+
+  // ---- The always-running ride -----------------------------------------------------
+
+  /** Stops in one lap: every piece of track, plus the station. */
+  get lapLength(): number {
+    return this.board.ends[0].length + 1;
+  }
+
+  /** Cells you can tap to grow the loop. */
+  get growCells(): Pt[] {
+    return this.phase === 'build' ? bulgeCells(this.board) : [];
+  }
+
+  /**
+   * Tap a tile touching the ride: the loop bulges out to take it in, along with
+   * the cell beside it (both become track). A move like a swipe: a tile drops in
+   * and the train rolls on.
+   */
+  grow(x: number, y: number, anyCell = false): boolean {
+    if (this.phase !== 'build') return false;
+    const g = bulgeFor(this.board, x, y, anyCell);
+    if (!g) {
+      this.events.push({ type: 'blocked' });
+      return false;
+    }
+    this.snapshot();
+    const cells = applyBulge(this.board, g);
+    // The train keeps its place on the track if the bulge went in behind it.
+    if (g.at < this.trainPos) this.trainPos += cells.length;
+    for (const laid of cells) this.events.push({ type: 'build', laid, end: 0 });
+    const fl = this.rng.chance(this.mods.flavorSpawn) ? this.parkFlavor() : null;
+    spawnTile(this.board, this.rng, this.mods.hillChance, fl);
+    this.tick();
+    this.rollTrain();
+    this.checkGridlock();
+    return true;
+  }
+
+  /** The train rolls one stop on; past the station, that's a lap. */
+  private rollTrain(): void {
+    if (this.phase !== 'build') return;
+    this.trainPos++;
+    if (this.trainPos >= this.lapLength) {
+      this.trainPos = 0;
+      this.runLap();
+    }
+  }
+
+  /**
+   * A lap: everyone in line rides the loop as it stands and pays for every puke.
+   * Then they get off (an unbroken boss gets straight back in line) and new guests
+   * come along: a bigger, wilder ride draws a bigger crowd.
+   */
+  private runLap(): void {
+    const rating = this.score('circuit').rating;
+    const tickets: RiderTicket[] = this.queue.map((rider) => {
+      const pukes = this.pukes(rider, 'circuit');
+      return { rider, pukes, paid: this.points(rider, pukes, rating) };
+    });
+    const total = tickets.reduce((a, t) => a + t.paid, 0);
+    const f = this.fight;
+    const bossHits = tickets.find((t) => t.rider.boss)?.pukes ?? 0;
+    if (f) f.hp = Math.max(0, f.hp - bossHits);
+    this.banked += total;
+    this.lap++;
+    this.record.totalPukes += tickets.reduce((a, t) => a + t.pukes, 0);
+    this.events.push({ type: 'lap', lap: this.lap, total, tickets, bossHits });
+    this.queue = this.queue.filter((r) => r.boss && f && f.hp > 0);
   }
 
   /**
@@ -681,6 +774,12 @@ export class Game {
    */
   private checkGridlock(): void {
     if (this.phase !== 'build') return;
+    if (this.board.loop) {
+      // The always-running ride: the park jams when nothing can slide and the ride can't grow.
+      if (canSwipe(this.board) || bulgeCells(this.board).length) return;
+      this.events.push({ type: 'gridlock' });
+      return this.open('circuit');
+    }
     // Like Snake: the mouth boxed itself in (every neighbor is track, rock or edge), so nothing can feed it again.
     const boxed = boxedIn(this.board) && !canConnect(this.board);
     if (!boxed && canSwipe(this.board)) return;
@@ -708,9 +807,10 @@ export class Game {
     this.comboPrizes = tier;
   }
 
-  /** A tap on the park aims the active tool. (The track grows by eating tiles; there's no tap-to-build.) */
+  /** A tap on the park aims the active tool, or grows the ride. */
   tap(x: number, y: number): void {
     if (this.aiming) this.aimAt(x, y);
+    else if (this.board.loop) this.grow(x, y);
   }
 
   /** Arm a special piece: the next tap on built track fits it there. Tapping it again disarms it. */
@@ -755,6 +855,15 @@ export class Game {
       this.specials[id]--;
       this.aiming = null;
       this.events.push({ type: 'special', special: id, at: { x, y } });
+      return;
+    }
+    if (aim.tool === 'crew' && b.loop) {
+      // The track crew grows the ride by hand: into any free cell, tile or not.
+      if (!bulgeFor(b, x, y, true)) return fail();
+      this.tools.crew--;
+      this.aiming = null;
+      this.events.push({ type: 'tool', tool: 'crew', at: { x, y } });
+      this.grow(x, y, true);
       return;
     }
     if (aim.tool === 'crew') {
@@ -942,6 +1051,9 @@ export class Game {
     this.buzz = s.buzz;
     this.bestCombo = s.bestCombo;
     this.comboPrizes = s.comboPrizes;
+    this.banked = s.banked;
+    this.lap = s.lap;
+    this.trainPos = s.trainPos;
     this.chainLinks = s.chainLinks;
     this.selected = s.selected;
     this.tools = s.tools;
@@ -967,7 +1079,7 @@ export class Game {
     const hpBefore = f?.hp ?? 0;
     if (f) f.hp = Math.max(0, f.hp - bossHits);
     const bossPuked = !f || f.hp <= 0;
-    const dayTotal = (f?.banked ?? 0) + total;
+    const dayTotal = (f?.banked ?? 0) + this.banked + total;
     const passed = dayTotal >= this.cfg.target && bossPuked;
     const refused = !!boss && this.refuses(boss.rider, kind);
     const stops = rideOrder(this.board, kind);
@@ -992,7 +1104,8 @@ export class Game {
       round: f?.round ?? 1,
       dayTotal,
       refused,
-      again: !!f && !passed && f.round < BOSS_ROUNDS,
+      // The always-running ride: a boss rides every lap, so there are no rematches.
+      again: !this.board.loop && !!f && !passed && f.round < BOSS_ROUNDS,
       passed,
       timeline,
     };

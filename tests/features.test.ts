@@ -104,8 +104,11 @@ describe('special pieces', () => {
     b.obstacles = b.obstacles.map(() => null);
     b.tiles[(s.y - 1) * b.size + s.x] = 2;
     b.tiles[(s.y - 1) * b.size + s.x + 1] = 2;
-    g.buildAt(s.x, s.y - 1);
-    g.buildAt(s.x + 1, s.y - 1);
+    // The ride starts as a two-piece loop on those cells: give it the tiles we just set.
+    for (const c of g.board.ends[0].slice(0, 2)) {
+      const i = c.y * g.board.size + c.x;
+      if (g.board.tiles[i]) [c.tier, g.board.tiles[i]] = [g.board.tiles[i], 0];
+    }
     if (special) {
       g.specials[special] = 1;
       g.useSpecial(special);

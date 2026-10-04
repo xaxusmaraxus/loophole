@@ -7,32 +7,35 @@ import { DIRS, type Dir, canConnect, cloneBoard, head, slide } from '../src/puzz
 import { spun } from '../src/run/bossday';
 
 /**
- * Snake-style: try each swipe on a copy, prefer ones that feed big pieces into
- * the track, merge, and keep the two ends close; cash out once the ride is
- * long enough or the board gets crowded.
+ * The always-running ride: grow the loop into a juicy tile when there's one
+ * (a Hill or better), else make the best merge; close the park once today's
+ * tickets clear the target with room to spare, or when the board gets tight.
  */
 function playDay(g: Game, rnd: () => number, greed: number) {
   let guard = 0;
   while (g.phase === 'build' && guard++ < 400) {
     const b = g.board;
-    const len = b.ends[0].length + b.ends[1].length;
-    if (canConnect(b) && (len >= greed || g.room <= 4)) { g.open('circuit'); break; }
+    const sure = g.banked + g.projected('circuit');
+    if (sure >= g.cfg.target * (1 + greed / 20) || (g.room <= 2 && sure >= g.cfg.target) || guard > 300) { g.open('circuit'); break; }
+    // Grow: the best bulge by the tiles it takes in.
+    let grow: { x: number; y: number; v: number } | null = null;
+    for (const c of g.growCells) {
+      const v = b.tiles[c.y * b.size + c.x] + rnd() * 0.5;
+      if (!grow || v > grow.v) grow = { ...c, v };
+    }
+    if (grow && grow.v >= 2.2) { g.tap(grow.x, grow.y); continue; }
     let best: Dir | null = null;
     let bestScore = -Infinity;
     for (const d of DIRS) {
       const c = cloneBoard(b);
-      // Dr. Vertigo turns the controls: simulate where the swipe really goes.
       const r = slide(c, g.fight && g.bossRule === 'spin' ? spun(d, g.fight.spin) : d);
       if (!r.moved) continue;
-      const fed = r.eaten.reduce((a, e) => a + e.cell.tier, 0);
-      const [h0, h1] = [head(c, 0), head(c, 1)];
-      const gap = Math.abs(h0.x - h1.x) + Math.abs(h0.y - h1.y);
-      const closing = len >= greed * 0.6 ? -gap * 2 : 0;
-      const score = fed * (len < greed ? 1.5 : 0.5) + r.merges.length * 1.2 + closing + rnd() * 1.5;
+      const score = r.merges.length * 1.5 + r.merges.reduce((a, m) => a + m.tier, 0) * 0.3 + rnd();
       if (score > bestScore) { bestScore = score; best = d; }
     }
-    if (!best) { g.open(); break; }
-    g.swipe(best);
+    if (best) g.swipe(best);
+    else if (grow) g.tap(grow.x, grow.y);
+    else { g.open('circuit'); break; }
   }
   if (g.phase === 'build') g.open();
   g.events.length = 0;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game';
-import { boxedIn, idx, stationPoint, trackAt } from '../src/puzzle/board';
+import { idx, stationPoint, trackAt } from '../src/puzzle/board';
 import { dayConfig, modsFor, parkFor } from '../src/run/run';
 
 /** A new game, past the intro card, on the first day node. */
@@ -19,96 +19,84 @@ function finish(g: Game, total: number): void {
   g.continueFromResults();
 }
 
-describe('the track eats tiles', () => {
-  /** A cleared board with tiles where we want them. */
+describe('the always-running ride', () => {
+  /** A cleared board around the starting loop. */
   function cleared(): Game {
     const g = freshGame();
     const b = g.board;
     b.tiles = b.tiles.map(() => 0);
     b.obstacles = b.obstacles.map(() => null);
     b.flav = b.flav!.map(() => null);
+    for (const c of b.ends[0]) c.tier = 0;
     return g;
   }
 
-  it('a tile that slides into the red mouth becomes track, one per swipe; blue is home', () => {
-    const g = cleared();
-    const b = g.board;
-    const s = stationPoint(g.board, 0);
-    // Two tiles stacked in the red end's column, one in the blue column (home doesn't eat).
-    b.tiles[idx(b, s.x, 0)] = 3;
-    b.tiles[idx(b, s.x, 1)] = 2;
-    b.tiles[idx(b, s.x + 1, 2)] = 4;
-    g.swipe('down');
-    expect(b.ends[0].map((c) => c.tier)).toEqual([2]);
-    expect(b.ends[1]).toEqual([]);
-    expect(b.tiles[idx(b, s.x + 1, b.size - 1)]).toBe(4);
-    // The Drop stopped right on top of the new red end; the next swipe down feeds it.
-    expect(b.tiles[idx(b, s.x, b.size - 2)]).toBe(3);
-    // Red's head isn't next to home yet.
-    expect(g.openKind).toBe('shuttle');
-    // Bring a tile in from the right along the bottom row: it stops against the red head, right above home.
-    b.tiles[idx(b, s.x + 1, b.size - 1)] = 0;
-    b.tiles[idx(b, s.x + 1, b.size - 2)] = 0;
-    b.tiles[idx(b, b.size - 1, b.size - 1)] = 2;
-    g.swipe('left');
-    expect(b.ends[0].map((c) => c.tier)).toEqual([2, 2]);
-    expect(g.openKind).toBe('circuit');
-  });
-
-  it('tiles hop over the track (only the mouth is solid), and can merge across it', () => {
-    const g = cleared();
-    const b = g.board;
-    const s = stationPoint(b, 0);
-    // A track running up the red column, three pieces tall.
-    for (let k = 1; k <= 3; k++) b.ends[0].push({ x: s.x, y: b.size - k, tier: 1 });
-    // A Hill left of the track, a Hill right of it, in the same row (below the mouth).
-    const row = b.size - 2;
-    if (s.x === 0) b.tiles[idx(b, s.x + 1, row)] = 2;
-    else b.tiles[idx(b, s.x - 1, row)] = 2;
-    b.tiles[idx(b, b.size - 1, row)] = 2;
-    g.swipe('left');
-    // They met across the rails and merged into a Drop at the left edge.
-    expect(b.tiles.filter((t) => t === 3)).toHaveLength(1);
-    expect(b.tiles[idx(b, 0, row)]).toBe(s.x === 0 ? 0 : 3);
-  });
-
-  it('a mouth that boxes itself in ends the day', () => {
-    const g = cleared();
-    const b = g.board;
-    const n = b.size;
-    b.station = { x: 0, y: n };
-    // Up the left edge, right along the top of a hook, down, then back left: the head at (1, n-2)
-    // is walled in by its own track on three sides and a rock below.
-    for (const [x, y] of [[0, n - 1], [0, n - 2], [0, n - 3], [1, n - 3], [2, n - 3], [2, n - 2], [1, n - 2]]) b.ends[0].push({ x, y, tier: 1 });
-    b.obstacles[idx(b, 1, n - 1)] = 'rock';
-    expect(boxedIn(b)).toBe(true);
-    b.tiles[idx(b, n - 1, 0)] = 2;
-    g.swipe('left');
-    expect(g.phase).toBe('ride');
-    expect(g.events.some((e) => e.type === 'gridlock' && e.boxed)).toBe(true);
-  });
-
-  it('tapping the park no longer builds', () => {
+  it('starts as a two-piece loop that is already open', () => {
     const g = freshGame();
     const s = stationPoint(g.board, 0);
-    g.tap(s.x, s.y - 1);
-    expect(g.board.ends[0]).toHaveLength(0);
+    expect(g.board.ends[0].map((c) => [c.x, c.y])).toEqual([
+      [s.x, s.y - 1],
+      [s.x + 1, s.y - 1],
+    ]);
+    expect(g.openKind).toBe('circuit');
+    expect(g.lapLength).toBe(3);
   });
 
-  it('gridlock opens the ride by itself', () => {
+  it('tapping a tile beside the loop bulges it out over that tile and its neighbor', () => {
     const g = cleared();
     const b = g.board;
     const s = stationPoint(b, 0);
-    b.tiles[idx(b, s.x, b.size - 1)] = 2;
-    g.swipe('down');
-    expect(g.openKind).toBe('shuttle');
-    // Fill every free cell with tiles that can't merge with anything.
-    for (let i = 0; i < b.tiles.length; i++) {
-      const [x, y] = [i % b.size, Math.floor(i / b.size)];
-      if (!trackAt(b, x, y)) b.tiles[i] = (x + y) % 2 ? 1 : 3;
-    }
-    // Checkerboard of Bumps and Drops: nothing merges; the ends can still eat, so feed them till nothing moves.
-    for (let n = 0; n < 60 && g.phase === 'build'; n++) g.swipe((['down', 'left', 'right', 'up'] as const)[n % 4]);
+    // Above the loop's top edge: a Drop, with a Hill next to it.
+    b.tiles[idx(b, s.x, s.y - 2)] = 3;
+    b.tiles[idx(b, s.x + 1, s.y - 2)] = 2;
+    expect(g.growCells.some((c) => c.x === s.x && c.y === s.y - 2)).toBe(true);
+    g.tap(s.x, s.y - 2);
+    expect(b.ends[0].map((c) => c.tier)).toEqual([0, 3, 2, 0]);
+    expect(g.openKind).toBe('circuit');
+    expect(g.actions).toBe(1);
+    expect(g.trainPos).toBe(1);
+    // A tile dropped in for the move.
+    expect(b.tiles.filter((t) => t > 0)).toHaveLength(1);
+  });
+
+  it('every move rolls the train on; each lap pays and the riders get off', () => {
+    const g = cleared();
+    const b = g.board;
+    for (const c of b.ends[0]) c.tier = 7;
+    g.queue.forEach((r) => (r.stomach = 4));
+    const riders = g.queue.length;
+    expect(riders).toBeGreaterThan(0);
+    // Three stops a lap: three swipes (each moves the one tile around).
+    b.tiles[idx(b, 0, 0)] = 1;
+    for (const d of ['right', 'down', 'left'] as const) g.swipe(d);
+    expect(g.lap).toBe(1);
+    expect(g.banked).toBeGreaterThan(0);
+    expect(g.events.some((e) => e.type === 'lap' && e.total === g.banked)).toBe(true);
+    expect(g.queue.filter((r) => !r.boss).length).toBeLessThan(riders + 3);
+  });
+
+  it('tiles hop over the loop', () => {
+    const g = cleared();
+    const b = g.board;
+    const s = stationPoint(b, 0);
+    const row = s.y - 1;
+    b.tiles[idx(b, b.size - 1, row)] = 2;
+    g.swipe('left');
+    // It slid over both track cells to the far side (or the edge).
+    const at = b.tiles.findIndex((t) => t === 2);
+    expect(at % b.size < s.x || at % b.size === 0).toBe(true);
+  });
+
+  it('when nothing can slide and the ride can’t grow, the park jams and the last ride runs', () => {
+    const g = cleared();
+    const b = g.board;
+    // Rocks everywhere except the loop and two cells in the top row: one tile, one gap.
+    for (let i = 0; i < b.tiles.length; i++) if (!trackAt(b, i % b.size, Math.floor(i / b.size))) b.obstacles[i] = 'rock';
+    const [p, q] = [idx(b, b.size - 1, 0), idx(b, b.size - 2, 0)];
+    b.obstacles[p] = b.obstacles[q] = null;
+    b.tiles[p] = 3;
+    // The tile slides into the gap, a new tile drops into the last hole: nothing can move, nothing can grow.
+    g.swipe('left');
     expect(g.phase).toBe('ride');
     expect(g.events.some((e) => e.type === 'gridlock')).toBe(true);
   });
@@ -146,14 +134,20 @@ describe('tools', () => {
     expect(g.board.tiles[from]).toBe(0);
   });
 
-  it('the track crew lays one piece by hand', () => {
+  it('the track crew grows the ride into empty cells too', () => {
     const g = freshGame();
-    const s = stationPoint(g.board, 0);
-    g.board.obstacles[idx(g.board, s.x, s.y - 1)] = null;
+    const b = g.board;
+    const s = stationPoint(b, 0);
+    b.tiles[idx(b, s.x, s.y - 2)] = 0;
+    b.tiles[idx(b, s.x + 1, s.y - 2)] = 0;
+    b.obstacles[idx(b, s.x, s.y - 2)] = null;
+    b.obstacles[idx(b, s.x + 1, s.y - 2)] = null;
+    g.tap(s.x, s.y - 2); // no tile there: plain taps can't grow into it
+    expect(b.ends[0]).toHaveLength(2);
     g.tools.crew = 1;
     g.useTool('crew');
-    g.tap(s.x, s.y - 1);
-    expect(g.board.ends[0]).toHaveLength(1);
+    g.tap(s.x, s.y - 2);
+    expect(b.ends[0]).toHaveLength(4);
     expect(g.tools.crew).toBe(0);
   });
 });
@@ -267,8 +261,11 @@ describe('puking', () => {
     // A U-shaped ride: two Mega Loops (9 nausea each for an ordinary stomach).
     b.tiles[idx(b, s.x, s.y - 1)] = 7;
     b.tiles[idx(b, s.x + 1, s.y - 1)] = 7;
-    g.buildAt(s.x, s.y - 1);
-    g.buildAt(s.x + 1, s.y - 1);
+    // The ride starts as a two-piece loop on those cells: give it the tiles we just set.
+    for (const c of g.board.ends[0].slice(0, 2)) {
+      const i = c.y * g.board.size + c.x;
+      if (g.board.tiles[i]) [c.tier, g.board.tiles[i]] = [g.board.tiles[i], 0];
+    }
     expect(g.openKind).toBe('circuit');
     const corndog = { ...g.queue[0], kind: 'corndog' as const, boss: undefined, stomach: 4 };
     expect(g.pukes(corndog)).toBe(4); // 18 nausea / stomach 4
@@ -284,8 +281,11 @@ describe('puking', () => {
     const s = stationPoint(b, 0);
     b.tiles[idx(b, s.x, s.y - 1)] = 5; // Loop, 4 nausea, upside down
     b.tiles[idx(b, s.x + 1, s.y - 1)] = 5;
-    g.buildAt(s.x, s.y - 1);
-    g.buildAt(s.x + 1, s.y - 1);
+    // The ride starts as a two-piece loop on those cells: give it the tiles we just set.
+    for (const c of g.board.ends[0].slice(0, 2)) {
+      const i = c.y * g.board.size + c.x;
+      if (g.board.tiles[i]) [c.tier, g.board.tiles[i]] = [g.board.tiles[i], 0];
+    }
     const base = { ...g.queue[0], boss: undefined, stomach: 8 };
     expect(g.pukes({ ...base, kind: 'tourist' })).toBe(1); // 8 / 8
     expect(g.pukes({ ...base, kind: 'grandma' })).toBe(3); // triple: 24 / 8
@@ -300,8 +300,8 @@ describe('puking', () => {
     g.skipReward();
     (g as unknown as { startDay(n: string): void }).startDay('boss');
     expect(g.queue[0].boss).toBe(g.parkBoss);
-    g.open('shuttle'); // nothing built: can't open
-    expect(g.phase).toBe('build');
+    // The boss rides every lap: they stay in line until they're broken.
+    expect(g.openKind).toBe('circuit');
   });
 });
 

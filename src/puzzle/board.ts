@@ -68,6 +68,12 @@ export interface Board {
    * (Off for bare test boards.)
    */
   eat?: boolean;
+  /**
+   * The ride is always running (v0.23): the track is one closed loop from the
+   * left platform cell round to the right one, and it grows by bulging out.
+   * Tiles hop over track cells (they can't rest on them).
+   */
+  loop?: boolean;
 }
 
 /** The flavor of the tile at cell i. */
@@ -355,6 +361,7 @@ export function slide(b: Board, dir: Dir): SlideResult {
       // Where the track eats tiles, only the mouth is solid: tiles hop straight over the
       // rest of the track (they can't stop on it), so the track never cuts the board apart.
       if (b.eat && trackAt(b, p.x, p.y) && !samePt(head(b, 0), p)) continue;
+      if (b.loop && trackAt(b, p.x, p.y)) continue;
       line.push(p);
     }
     let dest = 0;
@@ -568,4 +575,101 @@ export function sink(b: Board): TrackCell[] {
       out.push({ x: i % b.size, y: Math.floor(i / b.size), tier: b.tiles[i] });
     }
   return out;
+}
+
+// ---- The always-running loop ---------------------------------------------------
+// The ride is one closed loop: from the left platform cell, along ends[0], and
+// back down into the right platform cell (ends[1] stays empty). It grows by
+// bulging: an edge A→B of the loop swells out sideways into the two cells C, D
+// beside it (A→C→D→B), taking whatever tiles are there as its new pieces.
+
+export interface Bulge {
+  /** Insert position in ends[0]. */
+  at: number;
+  c: Pt;
+  d: Pt;
+}
+
+/** The loop as a path: left platform, the track, right platform. */
+function loopPath(b: Board): Pt[] {
+  return [stationPoint(b, 0), ...b.ends[0], stationPoint(b, 1)];
+}
+
+/** A cell the loop may swell into: on the board, no obstacle, no track. */
+function bulgeable(b: Board, p: Pt): boolean {
+  return inBounds(b, p.x, p.y) && !b.obstacles[idx(b, p.x, p.y)] && !trackAt(b, p.x, p.y);
+}
+
+/** Every way the loop could bulge out. */
+export function bulges(b: Board): Bulge[] {
+  if (!b.loop || b.opened) return [];
+  const path = loopPath(b);
+  const out: Bulge[] = [];
+  for (let i = 0; i + 1 < path.length; i++) {
+    const a = path[i];
+    const c0 = path[i + 1];
+    const d = { x: c0.x - a.x, y: c0.y - a.y };
+    for (const nv of [{ x: -d.y, y: d.x }, { x: d.y, y: -d.x }]) {
+      const c = { x: a.x + nv.x, y: a.y + nv.y };
+      const e = { x: c0.x + nv.x, y: c0.y + nv.y };
+      if (bulgeable(b, c) && bulgeable(b, e)) out.push({ at: i, c, d: e });
+    }
+  }
+  return out;
+}
+
+/**
+ * The best bulge that takes in (x, y): it must be one of the two new cells.
+ * Unless `anyCell`, the tapped cell must hold a tile. Prefers the juicier pair.
+ */
+export function bulgeFor(b: Board, x: number, y: number, anyCell = false): Bulge | null {
+  if (!anyCell && !b.tiles[idx(b, x, y)]) return null;
+  const value = (g: Bulge) => b.tiles[idx(b, g.c.x, g.c.y)] + b.tiles[idx(b, g.d.x, g.d.y)];
+  const fits = bulges(b).filter((g) => samePt(g.c, { x, y }) || samePt(g.d, { x, y }));
+  return fits.sort((p, q) => value(q) - value(p))[0] ?? null;
+}
+
+/** Cells you can tap to grow the loop (tiles only). */
+export function bulgeCells(b: Board): Pt[] {
+  const seen = new Set<number>();
+  const out: Pt[] = [];
+  for (const g of bulges(b))
+    for (const p of [g.c, g.d]) {
+      const i = idx(b, p.x, p.y);
+      if (b.tiles[i] && !seen.has(i)) {
+        seen.add(i);
+        out.push(p);
+      }
+    }
+  return out;
+}
+
+/** Swell the loop out: the two cells become track (their tiles, or flat). Returns the new cells. */
+export function applyBulge(b: Board, g: Bulge): TrackCell[] {
+  const cells = [g.c, g.d].map((p): TrackCell => {
+    const i = idx(b, p.x, p.y);
+    const fl = flavorAt(b, i);
+    const cell: TrackCell = { x: p.x, y: p.y, tier: b.tiles[i], ...(fl ? { flavor: fl } : {}) };
+    b.tiles[i] = 0;
+    if (b.flav) b.flav[i] = null;
+    return cell;
+  });
+  b.ends[0].splice(g.at, 0, ...cells);
+  return cells;
+}
+
+/** The starting loop: up from the left platform cell, across, and down into the right one. */
+export function startLoop(b: Board): void {
+  b.loop = true;
+  b.eat = false;
+  b.ends = [[], []];
+  for (const end of [0, 1] as End[]) {
+    const p = { x: b.station.x + end, y: b.station.y - 1 };
+    const i = idx(b, p.x, p.y);
+    const fl = flavorAt(b, i);
+    b.ends[0].push({ ...p, tier: b.tiles[i], ...(fl ? { flavor: fl } : {}) });
+    b.tiles[i] = 0;
+    if (b.flav) b.flav[i] = null;
+    b.obstacles[i] = null;
+  }
 }

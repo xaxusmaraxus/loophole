@@ -26,20 +26,12 @@ function playRide(seed: number, kind: 'circuit' | 'shuttle' | 'any'): Game {
   const greed = 6 + (seed % 9);
   while (g.phase === 'build' && guard++ < 400) {
     const b = g.board;
-    const len = b.ends[0].length + b.ends[1].length;
-    if (kind !== 'shuttle' && canConnect(b) && (len >= greed || g.room <= 2)) break;
-    if (kind === 'shuttle' && len >= greed && canShuttle(b)) break;
-    const targets = buildTargets(b);
-    if (targets.length && (len >= greed || rnd() < 0.4)) {
-      const [h0, h1] = [head(b, 0), head(b, 1)];
-      const t = targets.sort((a, c) => {
-        const d = (p: { x: number; y: number; end: 0 | 1 }) => {
-          const o = p.end === 0 ? h1 : h0;
-          return Math.abs(p.x - o.x) + Math.abs(p.y - o.y);
-        };
-        return (len >= greed ? d(a) - d(c) : 0) + (b.tiles[idx(b, c.x, c.y)] - b.tiles[idx(b, a.x, a.y)]) * 0.1 + rnd() - 0.5;
-      })[0];
-      g.buildAt(t.x, t.y);
+    if (b.ends[0].length >= greed || g.room <= 2) break;
+    // Grow the always-running loop into a juicy tile now and then, else swipe.
+    const cells = g.growCells;
+    if (cells.length && rnd() < 0.45) {
+      const t = cells.sort((a, c) => b.tiles[idx(b, c.x, c.y)] - b.tiles[idx(b, a.x, a.y)] + (rnd() - 0.5) * 2)[0];
+      g.tap(t.x, t.y);
     } else g.swipe(DIRS[Math.floor(rnd() * 4)]);
   }
   if (kind === 'shuttle' && canShuttle(g.board)) g.open('shuttle');

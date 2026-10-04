@@ -25,8 +25,11 @@ function uRide(g: Game, a: number, b: number): void {
   const s = bd.station;
   bd.tiles[(s.y - 1) * bd.size + s.x] = a;
   bd.tiles[(s.y - 1) * bd.size + s.x + 1] = b;
-  g.buildAt(s.x, s.y - 1);
-  g.buildAt(s.x + 1, s.y - 1);
+  // The ride starts as a two-piece loop on those cells: give it the tiles we just set.
+  for (const c of g.board.ends[0].slice(0, 2)) {
+    const i = c.y * g.board.size + c.x;
+    if (g.board.tiles[i]) [c.tier, g.board.tiles[i]] = [g.board.tiles[i], 0];
+  }
 }
 
 describe('the park plot', () => {
@@ -106,33 +109,42 @@ describe('boss days', () => {
     expect([...seen].sort()).toEqual(['barry', 'granny']);
   });
 
-  it('give up to three rides to break the boss, banking tickets in between', () => {
+  it('the boss rides every lap until broken; the day fails if they never break', () => {
     const g = bossDay('barry');
-    expect(g.fight).toMatchObject({ round: 1, hp: 3, max: 3 });
-    uRide(g, 1, 1);
+    expect(g.fight).toMatchObject({ hp: 3, max: 3 });
+    const barry = g.queue[0];
+    for (const c of g.board.ends[0]) c.tier = 3; // two Drops: 4 nausea a lap, Barry needs 14+
+    // Lap after lap he keeps it down, and stays in line.
+    g.board.tiles = g.board.tiles.map(() => 0);
+    g.board.obstacles = g.board.obstacles.map(() => null);
+    g.board.tiles[0] = 1;
+    for (let k = 0; k < 40 && g.lap < 2; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
+    expect(g.lap).toBe(2);
+    expect(g.queue[0]).toBe(barry);
+    expect(g.fight!.hp).toBe(3);
+    const hearts = g.hearts;
+    expect([g.phase, g.openKind]).toEqual(['build', 'circuit']);
     g.open('circuit');
     g.rideDone();
-    const r = g.result!;
-    expect(r.bossHits).toBe(0);
-    expect(r.again).toBe(true);
-    expect(r.passed).toBe(false);
-    const hearts = g.hearts;
+    expect(g.result!.again).toBe(false);
+    expect(g.result!.passed).toBe(false);
     g.continueFromResults();
-    // Round two: the track came down, the tiles stayed, same line.
-    expect(g.phase).toBe('build');
-    expect(g.hearts).toBe(hearts);
-    expect(g.fight!.round).toBe(2);
-    expect(g.fight!.banked).toBe(r.total);
-    expect(g.board.ends).toEqual([[], []]);
-    // Third time unlucky: a heart is lost.
-    for (const round of [2, 3]) {
-      uRide(g, 1, 1);
-      g.open('circuit');
-      g.rideDone();
-      expect(g.result!.round).toBe(round);
-      g.continueFromResults();
-    }
     expect(g.hearts).toBe(hearts - 1);
+  });
+
+  it('boss pukes on every lap crack their composure', () => {
+    const g = bossDay('granny');
+    const granny = g.queue[0];
+    granny.stomach = 2;
+    g.board.ends[0][0].tier = 3;
+    g.board.ends[0][1].tier = 4;
+    g.board.tiles = g.board.tiles.map(() => 0);
+    g.board.obstacles = g.board.obstacles.map(() => null);
+    g.board.tiles[0] = 1;
+    for (let k = 0; k < 40 && g.lap < 1; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
+    expect(g.lap).toBe(1);
+    expect(g.fight!.hp).toBeLessThan(3);
+    expect(g.events.some((e) => e.type === 'lap' && e.bossHits > 0)).toBe(true);
   });
 
   it('breaking the boss grows the plot and offers legendaries', () => {
