@@ -1,4 +1,6 @@
+import type { PatternId } from '../puzzle/patterns';
 import type { SpecialId } from '../puzzle/pieces';
+import type { Letter } from './grade';
 import { BOSS_POOL, type BossId } from '../riders/riders';
 import type { ToolId } from './run';
 
@@ -16,6 +18,10 @@ export interface PlayRecord {
   unlocked: UnlockId[];
   /** The station paint job picked from the unlocked ones. */
   station: StationStyle;
+  /** Ride patterns hit at least once (secret ones show in the pattern book after this). */
+  patterns: PatternId[];
+  /** Best grade for each day of the season, keyed by day number. */
+  grades: Record<string, Letter>;
 }
 
 export type StationStyle = 'classic' | 'candy' | 'gold';
@@ -44,7 +50,7 @@ export const UNLOCKS: { [K in UnlockId]: UnlockDef } = {
 };
 
 export function emptyRecord(): PlayRecord {
-  return { seasons: 0, wins: 0, bosses: [], totalPukes: 0, bestRide: 0, unlocked: [], station: 'classic' };
+  return { seasons: 0, wins: 0, bosses: [], totalPukes: 0, bestRide: 0, unlocked: [], station: 'classic', patterns: [], grades: {} };
 }
 
 /** Adds anything newly earned to `r.unlocked` and returns it. */

@@ -121,10 +121,13 @@ describe('rideStats', () => {
   it('scores excitement as thrill + length, and +0.5 mult per piece type past the first', () => {
     const plain = rideStats([{ tier: 1 }, { tier: 1 }, { tier: 1 }], mods);
     expect(plain.chips).toBe(3 + 3);
-    expect(plain.mult).toBe(1);
-    const varied = rideStats([{ tier: 1 }, { tier: 2 }, { tier: 3 }], mods);
-    expect(varied.variety).toBe(3);
-    expect(varied.mult).toBe(2);
+    // Three Airtime Hills in a row are a Triple: +3.
+    expect(plain.mult).toBe(1 + 3);
+    const varied = rideStats([{ tier: 1 }, { tier: 0 }, { tier: 3 }, { tier: 1 }], mods);
+    expect(varied.variety).toBe(2);
+    expect(varied.mult).toBe(1.5);
+    // Airtime Hill → Lift Hill → Helix is a Straight: +2 on top of variety.
+    expect(rideStats([{ tier: 1 }, { tier: 2 }, { tier: 3 }], mods).mult).toBe(2 + 2);
   });
 });
 

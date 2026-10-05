@@ -1,3 +1,4 @@
+import { findPatterns, patternMult, type PatternHit } from './patterns';
 // The merge ladder. Tier 0 (Flat) is never a tile: it's what gets laid when
 // the track head moves into an empty cell. Two tiles of tier N merge into N+1.
 export interface Piece {
@@ -148,6 +149,8 @@ export interface RideStats {
   crossings: number;
   /** Park pieces of each kind. */
   flavors: Record<Flavor, number>;
+  /** Ride patterns the sequence makes (their multiplier is already in `mult`). */
+  patterns: PatternHit[];
 }
 
 export interface StatMods {
@@ -187,6 +190,7 @@ export function rideStats(path: readonly PieceCell[], mods: StatMods): RideStats
   }
   thrill = Math.round(thrill * mods.thrillMult);
   const variety = tierCounts.filter((n, t) => t > 0 && n > 0).length;
+  const patterns = findPatterns(path);
   return {
     length: path.length,
     thrill,
@@ -196,8 +200,9 @@ export function rideStats(path: readonly PieceCell[], mods: StatMods): RideStats
     variety,
     tierCounts,
     chips: thrill + path.length,
-    mult: 1 + 0.5 * Math.max(0, variety - 1) + SPLASH_MULT * splashes + waterMult(mods) * flavors.water,
+    mult: 1 + 0.5 * Math.max(0, variety - 1) + SPLASH_MULT * splashes + waterMult(mods) * flavors.water + patternMult(patterns),
     crossings,
     flavors,
+    patterns,
   };
 }

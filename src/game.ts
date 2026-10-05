@@ -1,3 +1,5 @@
+import { type PatternHit, type PatternId, nearMisses } from './puzzle/patterns';
+import { type Grade, type Letter, better, gradeDay } from './run/grade';
 import { Rng, randomSeed } from './core/rng';
 import {
   type Board,
@@ -34,7 +36,7 @@ import {
   swipe,
   trackCells,
 } from './puzzle/board';
-import { BRAKES_NAUSEA, FINALE_NAUSEA, type Flavor, LIFT, MAX_TIER, pathThrills, type RideStats, SPECIALS, type SpecialId, invertedCell, rideStats } from './puzzle/pieces';
+import { BRAKES_NAUSEA, FINALE_NAUSEA, type Flavor, LIFT, MAX_TIER, pathThrills, type RideStats, SPECIALS, type SpecialId, invertedCell, liftPlan, rideStats } from './puzzle/pieces';
 import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
 import { BOSSES, BOSS_POOL, BOSS_ROUNDS, type BossId, type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { type OwnedAttraction, type Score, scoreRide } from './run/attractions';
@@ -107,6 +109,10 @@ export type GameEvent =
   | { type: 'boss'; what: 'wave' | 'spin' | 'snack'; dir?: Dir }
   /** Every move the ride earns its rate. */
   | { type: 'earn'; amount: number }
+  /** A ride pattern formed (cells: track cells in ride order); `fresh` the first time ever. */
+  | { type: 'pattern'; id: PatternId; cells: Pt[]; fresh: boolean }
+  /** The merge streak grew, or (roar 0) broke after `lost` merges. */
+  | { type: 'roar'; roar: number; lost: number }
   /** Not enough tickets to grow there. */
   | { type: 'broke'; cost: number; at: Pt }
   /** The train came round: everyone on board rode a lap and paid. */
@@ -147,6 +153,12 @@ export interface DayResult {
   passed: boolean;
   /** The score as it builds up during the ride: sums exactly to `total`. */
   timeline: ScoreEvent[];
+  /** How well you played: letter, notes and tips. */
+  grade: Grade;
+  /** Your best grade on this day before today (undefined: first time). */
+  bestGrade?: Letter;
+  /** Patterns hit for the first time ever today. */
+  newPatterns: PatternId[];
 }
 
 interface Snapshot {
@@ -154,6 +166,8 @@ interface Snapshot {
   queue: Rider[];
   actions: number;
   buzz: number;
+  roar: number;
+  bestRoar: number;
   bestCombo: number;
   comboPrizes: number;
   banked: number;
@@ -177,6 +191,9 @@ export const COMBO_PRIZES = [6, 9, 12];
  * pricing by the full rating made income grow with its square and run away.
  */
 export const HYPE_DIV = 14;
+/** Each merge in a row adds this much to the hype multiplier, up to ROAR_MAX merges (×2). */
+export const ROAR_STEP = 0.1;
+export const ROAR_MAX = 10;
 
 export function ticketFor(rating: number): number {
   return Math.max(1, Math.round(Math.log2(1 + Math.max(0, rating))));
@@ -200,6 +217,9 @@ const WALKIN_EVERY = 5;
  * to a meter, and every full point brings a rider. Building early pays off in riders.
  */
 const BUZZ_PER = 40;
+
+/** Identifies a pattern by kind and cells, to spot the new ones. */
+const patternKey = (h: PatternHit) => `${h.id}:${h.cells.join(',')}`;
 
 export class Game {
   seed = '';
@@ -264,6 +284,9 @@ export class Game {
   private rewardFrom: 'day' | 'treasure' | 'boss' = 'day';
   private nextUid = 1;
   private buzz = 0;
+  /** The crowd's roar: merges in a row. It multiplies hype; a dry swipe breaks it. */
+  roar = 0;
+  bestRoar = 0;
   private nextId = 1;
   private history: Snapshot[] = [];
 
@@ -377,6 +400,8 @@ export class Game {
     if (this.cfg.boss) this.queue.unshift(makeBoss(this.rng, this.cfg.boss, this.nextId++));
     this.actions = 0;
     this.buzz = 0;
+    this.roar = 0;
+    this.bestRoar = 0;
     this.bestCombo = 0;
     this.comboPrizes = 0;
     this.chainLinks = 0;
@@ -406,6 +431,7 @@ export class Game {
     for (const c of emptyCells(b)) if (this.rng.chance(0.45)) spawnAt(b, c, this.rng.chance(0.3) ? 2 : 1);
     this.actions = 0;
     this.buzz = 0;
+    this.roar = 0;
     this.selected = 0;
     this.aiming = null;
     this.undos = this.mods.undos;
@@ -692,6 +718,8 @@ export class Game {
       queue: this.queue.map((r) => ({ ...r })),
       actions: this.actions,
       buzz: this.buzz,
+      roar: this.roar,
+      bestRoar: this.bestRoar,
       bestCombo: this.bestCombo,
       comboPrizes: this.comboPrizes,
       banked: this.banked,
@@ -733,6 +761,14 @@ export class Game {
     // Chain reactions draw a crowd: one new rider per link.
     for (let i = 0; i < result.chain.waves.length; i++) this.arrive('chain');
     this.comboPrize(result.mergeCount);
+    if (result.mergeCount > 0) {
+      this.roar++;
+      this.bestRoar = Math.max(this.bestRoar, this.roar);
+      this.events.push({ type: 'roar', roar: this.roar, lost: 0 });
+    } else if (this.roar > 0) {
+      this.events.push({ type: 'roar', roar: 0, lost: this.roar });
+      this.roar = 0;
+    }
     // Lifeguard Lou: no running! A swipe that merges nothing drops in extra tiles.
     if (this.bossRule === 'whistle' && result.mergeCount === 0)
       for (let k = 0; k < WHISTLE_COST - 1; k++) spawnTile(this.board, this.rng, this.mods.hillChance);
@@ -770,14 +806,30 @@ export class Game {
     }
     this.snapshot();
     this.banked -= cost;
+    const before = new Set(this.stats.patterns.map(patternKey));
     const cells = applyBulge(this.board, g);
     // The train keeps its place on the track if the bulge went in behind it.
     if (g.at < this.trainPos) this.trainPos += cells.length;
     for (const laid of cells) this.events.push({ type: 'build', laid, end: 0 });
+    this.announcePatterns(before);
     // (No new tile on a grow: the loop already takes up two more cells.)
     this.tick();
     this.checkGridlock();
     return true;
+  }
+
+  /** Tells the page about patterns that weren't there before (keys from `patternKey`). */
+  private announcePatterns(before: Set<string>): void {
+    const path = this.rideCells();
+    for (const h of this.stats.patterns) {
+      if (before.has(patternKey(h))) continue;
+      this.events.push({ type: 'pattern', id: h.id, cells: h.cells.map((k) => ({ x: path[k].x, y: path[k].y })), fresh: !this.record.patterns.includes(h.id) });
+    }
+  }
+
+  /** What the roar multiplies hype by right now. */
+  get roarMult(): number {
+    return 1 + ROAR_STEP * Math.min(this.roar, ROAR_MAX);
   }
 
   /**
@@ -1048,7 +1100,7 @@ export class Game {
 
   /** Guests the ride draws per move: its hype, plus the odd walk-in. */
   get hypeRate(): number {
-    return this.score('circuit').rating / HYPE_DIV + 1 / WALKIN_EVERY;
+    return (this.score('circuit').rating / HYPE_DIV) * this.roarMult + 1 / WALKIN_EVERY;
   }
 
   /** One swipe passes. */
@@ -1060,7 +1112,7 @@ export class Game {
     this.bossTick();
     // Hype: the crowd at the fence grows with how wild the ride looks (old days: its excitement).
     const rating = this.board.loop ? this.score('circuit').rating : 0;
-    this.buzz += this.board.loop ? rating / HYPE_DIV : this.stats.chips / BUZZ_PER;
+    this.buzz += this.board.loop ? (rating / HYPE_DIV) * this.roarMult : this.stats.chips / BUZZ_PER;
     const price = ticketFor(rating);
     while (this.buzz >= 1) {
       this.buzz -= 1;
@@ -1118,6 +1170,8 @@ export class Game {
     this.queue = s.queue;
     this.actions = s.actions;
     this.buzz = s.buzz;
+    this.roar = s.roar;
+    this.bestRoar = s.bestRoar;
     this.bestCombo = s.bestCombo;
     this.comboPrizes = s.comboPrizes;
     this.banked = s.banked;
@@ -1162,9 +1216,21 @@ export class Game {
       shuttle: kind === 'shuttle',
       riders: this.queue.map((r) => ({ nausea: (i: number) => (this.refuses(r, kind) ? 0 : this.stopNausea(r, stops, i)), stomach: this.stomach(r), worth: riderWorth(r), boss: !!r.boss })),
     });
+    const grade = gradeDay({
+      dayTotal,
+      target: this.cfg.target,
+      passed,
+      patterns: stats.patterns,
+      bestRoar: this.bestRoar,
+      finaleLifts: liftPlan(cells).finale.reduce((a, n) => a + n, 0),
+      nearMisses: nearMisses(cells),
+    });
     this.result = {
       kind,
       stats,
+      grade,
+      bestGrade: this.record.grades[String(this.dayNum)],
+      newPatterns: grade.patterns.filter((id) => !this.record.patterns.includes(id)),
       score,
       tickets,
       total,
@@ -1206,6 +1272,8 @@ export class Game {
     // Bosses go on the trophy shelf once broken.
     const boss = this.cfg.boss;
     if (boss && r.bossPuked && !rec.bosses.includes(boss)) rec.bosses.push(boss);
+    for (const id of r.newPatterns) if (!rec.patterns.includes(id)) rec.patterns.push(id);
+    if (better(r.grade.letter, rec.grades[String(this.dayNum)])) rec.grades[String(this.dayNum)] = r.grade.letter;
     if (r.again) {
       this.unlockCheck();
       return this.nextRound();

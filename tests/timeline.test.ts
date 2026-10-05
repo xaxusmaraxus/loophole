@@ -63,7 +63,7 @@ describe('ride timeline', () => {
         // Chips from the pieces add up to the ride's base excitement, and variety to its multiplier.
         const pieceChips = tl.filter((e) => e.kind === 'chips').reduce((a, e) => a + (e.kind === 'chips' ? e.amount : 0), 0);
         expect(pieceChips).toBe(r.score.steps[0].chips);
-        const pieceMult = 1 + tl.filter((e) => e.kind === 'mult').length * 0.5;
+        const pieceMult = 1 + tl.reduce((a, e) => a + (e.kind === 'mult' && e.why !== 'splash' && e.why !== 'water' ? e.amount : 0), 0);
         expect(pieceMult).toBe(r.score.steps[0].mult);
         // Every rider pukes as often in the show as on their ticket.
         r.tickets.forEach((t, car) => {

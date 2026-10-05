@@ -1,4 +1,5 @@
 import { type PieceCell, SPLASH_MULT, type StatMods, cellThrill, waterMult } from '../puzzle/pieces';
+import { PATTERNS, type PatternId, findPatterns } from '../puzzle/patterns';
 import { pukesFor } from '../riders/riders';
 import type { Effect, Score } from './attractions';
 
@@ -7,6 +8,7 @@ import type { Effect, Score } from './attractions';
 // the player (Balatro-style) instead of being revealed after the ride:
 //   - the lead car passes a piece:           +chips (its thrill, plus 1 for length)
 //   - a new piece type appears:              +0.5 mult
+//   - a ride pattern completes (its last piece): +its mult
 //   - a rider's nausea passes a stomachful:  a puke, paid at the rating so far × their worth
 //   - back at the station, attractions fire left to right (chips, mult, ×mult)
 //   - the slam: every puke of the ride is re-paid at the final rating.
@@ -36,7 +38,7 @@ interface EventBase extends ScoreState {
 
 export type ScoreEvent =
   | (EventBase & { kind: 'chips'; tier: number; amount: number })
-  | (EventBase & { kind: 'mult'; tier: number; amount: number; why?: 'splash' | 'water' })
+  | (EventBase & { kind: 'mult'; tier: number; amount: number; why?: 'splash' | 'water' | 'pattern'; pattern?: PatternId })
   | (EventBase & { kind: 'puke'; car: number; nth: number; worth: number; boss: boolean })
   | (EventBase & { kind: 'attraction'; slot: number; label: string; effect: Effect })
   | (EventBase & { kind: 'slam' });
@@ -86,12 +88,14 @@ export function rideTimeline(input: TimelineInput): ScoreEvent[] {
   let rawThrill = 0;
   let pieces = 0;
   let chipsSoFar = 0;
+  const seq: { tier: number; stop: number }[] = [];
   stops.forEach((s, i) => {
     if (s.station) return;
     // A crossing is a second pass through the same cell: it counts as its own piece.
     const key = `${s.x},${s.y}${s.cross ? 'x' : ''}`;
     if (seen.has(key)) return;
     seen.add(key);
+    seq.push({ tier: s.tier, stop: i });
     rawThrill += input.thrills?.get(key) ?? cellThrill(s, mods);
     pieces++;
     const chips = Math.round(rawThrill * mods.thrillMult) + pieces;
@@ -104,6 +108,11 @@ export function rideTimeline(input: TimelineInput): ScoreEvent[] {
     if (s.special === 'splash') raw.push({ ...blank, kind: 'mult', at: i + 0.015, stop: i, tier: s.tier, amount: SPLASH_MULT, why: 'splash' });
     if (s.flavor === 'water') raw.push({ ...blank, kind: 'mult', at: i + 0.018, stop: i, tier: s.tier, amount: waterMult(mods), why: 'water' });
   });
+  // Ride patterns fire on the piece that completes them.
+  for (const h of findPatterns(seq)) {
+    const last = seq[Math.max(...h.cells)];
+    raw.push({ ...blank, kind: 'mult', at: last.stop + 0.02, stop: last.stop, tier: last.tier, amount: PATTERNS[h.id].mult, why: 'pattern', pattern: h.id });
+  }
 
   // Pukes: each rider's nausea builds piece by piece; a puke fires on the piece
   // where it passes another stomachful (same math as `pukesFor`).
