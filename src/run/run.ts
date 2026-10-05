@@ -295,8 +295,8 @@ export interface DayConfig {
  */
 export const BASE_TARGET = 2800;
 /** Ticket targets per season day (days 1 to 9; the finale has its own). */
-export const DAY_TARGETS = [1800, 2600, 6000, 50000, 70000, 120000, 180000, 220000, 300000];
-export const FINALE_TARGET = 1600000;
+export const DAY_TARGETS = [2200, 3200, 7000, 60000, 85000, 140000, 220000, 270000, 380000];
+export const FINALE_TARGET = 2000000;
 export const TARGET_GROWTH = 1.4;
 
 /** Funds, prices and payouts scale with the targets. */

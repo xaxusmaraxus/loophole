@@ -1,6 +1,6 @@
-import type { Game, RideKind } from '../game';
+import { type Game, type RideKind, START_CASH } from '../game';
 import { sfx } from '../core/sfx';
-import { canConnect, trackLength } from '../puzzle/board';
+import { canConnect, canSwipe } from '../puzzle/board';
 import { SPECIALS, type SpecialId } from '../puzzle/pieces';
 import { BOSSES, BOSS_ROUNDS, type BossId, KINDS, type Look, MAX_PUKES, type Rider, riderLabel, riderTrait, riderWorth } from '../riders/riders';
 import { FLAVORS, PIECES } from '../puzzle/pieces';
@@ -100,12 +100,13 @@ export class Hud {
     const cells = g.board.size * g.board.size;
     const frac = Math.min(1, Math.max(0, g.room / cells));
     $('daylightBar').style.width = `${frac * 100}%`;
-    const tight = g.phase === 'build' && g.room <= LOW_ROOM;
+    const low = g.board.loop ? 3 : LOW_ROOM;
+    const tight = g.phase === 'build' && g.room <= low;
     $('daylightBar').classList.toggle('dusk', g.room <= 4);
     document.querySelector('.daylight')?.classList.toggle('low', tight);
     $('daylightLeft').textContent = g.phase !== 'build' ? `${g.room} free cells` : g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'}` : 'Board full!';
     // Tension: a vignette closes in as the board fills.
-    $('tension').style.opacity = tight ? String(Math.min(1, (LOW_ROOM + 1 - g.room) / (LOW_ROOM + 1)) * 0.9 + 0.1) : '0';
+    $('tension').style.opacity = tight ? String(Math.min(1, (low + 1 - g.room) / (low + 1)) * 0.9 + 0.1) : '0';
 
     // Excitement × multiplier.
     const kind = g.openKind;
@@ -145,20 +146,31 @@ export class Hud {
     else if (aim?.tool === 'crew' && g.board.loop) hint.textContent = 'Tap any free cell beside the ride: the crew swells the loop out over it by hand.';
     else if (aim?.tool === 'crew') hint.textContent = 'Tap a cell right next to an end of the track: the crew lays it by hand.';
     else if (g.board.loop) {
-      const grow = g.growCells.length;
-      const stuck = !grow ? ' <strong>Nothing touches the ride:</strong> slide a tile up next to it.' : '';
-      hint.innerHTML =
-        g.room <= LOW_ROOM
-          ? `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge or grow to make room, or close the park before it jams.${stuck}`
+      const grow = g.growCells;
+      const costs = grow.map((c) => g.growCost(c.x, c.y) ?? Infinity);
+      const cheapest = Math.min(...costs);
+      const afford = costs.some((c) => c <= g.banked);
+      const stuck = !grow.length ? ' <strong>Nothing touches the ride:</strong> slide a tile up next to it.' : '';
+      const wait = Number.isFinite(cheapest) && !afford ? Math.ceil((cheapest - g.banked) / Math.max(1, g.rate)) : 0;
+      const broke = !afford && !canSwipe(g.board);
+      hint.innerHTML = broke
+        ? `<strong>Out of moves:</strong> nothing can slide and you can't afford any track yet. Close the park to cash in your ${g.banked.toLocaleString()} tickets.`
+        : g.room <= 3
+          ? `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge or buy track to make room, or close the park before it jams.${stuck}`
           : g.lap > 0 && this.lastLap === 0
-            ? `<strong>Nobody puked on lap ${g.lap}.</strong> The ride needs to get wilder: tap a glowing tile to grow it with a bigger piece.${stuck}`
-            : g.lap === 0 && trackLength(g.board) <= 2
-            ? `<strong>Tap a tile next to the ride to grow it.</strong> Every move rolls the train on; each lap pays. Close the park when you're happy, or keep growing.${stuck}`
-            : `Lap ${g.lap + 1} in ${g.lapLength - g.trainPos} move${g.lapLength - g.trainPos === 1 ? '' : 's'}. <strong>Tap a glowing tile</strong> to grow the ride, or close the park when you're happy.${stuck}`;
+            ? `<strong>Nobody puked on lap ${g.lap}.</strong> The ride needs to get wilder: merge bigger pieces and buy them in.${stuck}`
+            : g.actions === 0
+              ? `<strong>Every move earns your ride's rate.</strong> Tap a glowing tile to buy it into the ride: bigger pieces cost more and earn more. Merge first to make better pieces.${stuck}`
+              : afford
+                ? `<strong>You can afford track!</strong> Tap a glowing tile to buy it and raise your rate. Lap ${g.lap + 1} in ${g.lapLength - g.trainPos} move${g.lapLength - g.trainPos === 1 ? '' : 's'}: pukes are jackpots.${stuck}`
+                : wait
+                  ? `Saving up: the cheapest track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. Merge while you wait to make better pieces. Close the park with the target in hand.${stuck}`
+                  : `Swipe to earn and merge. Lap ${g.lap + 1} in ${g.lapLength - g.trainPos} move${g.lapLength - g.trainPos === 1 ? '' : 's'}: pukes are jackpots.${stuck}`;
     } else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit now, or keep building for a wilder ride.';
     else hint.innerHTML = 'Swipe to merge tiles: the bigger the piece, the wilder the ride.';
-    hint.classList.toggle('ready', building && !g.board.loop && canConnect(g.board));
-    hint.classList.toggle('tight', building && !aim && g.room <= LOW_ROOM);
+    const outOfMoves = building && g.board.loop && !canSwipe(g.board) && !g.growCells.some((c) => (g.growCost(c.x, c.y) ?? Infinity) <= g.banked);
+    hint.classList.toggle('ready', building && ((!g.board.loop && canConnect(g.board)) || outOfMoves));
+    hint.classList.toggle('tight', building && !aim && g.room <= (g.board.loop ? 3 : LOW_ROOM));
     const open = $<HTMLButtonElement>('open');
     open.disabled = !kind;
     open.classList.toggle('circuit', kind === 'circuit');
@@ -182,43 +194,54 @@ export class Hud {
     if (g.phase !== 'ride') this.cracks = 0;
   }
 
-  /** The bank as shown: it waits for the train to come round, then ticks up. */
+  // ---- The wallet (v0.24): one big number that never stops ticking up ----
+
+  /** Lap tickets the train hasn't brought round yet (the renderer knows): the counter waits for them. */
+  pendingLaps: () => number = () => 0;
+  /** The wallet as shown: it counts toward the real one, never jumps. */
   private bankShown = 0;
   private bankKey = '';
-  private bankAnim = 0;
   private bankHit = false;
-  private bankTimer = 0;
+  private tween: { from: number; to: number; t0: number; ms: number; big: boolean } | null = null;
+  /** The next count-up is a lap jackpot: slower, with the register rolling. */
+  private jackpot = false;
+  private lastRate = -1;
+  private ghost = 0;
+  private rolled = 0;
+  /** Tickets spent on track today, by the move they were spent on (so an undo takes them back). */
+  private spent = new Map<number, number>();
 
-  /** Today's tickets so far against the target, and the lap count. */
+  /** Today's wallet, the rate, the target bar and the lap count. */
   private renderBank(): void {
     const g = this.game;
     const target = g.cfg.target;
     const key = `${g.seed}:${g.dayNum}:${g.cfg.node}`;
     const live = !!g.board.loop && (g.phase === 'build' || g.phase === 'ride');
-    if (key !== this.bankKey || g.banked < this.bankShown || g.phase !== 'build') {
-      // A new day, an undo, or the build is over: no tick-up, just the number.
-      if (key !== this.bankKey) {
-        this.bankHit = g.banked >= target;
-        this.lastLap = null;
-      }
+    if (key !== this.bankKey) {
+      // A new day: no count-up from yesterday, just today's opening cash.
       this.bankKey = key;
-      cancelAnimationFrame(this.bankAnim);
       this.bankShown = g.banked;
-    } else if (g.banked > this.bankShown) {
-      // A lap is on its way round: if the show never calls it in, catch up anyway.
-      clearTimeout(this.bankTimer);
-      this.bankTimer = window.setTimeout(() => this.lapPaid(-1, 0, 0), 5000);
+      this.tween = null;
+      this.bankHit = g.banked >= target;
+      this.lastLap = null;
+      this.lastRate = -1;
+      this.spent.clear();
     }
+    for (const k of [...this.spent.keys()]) if (k > g.actions) this.spent.delete(k);
+    $('wallet').classList.toggle('idle', !live);
     const quota = $('quota');
     if (!live) {
       quota.textContent = `Sell ${target.toLocaleString()} tickets`;
-      $('bankLine').hidden = true;
-      $('bankTrack').hidden = true;
       return;
     }
-    $('bankLine').hidden = false;
-    $('bankTrack').hidden = false;
     quota.textContent = `Lap ${g.lap}`;
+    const rate = g.rate;
+    if (g.phase === 'build') {
+      if (this.lastRate >= 0 && rate !== this.lastRate) this.ratePulse(rate - this.lastRate);
+      this.lastRate = rate;
+    }
+    $('rateNum').textContent = `+${rate.toLocaleString()}`;
+    this.ghost = g.phase === 'build' ? g.projected('circuit') : 0;
     this.paintBank();
   }
 
@@ -227,57 +250,152 @@ export class Hud {
     const target = g.cfg.target;
     const shown = Math.round(this.bankShown);
     $('bankNum').textContent = shown.toLocaleString();
-    $('bankTarget').textContent = ` / ${target.toLocaleString()} tickets`;
-    const frac = Math.min(1, shown / Math.max(1, target));
-    $('bankBar').style.width = `${frac * 100}%`;
-    // The ghost: where closing the park right now would get you.
-    const proj = g.phase === 'build' ? g.projected('circuit') : 0;
-    $('bankGhost').style.width = `${Math.min(1, (shown + proj) / Math.max(1, target)) * 100}%`;
-    $('bankTrack').classList.toggle('hit', shown >= target);
-    $('bankLine').classList.toggle('hit', shown >= target);
+    const hit = shown >= target;
+    $('bankTarget').innerHTML = hit ? `<b>Target hit!</b> ${target.toLocaleString()}` : `Target <b>${target.toLocaleString()}</b>`;
+    // The target sits near the end of the bar, so you can see yourself overshoot it.
+    const scale = Math.max(target / 0.84, (shown + this.ghost) * 1.02, 1);
+    $('bankBar').style.width = `${Math.min(1, shown / scale) * 100}%`;
+    $('bankGhost').style.width = `${Math.min(1, (shown + this.ghost) / scale) * 100}%`;
+    $('bankFlag').style.left = `${(target / scale) * 100}%`;
+    $('bankTrack').classList.toggle('hit', hit);
+    $('wallet').classList.toggle('hit', hit);
   }
 
-  /** What the last lap paid (null before the first, or after a catch-up). */
+  /** Called every frame: the counter rolls toward the wallet (minus laps still on their way round). */
+  tick(now: number): void {
+    const g = this.game;
+    if (!g.board.loop || (g.phase !== 'build' && g.phase !== 'ride') || `${g.seed}:${g.dayNum}:${g.cfg.node}` !== this.bankKey) return;
+    const goal = Math.max(0, g.banked - this.pendingLaps());
+    let t = this.tween;
+    if (Math.abs(goal - this.bankShown) < 0.001 && !t) return;
+    if (!t || t.to !== goal) {
+      const diff = goal - this.bankShown;
+      const big = this.jackpot && diff > 0;
+      this.jackpot = false;
+      // Earning ticks over quickly; a jackpot rolls like a slot machine; spending drains.
+      const ms = big ? Math.min(1500, 700 + Math.log10(1 + diff) * 180) : diff < 0 ? 520 : 360;
+      const left = t ? Math.max(0, t.t0 + t.ms - now) : 0;
+      t = this.tween = { from: this.bankShown, to: goal, t0: now, ms: Math.max(ms, left), big: big || !!t?.big };
+      if (big) this.bump('jackpot');
+      else if (diff > 0) this.bump('tick');
+    }
+    const k = Math.min(1, (now - t.t0) / t.ms);
+    this.bankShown = t.from + (t.to - t.from) * (1 - (1 - k) ** 3);
+    if (t.big && Math.round(this.bankShown) !== this.rolled && now - this.rollAt > 45) {
+      this.rollAt = now;
+      sfx.roll(Math.floor(k * 12));
+    }
+    this.rolled = Math.round(this.bankShown);
+    if (k >= 1) {
+      this.bankShown = t.to;
+      this.tween = null;
+    }
+    this.paintBank();
+    if (!this.bankHit && this.bankShown >= g.cfg.target && g.phase === 'build') {
+      // First time over the line today: a fanfare.
+      this.bankHit = true;
+      this.bump('goal');
+      sfx.target();
+    }
+  }
+  private rollAt = 0;
+
+  private bump(kind: 'tick' | 'jackpot' | 'goal' | 'broke' | 'spend'): void {
+    const el = $('wallet');
+    el.classList.remove('tick', 'jackpot', 'goal', 'broke', 'spend');
+    void el.offsetWidth;
+    el.classList.add(kind);
+  }
+
+  /** The rate changed: it pulses and shows by how much. */
+  private ratePulse(delta: number): void {
+    const d = $('rateDelta');
+    d.textContent = delta > 0 ? `+${delta.toLocaleString()}` : `−${(-delta).toLocaleString()}`;
+    const line = $('rateLine');
+    line.classList.remove('up', 'down');
+    void line.offsetWidth;
+    line.classList.add(delta > 0 ? 'up' : 'down');
+  }
+
+  /** What the last lap paid (null before the first). */
   private lastLap: number | null = null;
 
-  /** A lap paid out at the station: the bank ticks up with a bump. */
-  lapPaid(lap: number, total: number, bossHits: number): void {
+  /** A lap paid out at the station: a jackpot, and its coins pour into the wallet. */
+  lapPaid(lap: number, total: number, _bossHits: number, from?: { x: number; y: number }): void {
     const g = this.game;
     if (lap === g.lap) {
       // Remember a dud lap for the hint (and boss hits crack the pips on the bar).
       this.lastLap = total;
       this.update();
     }
-    clearTimeout(this.bankTimer);
-    const from = this.bankShown;
-    const to = g.banked;
-    $('quota').textContent = `Lap ${g.lap}`;
-    if (to <= from) return;
-    const t0 = performance.now();
-    const ms = Math.min(1100, 450 + (to - from) / 40);
+    if (total <= 0) return;
+    this.jackpot = true;
     const quota = $('quota');
-    const line = $('bankLine');
-    for (const el of [quota, line]) {
-      el.classList.remove('bump');
-      void el.offsetWidth;
-      el.classList.add('bump');
+    quota.classList.remove('bump');
+    void quota.offsetWidth;
+    quota.classList.add('bump');
+    if (from) {
+      const n = Math.min(26, 10 + Math.round(Math.log2(1 + total / Math.max(1, g.rate)) * 2));
+      this.fly(from, this.walletPoint(), n, 'coin', 1.4);
     }
-    cancelAnimationFrame(this.bankAnim);
-    const tick = (now: number) => {
-      const k = Math.min(1, (now - t0) / ms);
-      this.bankShown = from + (to - from) * (1 - (1 - k) ** 3);
-      this.paintBank();
-      if (k < 1) this.bankAnim = requestAnimationFrame(tick);
-      else if (!this.bankHit && to >= g.cfg.target) {
-        // First time over the line today: a fanfare.
-        this.bankHit = true;
-        line.classList.remove('bump');
-        void line.offsetWidth;
-        line.classList.add('bump', 'hit');
-        sfx.target();
-      }
-    };
-    this.bankAnim = requestAnimationFrame(tick);
+  }
+
+  /** Where the counter is on the page. */
+  walletPoint(): { x: number; y: number } {
+    const r = $('bankNum').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  /** Tickets or coins flying across the screen in an arc, staggered. */
+  fly(from: { x: number; y: number }, to: { x: number; y: number } | { x: number; y: number }[], n: number, kind: 'coin' | 'ticket', spread = 0.5, done?: () => void): void {
+    const tos = Array.isArray(to) ? to : [to];
+    const layer = document.querySelector('.app')!;
+    for (let i = 0; i < n; i++) {
+      const dst = tos[i % tos.length];
+      const el = document.createElement('i');
+      el.className = `fly-${kind}`;
+      el.setAttribute('aria-hidden', 'true');
+      layer.append(el);
+      const jx = (Math.random() - 0.5) * 60 * spread;
+      const jy = (Math.random() - 0.5) * 40 * spread;
+      const mx = (from.x + dst.x) / 2 + jx * 2;
+      const my = Math.min(from.y, dst.y) - 60 - Math.random() * 50;
+      const spin = (Math.random() - 0.5) * 540;
+      const anim = el.animate(
+        [
+          { transform: `translate(${from.x + jx}px, ${from.y + jy}px) translate(-50%, -50%) scale(0.4) rotate(0deg)`, opacity: 0 },
+          { transform: `translate(${mx}px, ${my}px) translate(-50%, -50%) scale(1.15) rotate(${spin / 2}deg)`, opacity: 1, offset: 0.45 },
+          { transform: `translate(${dst.x}px, ${dst.y}px) translate(-50%, -50%) scale(0.7) rotate(${spin}deg)`, opacity: 0.9 },
+        ],
+        { duration: 560 + Math.random() * 160, delay: i * 45, easing: 'cubic-bezier(0.45, 0, 0.6, 1)', fill: 'backwards' },
+      );
+      anim.onfinish = () => {
+        el.remove();
+        if (kind === 'coin' && i % 3 === 0) sfx.coin(i);
+        if (i === n - 1) done?.();
+      };
+    }
+  }
+
+  /** Bought track: tickets fly from the wallet to the new pieces, and the counter drains. */
+  spend(cost: number, to: { x: number; y: number }[]): void {
+    if (cost <= 0) return;
+    this.spent.set(this.game.actions, cost);
+    this.bump('spend');
+    const n = Math.min(10, 3 + Math.round(Math.log2(1 + cost / 4)));
+    this.fly(this.walletPoint(), to, n, 'ticket', 0.6);
+  }
+
+  /** Tapped something you can't afford: the counter shakes red. */
+  broke(): void {
+    this.bump('broke');
+  }
+
+  /** Tickets spent on track today (after undos). */
+  get spentToday(): number {
+    let s = 0;
+    for (const v of this.spent.values()) s += v;
+    return s;
   }
 
   private lastBoss = '';
@@ -696,10 +814,10 @@ export class Hud {
         <p class="eyebrow">${title[r.kind]}</p>
         <h2>${headline}</h2>
         ${bossLine}
-        <p class="total big"><span>Tickets ${f && f.round > 1 ? 'today' : 'sold'}</span><strong>${r.dayTotal.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
+        <p class="total big"><span>${g.board.loop ? 'In hand at closing' : `Tickets ${f && f.round > 1 ? 'today' : 'sold'}`}</span><strong>${r.dayTotal.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
         ${
           g.board.loop
-            ? `<p class="total"><span>${g.lap} lap${g.lap === 1 ? '' : 's'} banked</span><strong>${(r.dayTotal - r.total).toLocaleString()}</strong></p><p class="total"><span>Last ride</span><strong>${r.total.toLocaleString()}</strong></p>`
+            ? `<p class="total"><span>Earned (moves, ${g.lap} lap${g.lap === 1 ? '' : 's'}, last ride)</span><strong>${(r.dayTotal - START_CASH + this.spentToday).toLocaleString()}</strong></p>${this.spentToday ? `<p class="total"><span>Spent on track</span><strong>−${this.spentToday.toLocaleString()}</strong></p>` : ''}<p class="total"><span>Last ride</span><strong>${r.total.toLocaleString()}</strong></p>`
             : r.dayTotal !== r.total
               ? `<p class="total"><span>This ride</span><strong>${r.total.toLocaleString()}</strong></p>`
               : ''

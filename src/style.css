@@ -3675,20 +3675,256 @@ body {
   }
 }
 
-/* ---- The always-running ride (v0.23): the bank, laps and payouts ---- */
+/* ---- The wallet (v0.24): one big number, the rate under it, the target bar beside ---- */
+.hud-mid.wallet {
+  flex: 0 1 540px;
+  gap: 12px;
+  padding: 5px 16px 5px 6px;
+  border-radius: 28px;
+}
+
+.w-money {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 9px;
+  padding: 4px 14px 5px 10px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(8, 10, 30, 0.55), rgba(8, 10, 30, 0.35));
+  box-shadow: inset 0 0 0 1.5px rgba(255, 210, 63, 0.28), inset 0 -2px 0 rgba(255, 255, 255, 0.06);
+  flex: none;
+}
+
+.w-ticket {
+  grid-row: 1 / span 2;
+  width: 30px;
+  height: 21px;
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, transparent 63%, rgba(120, 70, 0, 0.35) 63% 66%, transparent 66%),
+    linear-gradient(180deg, #fff1a0, #ffc53d 60%, #f0a020);
+  box-shadow: 0 0 0 2px var(--ink), 0 3px 0 2px var(--ink);
+  transform: rotate(-12deg);
+}
+
+.w-num {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.w-num b {
+  display: inline-block;
+  min-width: 3ch;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 30px;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--bulb);
+  text-shadow: 0 3px 0 #9a5a12, 0 0 18px rgba(255, 200, 60, 0.35);
+  transform-origin: left center;
+}
+
+.wallet.hit .w-num b {
+  color: #b6ff8f;
+  text-shadow: 0 3px 0 #2f7a2f, 0 0 18px rgba(140, 255, 110, 0.4);
+}
+
+.w-rate {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 2px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.w-rate b {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 14px;
+  color: #8dff6a;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+.w-rate small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--paper-edge);
+}
+
+.rate-delta {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  margin-left: 6px;
+  padding: 2px 7px 3px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-size: 12px;
+  line-height: 1;
+  color: #fff;
+  background: #3fae4a;
+  box-shadow: 0 0 0 1.5px var(--ink), 0 2px 0 1.5px var(--ink);
+  opacity: 0;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+
+.w-rate.down .rate-delta {
+  background: #c9463d;
+}
+
+.w-rate.up b,
+.w-rate.down b {
+  animation: rate-pulse 700ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+.w-rate.down b {
+  color: #ffb3a8;
+  animation-name: rate-sag;
+}
+
+.w-rate.up .rate-delta,
+.w-rate.down .rate-delta {
+  animation: delta-pop 1800ms ease-out forwards;
+}
+
+@keyframes rate-pulse {
+  25% {
+    transform: scale(1.5);
+    filter: brightness(1.6) drop-shadow(0 0 6px #8dff6a);
+  }
+}
+
+@keyframes rate-sag {
+  25% {
+    transform: scale(0.85);
+  }
+}
+
+@keyframes delta-pop {
+  0% {
+    opacity: 0;
+    translate: -6px -50%;
+    scale: 0.5;
+  }
+  12% {
+    opacity: 1;
+    translate: 0 -50%;
+    scale: 1.25;
+  }
+  24% {
+    scale: 1;
+  }
+  75% {
+    opacity: 1;
+    translate: 0 -50%;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 -120%;
+  }
+}
+
+.wallet.tick .w-num b {
+  animation: w-tick 240ms ease-out;
+}
+
+.wallet.jackpot .w-num b {
+  animation: w-jackpot 1100ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.wallet.jackpot .w-money,
+.wallet.goal .w-money {
+  animation: w-glow 1300ms ease-out;
+}
+
+.wallet.goal .w-num b {
+  animation: w-jackpot 1100ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+.wallet.spend .w-num b {
+  animation: w-spend 520ms ease-out;
+}
+
+.wallet.broke .w-money {
+  animation: w-shake 420ms ease-in-out;
+}
+
+.wallet.broke .w-num b {
+  animation: w-red 600ms ease-out;
+}
+
+@keyframes w-tick {
+  35% {
+    transform: scale(1.07);
+    filter: brightness(1.25);
+  }
+}
+
+@keyframes w-jackpot {
+  20% {
+    transform: scale(1.28) rotate(-2deg);
+    filter: brightness(1.5);
+  }
+  60% {
+    transform: scale(1.12);
+    filter: brightness(1.25);
+  }
+}
+
+@keyframes w-glow {
+  20% {
+    box-shadow: inset 0 0 0 2px rgba(255, 220, 90, 0.9), 0 0 26px 6px rgba(255, 200, 60, 0.55);
+  }
+}
+
+@keyframes w-spend {
+  30% {
+    transform: scale(0.92);
+    color: #ffb3a8;
+  }
+}
+
+@keyframes w-red {
+  20%,
+  60% {
+    color: #ff7a6e;
+  }
+}
+
+@keyframes w-shake {
+  20% {
+    translate: -5px 0;
+  }
+  40% {
+    translate: 5px 0;
+  }
+  60% {
+    translate: -3px 0;
+  }
+  80% {
+    translate: 2px 0;
+  }
+}
+
+/* The target bar and room, beside the wallet. */
+.wallet .daylight {
+  gap: 4px;
+}
+
 .bank-line {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
   line-height: 1;
-  transform-origin: left center;
-}
-
-.bank-line[hidden],
-.bank-track[hidden] {
-  display: none;
 }
 
 .bank-num {
@@ -3699,20 +3935,24 @@ body {
 }
 
 .bank-num b {
-  font-family: var(--font-sign);
-  font-weight: 400;
-  font-size: 17px;
-  letter-spacing: 0.02em;
-  color: var(--bulb);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  font-weight: 700;
+  color: var(--paper);
 }
 
-.bank-line.hit .bank-num b {
+.wallet.hit .bank-num b {
   color: #9dff7a;
 }
 
-.bank-line.bump {
-  animation: bank-bump 520ms cubic-bezier(0.2, 1.8, 0.4, 1);
+.bank-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wallet .pill.quota {
+  padding: 3px 9px;
+  font-size: 11px;
 }
 
 .pill.quota.bump {
@@ -3721,7 +3961,7 @@ body {
 
 @keyframes bank-bump {
   30% {
-    transform: scale(1.14);
+    transform: scale(1.18);
     filter: brightness(1.4);
   }
 }
@@ -3729,11 +3969,10 @@ body {
 .bank-track {
   position: relative;
   flex: none;
-  height: 12px;
-  border-radius: 6px;
+  height: 10px;
+  border-radius: 5px;
   background: rgba(8, 10, 30, 0.6);
   box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.12);
-  overflow: hidden;
 }
 
 .bank-track span {
@@ -3741,7 +3980,8 @@ body {
   left: 0;
   top: 0;
   bottom: 0;
-  border-radius: 6px;
+  border-radius: 5px;
+  transition: width 120ms linear;
 }
 
 .bank-fill {
@@ -3756,13 +3996,288 @@ body {
 /* Where closing the park right now would get you. */
 .bank-ghost {
   background: repeating-linear-gradient(-45deg, rgba(255, 210, 63, 0.4) 0 5px, rgba(255, 210, 63, 0.18) 5px 10px);
-  transition: width 200ms ease;
 }
 
-.daylight .daylight-track:has(+ *),
-.bank-track + .daylight-track {
+/* The target: a little flag on the bar. */
+.bank-flag {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--paper);
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+
+.bank-flag::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: -2px;
+  width: 9px;
+  height: 7px;
+  background: var(--marquee);
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+.bank-track.hit .bank-flag::after {
+  background: #4fc46a;
+}
+
+.wallet .daylight-track {
   height: 4px;
   opacity: 0.75;
+}
+
+/* Before the day starts: just the target. */
+.wallet.idle .w-money,
+.wallet.idle .bank-track,
+.wallet.idle .bank-num {
+  display: none;
+}
+
+/* ---- Price tags over the tiles you can buy ---- */
+.price-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  will-change: transform;
+  animation: eat-tag-in 200ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+.pt-cost {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 3px 5px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink);
+  background: linear-gradient(180deg, #fff1a0, #ffc53d);
+  box-shadow: 0 0 0 2px var(--ink), 0 3px 0 2px var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.pt-tk {
+  width: 11px;
+  height: 8px;
+  border-radius: 2px;
+  background: #f0a020;
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+
+.pt-gain {
+  position: absolute;
+  right: -12px;
+  top: -11px;
+  padding: 1px 4px 2px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-size: 9.5px;
+  line-height: 1;
+  color: #fff;
+  background: #3fae4a;
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+
+.pt-gain:empty {
+  display: none;
+}
+
+.price-tag.no .pt-cost {
+  color: #ffc2b8;
+  background: linear-gradient(180deg, #6b6584, #4a4566);
+}
+
+.price-tag.no .pt-tk {
+  background: #8a84a3;
+}
+
+.price-tag.no .pt-gain {
+  background: #3d7a46;
+  color: #d6f5d0;
+}
+
+.pt-more {
+  order: -1;
+  display: none;
+  margin-bottom: 6px;
+  padding: 4px 9px 5px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
+  color: var(--paper);
+  background: rgba(24, 28, 62, 0.94);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.18), 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.price-tag.on .pt-more {
+  display: block;
+}
+
+.price-tag.on .pt-cost {
+  scale: 1.15;
+}
+
+.price-tag.shake {
+  animation: tag-shake 460ms ease-in-out;
+}
+
+.price-tag.shake .pt-cost {
+  color: #fff;
+  background: linear-gradient(180deg, #ff8a7a, #d8443a);
+}
+
+@keyframes tag-shake {
+  15% {
+    translate: -6px 0;
+    rotate: -6deg;
+  }
+  35% {
+    translate: 6px 0;
+    rotate: 6deg;
+  }
+  55% {
+    translate: -4px 0;
+    rotate: -3deg;
+  }
+  75% {
+    translate: 3px 0;
+    rotate: 2deg;
+  }
+}
+
+/* Coins and tickets flying between the park and the wallet. */
+.fly-coin,
+.fly-ticket {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 30;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.fly-coin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff6c8 0 18%, #ffd23f 40%, #e09a1a 100%);
+  box-shadow: 0 0 0 2px var(--ink), 0 0 10px rgba(255, 210, 63, 0.7);
+}
+
+.fly-ticket {
+  width: 18px;
+  height: 12px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #fff1a0, #ffc53d);
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+/* Floating numbers: earn, spend, the rate going up, can't afford. */
+.w3d.w3d-earn {
+  font-size: calc(18px * var(--s, 1));
+  -webkit-text-stroke: 1.2px var(--ink);
+  text-shadow: 0 2px 0 var(--ink);
+  animation: none;
+  opacity: 0.95;
+}
+
+.w3d.w3d-spend,
+.w3d.w3d-rate {
+  padding: 4px 11px 5px;
+  border-radius: 999px;
+  font-size: calc(15px * var(--s, 1));
+  -webkit-text-stroke: 0;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 0 2px var(--ink), 0 3px 0 2px var(--ink);
+}
+
+.w3d.w3d-spend {
+  color: #c9302c !important;
+  background: linear-gradient(180deg, #fff, #ffe3de);
+  animation: eat-tag-in 220ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+.w3d.w3d-rate {
+  color: #fff !important;
+  background: linear-gradient(180deg, #5fd36a, #2f9e45);
+  box-shadow: 0 0 0 2px var(--ink), 0 4px 0 2px var(--ink), 0 0 22px 4px rgba(120, 255, 90, 0.55);
+  animation: rate-pop 420ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+@keyframes rate-pop {
+  from {
+    scale: 0.3;
+  }
+}
+
+.w3d.w3d-broke {
+  padding: 4px 10px 5px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: #fff !important;
+  background: #d8443a;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 0 2px var(--ink), 0 3px 0 2px var(--ink);
+  animation: eat-tag-in 220ms cubic-bezier(0.2, 1.8, 0.4, 1), w3d-wobble 420ms ease-in-out;
+}
+
+@keyframes w3d-wobble {
+  25% {
+    rotate: -4deg;
+  }
+  75% {
+    rotate: 4deg;
+  }
+}
+
+@media (max-width: 620px) {
+  .hud-mid.wallet {
+    padding: 4px 12px 4px 4px;
+    gap: 10px;
+  }
+
+  .w-money {
+    padding: 3px 10px 4px 8px;
+    column-gap: 7px;
+  }
+
+  .w-ticket {
+    width: 24px;
+    height: 17px;
+  }
+
+  .w-num b {
+    font-size: 24px;
+  }
+
+  .w-rate b {
+    font-size: 12px;
+  }
+
+  .w-rate small {
+    font-size: 11px;
+  }
+
+  .wallet .daylight-left {
+    display: none;
+  }
+
+  .pt-cost {
+    font-size: 11px;
+  }
 }
 
 .w3d.w3d-lap {
@@ -3789,9 +4304,12 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bank-line.bump,
   .pill.quota.bump,
-  .w3d.w3d-lap {
-    animation: none;
+  .w3d.w3d-lap,
+  .wallet .w-num b,
+  .wallet .w-money,
+  .w-rate b,
+  .price-tag {
+    animation: none !important;
   }
 }

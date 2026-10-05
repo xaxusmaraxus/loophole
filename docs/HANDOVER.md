@@ -16,7 +16,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 | What | How |
 | --- | --- |
 | Web prototype | `npm install`, `npm run dev` |
-| Tests (77, Vitest) | `npm test` |
+| Tests (78, Vitest) | `npm test` |
 | Typecheck and build | `npx tsc --noEmit -p .`, `npm run build` |
 | Balance simulation | `npx vite-node tools/season-bot.ts`: 200 seeded seasons, score percentiles per day vs. targets |
 | Single-file build for the artifact | `npm run build && python3 tools/bundle-artifact.py out/loophole.html`, then publish to the URL above |
@@ -51,6 +51,7 @@ A merge puzzle roguelike where the goal is to make theme park guests **puke**. O
 - **v0.21, park pieces:** tiles carry a park flavor (spinning, water, hanging) through merges into the track (`Board.flav`, `Flavor` in `src/puzzle/pieces.ts`), plus combo prizes.
 - **v0.22, the track eats tiles:** the core loop changed. One verb (swipe); tiles that slide into an open end become track; no daylight, the day ends when you open or at gridlock. See `docs/concepts.md`.
 - **v0.23, the ride is always running:** the current core loop. The day starts with a small open loop; tap a tile next to it to grow it; every move rolls the train a stop and every lap pays; close the park or jam to end the day. See `docs/concepts.md`.
+- **v0.24, incremental economy:** every move earns the ride's rate; growing the loop costs tickets (scaling prices); pukes are jackpots; the wallet is the day's score.
 - **Not built yet:** the energy budget (Mountain park), Space Park, the daily seed, contracts, board modifiers, unlockable riders and attractions, and the rival park (saved for multiplayer). All are in the roadmap in `docs/concepts.md`.
 - **Balance after v0.18** (`tools/season-bot.ts`, 200 seasons): median run reaches day 8, 5 wins, boss days fail 402 of 514. Crossings and piers made the season a touch easier than before (median day 7, ~1% wins).
 - **Nothing is blocked.**

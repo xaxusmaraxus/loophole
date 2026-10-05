@@ -35,8 +35,10 @@ import {
   type Pt,
   DELTA,
   DIRS,
+  applyBulge,
   buildTargets,
   bulgeFor,
+  cloneBoard,
   canConnect,
   head,
   idx,
@@ -160,6 +162,8 @@ interface Word {
   at: Vector3;
   born: number;
   max: number;
+  /** Rides along with something that moves (the train's lead car). */
+  follow?: () => Vector3 | null;
 }
 
 /** A guest's rig: body, two arms and two legs, sharing cached geometry. */
@@ -317,7 +321,7 @@ export class Renderer {
   /** The always-running ride (v0.23): the parked train's position in stops (0 = the station), and the stops' cells. */
   private loopTrain = { shown: 0, keys: [] as string[] };
   /** Laps waiting for the train to come round, then paying out (riders stay seated until they get off). */
-  private laps: { e: Extract<GameEvent, { type: 'lap' }>; riders: Rider[]; at: number; paying: boolean }[] = [];
+  private laps: { e: Extract<GameEvent, { type: 'lap' }>; riders: Rider[]; at: number; paying: boolean; told?: boolean }[] = [];
   /** Who sits in the parked train's cars right now, and where their heads are. */
   private seatRiders: Rider[] = [];
   private seatPts: { head: Vector3; mouth: Vector3; fwd: Vector3; carry: Vector3 }[] = [];
@@ -325,6 +329,13 @@ export class Renderer {
   private homeRun: (() => void) | null = null;
   /** A lap paid out (the HUD ticks its bank up). */
   onLap: (lap: number, total: number, bossHits: number) => void = () => {};
+  /** Tapped a grow you can't afford (the HUD shakes the wallet). */
+  onBroke: () => void = () => {};
+  /** Price tags over the growable tiles, by cell index. */
+  private tags = new Map<number, HTMLDivElement>();
+  private tagInfo: { key: string; cells: Map<number, { cost: number; gain: number; names: string }> } = { key: '', cells: new Map() };
+  /** The "+N" floating up off the lead car (fast moves add up into one). */
+  private earnWord: { w: Word; total: number } | null = null;
   /** Test hook (?fixeddt=ms): advance a fixed step per frame, however slow the frames are. */
   private fixed = Number(new URLSearchParams(location.search).get('fixeddt') ?? 0);
   private vnow = 0;
@@ -608,6 +619,7 @@ export class Renderer {
     this.puddleDirty = true;
     for (const w of this.words) w.el.remove();
     this.words = [];
+    this.earnWord = null;
     this.riderPos.clear();
     this.game.queue.forEach((r, i) => {
       const s = this.slot(i);
@@ -942,6 +954,12 @@ export class Renderer {
         }
         case 'lap':
           this.laps.push({ e, riders: e.tickets.map((t) => t.rider), at: this.now, paying: false });
+          break;
+        case 'earn':
+          this.earnFx(e.amount);
+          break;
+        case 'broke':
+          this.brokeFx(e.cost, e.at);
           break;
         case 'undo':
           // Undo puts the train back where it was, at once; laps it undid never pay.
@@ -1345,6 +1363,7 @@ export class Renderer {
     }
     if (this.photoReq && now >= this.photoReq.due) this.capturePhoto();
     this.drawWords();
+    this.drawTags();
     this.drawCombo();
   }
 
@@ -2003,8 +2022,12 @@ export class Renderer {
         w.el.remove();
         return false;
       }
+      if (w.follow) {
+        const f = w.follow();
+        if (f) w.at.copy(f);
+      }
       const p = this.local(w.at);
-      const rise = Math.min(1, age / 300) * 14;
+      const rise = Math.min(1, age / (w.follow ? 600 : 300)) * (w.follow ? 22 : 14);
       w.el.style.transform = `translate(${off.x + p.x}px, ${off.y + p.y - rise}px) translate(-50%, -50%)`;
       w.el.style.opacity = String(Math.min(1, (w.max - age) / 250));
       return true;
@@ -2855,6 +2878,7 @@ export class Renderer {
         el.classList.add('w3d-dud');
         sfx.dud();
       }
+      l.told = true;
       this.onLap(e.lap, e.total, e.bossHits);
     });
     this.after(end + 650, () => this.lapOff(l));
@@ -2890,6 +2914,164 @@ export class Renderer {
       });
     });
     this.laps.splice(i, 1);
+  }
+
+  // ---- The incremental economy (v0.24): earn, buy, earn faster ----------------------
+
+  /** Lap tickets the train hasn't brought round yet: the HUD's counter waits for them. */
+  pendingLapTickets(): number {
+    return this.laps.reduce((a, l) => a + (l.told ? 0 : l.e.total), 0);
+  }
+
+  /** The station on the page (where lap coins fly from). */
+  stationScreen(): { x: number; y: number } {
+    const sc = this.stationCenter();
+    return this.project(sc.setY(sc.y + 0.6));
+  }
+
+  /** A move earned the rate: a small "+N" floats up off the lead car (quick moves add up into one). */
+  private earnFx(amount: number): void {
+    const lead = () => {
+      const h = this.seatPts[0]?.head;
+      return h ? h.clone().setY(h.y + 0.42) : null;
+    };
+    const ew = this.earnWord;
+    if (ew && this.words.includes(ew.w) && this.now - ew.w.born < 450) {
+      ew.total += amount;
+      ew.w.el.textContent = `+${ew.total.toLocaleString()}`;
+      ew.w.born = this.now - 120;
+      return;
+    }
+    const at = lead() ?? this.stationCenter().setY(1);
+    const el = this.word(`+${amount.toLocaleString()}`, at, PAL.gold, 0.62, 1000, true);
+    el.classList.add('w3d-earn');
+    const w = this.words[this.words.length - 1];
+    w.follow = lead;
+    this.earnWord = { w, total: amount };
+    sfx.earn();
+  }
+
+  /** Tapped a grow you can't afford: its tag shakes red and says how much more it needs. */
+  private brokeFx(cost: number, at: Pt): void {
+    const need = Math.max(1, cost - this.game.banked);
+    const tag = this.tags.get(idx(this.board, at.x, at.y));
+    if (tag) {
+      tag.classList.remove('shake');
+      void tag.offsetWidth;
+      tag.classList.add('shake');
+    }
+    const el = this.word(`NEED ${need.toLocaleString()} MORE`, this.cell(at).setY(1.15), '#ff7a6e', 0.75, 1200, true);
+    el.classList.add('w3d-broke');
+    this.flashes.set(idx(this.board, at.x, at.y), this.now + 120);
+    this.kick(0.8, 120);
+    sfx.broke();
+    this.onBroke();
+  }
+
+  /**
+   * Bought track (main calls this after a paid grow): "−N" over the new pieces, then
+   * the rate they add pops up in green. Returns where the pieces are on the page,
+   * for the HUD's flying tickets.
+   */
+  purchased(cells: Pt[], cost: number, gain: number): { x: number; y: number }[] {
+    const mid = cells.map((c) => this.cell(c)).reduce((a, v) => a.add(v), v3(0, 0, 0)).multiplyScalar(1 / Math.max(1, cells.length));
+    sfx.buy();
+    if (cost > 0) {
+      const el = this.word(`−${cost.toLocaleString()} tickets`, mid.clone().setY(mid.y + 0.6), '#c9302c', this.compact ? 0.75 : 0.9, 1000, true);
+      el.classList.add('w3d-spend');
+    }
+    if (gain > 0)
+      this.after(560, () => {
+        const el = this.word(`+${gain.toLocaleString()} / move`, mid.clone().setY(mid.y + 1.25), '#ffffff', this.compact ? 0.9 : 1.15, 1600, true);
+        el.classList.add('w3d-rate');
+        this.sparkle(mid.clone().setY(mid.y + 0.9), 12, '#8dff6a');
+        sfx.rateUp();
+      });
+    return cells.map((c) => this.project(this.cell(c).setY(0.35)));
+  }
+
+  /** What the ride's rate would be after growing through (x, y): tried on a copy of the board, then put back. */
+  private rateIf(x: number, y: number): number | null {
+    const g = this.game;
+    const saved = g.board;
+    try {
+      const b = cloneBoard(saved);
+      const bg = bulgeFor(b, x, y);
+      if (!bg) return null;
+      applyBulge(b, bg);
+      g.board = b;
+      return g.rate;
+    } finally {
+      g.board = saved;
+    }
+  }
+
+  /** Price, rate gain and piece names for every growable tile (recomputed only when the park changes). */
+  private growInfo(): Map<number, { cost: number; gain: number; names: string }> {
+    const g = this.game;
+    const b = this.board;
+    const key = `${g.actions}|${g.banked}|${g.queue.length}|${b.ends[0].length}|${b.tiles.join('')}`;
+    if (this.tagInfo.key === key) return this.tagInfo.cells;
+    const cells = new Map<number, { cost: number; gain: number; names: string }>();
+    const rate = g.rate;
+    for (const c of g.growCells) {
+      const bg = bulgeFor(b, c.x, c.y);
+      if (!bg) continue;
+      const name = (p: Pt) => {
+        const t = b.tiles[idx(b, p.x, p.y)];
+        return t ? PIECES[t].name : 'Track';
+      };
+      cells.set(idx(b, c.x, c.y), { cost: g.bulgeCost(bg), gain: (this.rateIf(c.x, c.y) ?? rate) - rate, names: `${name(bg.c)} + ${name(bg.d)}` });
+    }
+    this.tagInfo = { key, cells };
+    return cells;
+  }
+
+  /** Price tags over the tiles you can buy into the ride: gold when you can afford them. */
+  private drawTags(): void {
+    const g = this.game;
+    const b = this.board;
+    const show = b.loop && g.phase === 'build' && !g.aiming && !this.ride && !this.tileAnim && !this.ridePending && !this.homeRun;
+    const info = show ? this.growInfo() : new Map<number, { cost: number; gain: number; names: string }>();
+    for (const [i, el] of this.tags)
+      if (!info.has(i)) {
+        el.remove();
+        this.tags.delete(i);
+      }
+    if (!info.size) return;
+    const off = { x: this.canvas.offsetLeft, y: this.canvas.offsetTop };
+    const lifts = this.growable();
+    const hv = this.hover;
+    const hovI = hv && inBounds(b, hv.x, hv.y) ? idx(b, hv.x, hv.y) : -1;
+    for (const [i, t] of info) {
+      let el = this.tags.get(i);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'price-tag';
+        el.innerHTML = '<span class="pt-cost"><i class="pt-tk"></i><b></b><span class="pt-gain"></span></span><span class="pt-more"></span>';
+        this.wordLayer.append(el);
+        this.tags.set(i, el);
+      }
+      const ok = t.cost <= g.banked;
+      const on = i === hovI;
+      const sig = `${t.cost}|${t.gain}|${ok}|${on}`;
+      if (el.dataset.sig !== sig) {
+        el.dataset.sig = sig;
+        el.classList.toggle('ok', ok);
+        el.classList.toggle('no', !ok);
+        el.classList.toggle('on', on);
+        el.querySelector('b')!.textContent = t.cost.toLocaleString();
+        el.querySelector<HTMLElement>('.pt-gain')!.textContent = t.gain > 0 ? `+${t.gain.toLocaleString()}` : '';
+        const wait = ok ? '' : ` · ${Math.ceil((t.cost - g.banked) / Math.max(1, g.rate))} moves away`;
+        el.querySelector<HTMLElement>('.pt-more')!.textContent = `${t.names}${t.gain > 0 ? ` · +${t.gain.toLocaleString()} / move` : ''}${wait}`;
+      }
+      const x = i % b.size;
+      const y = Math.floor(i / b.size);
+      const lid = GRASS_Y + this.terrain.cell(x, y) + CRATE_H + (lifts.get(i)?.lift ?? 0);
+      const p = this.local(v3(x + 0.5, lid + 0.32, y + 0.5));
+      el.style.transform = `translate(${off.x + p.x}px, ${off.y + p.y}px) translate(-50%, -100%)`;
+      el.style.zIndex = on ? '3' : '';
+    }
   }
 
   /** A new piece of the loop: it swells up out of the ground with a burst and its name. */

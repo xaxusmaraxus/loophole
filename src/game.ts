@@ -171,14 +171,14 @@ interface Snapshot {
 const HEARTS = 3;
 /** Merges in one swipe that pay a free special piece (each once a day). */
 export const COMBO_PRIZES = [6, 9, 12];
-/** The ride earns its rating / this every move (a puke pays the full rating). */
-export const RATE_DIV = 4;
+/** The ride earns its rating / this every move (a puke pays the full rating, times the rider's worth). */
+export const RATE_DIV = 2;
 /** What each piece costs to grow into the ride, by tier (Flat first). */
-export const PIECE_PRICE = [4, 8, 20, 50, 120, 300, 750, 1800];
+export const PIECE_PRICE = [3, 5, 12, 30, 75, 180, 450, 1100];
 /** Every piece already in the ride makes the next ones this much pricier. */
 export const PRICE_GROWTH = 1.12;
 /** Tickets you start each day with: enough for a first little grow. */
-export const START_CASH = 20;
+export const START_CASH = 30;
 
 function spawnAt(b: Board, c: Pt, tier: number): void {
   b.tiles[c.y * b.size + c.x] = tier;
@@ -739,7 +739,7 @@ export class Game {
 
   /**
    * The ride's rate: what every move earns, the number that keeps ticking up.
-   * About a quarter of what one puke pays, so a puke is a jackpot.
+   * Half of what one puke pays, so a lap full of pukes is a jackpot.
    */
   get rate(): number {
     return Math.max(1, Math.round(this.score('circuit').rating / RATE_DIV));

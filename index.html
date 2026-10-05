@@ -26,15 +26,19 @@
           <span id="day" class="pill day">Day 1</span>
           <span id="hearts" class="hearts"></span>
         </div>
-        <div class="hud-mid">
-          <span id="quota" class="pill quota"></span>
+        <div class="hud-mid wallet" id="wallet">
+          <div class="w-money" aria-live="off" title="Your wallet: every move earns the ride's rate. Spend it to grow the ride; what's left when the park closes is the day's score.">
+            <span class="w-ticket" aria-hidden="true"></span>
+            <span class="w-num"><b id="bankNum">0</b></span>
+            <span class="w-rate" id="rateLine"><b id="rateNum">+0</b><small>/ move</small><span class="rate-delta" id="rateDelta"></span></span>
+          </div>
           <div class="daylight" aria-live="off">
-            <div class="bank-line" id="bankLine" title="Tickets banked from today's laps, out of the day's target">
-              <span class="bank-num"><b id="bankNum">0</b><span id="bankTarget"></span></span>
-              <span id="daylightLeft" class="daylight-left"></span>
+            <div class="bank-line" id="bankLine" title="Tickets in hand, out of the day's target">
+              <span class="bank-num"><span id="bankTarget"></span></span>
+              <span class="bank-meta"><span id="daylightLeft" class="daylight-left"></span><span id="quota" class="pill quota"></span></span>
             </div>
-            <div class="bank-track" id="bankTrack"><span class="bank-ghost" id="bankGhost"></span><span class="bank-fill" id="bankBar"></span></div>
-            <div class="daylight-track"><span id="daylightBar"></span></div>
+            <div class="bank-track" id="bankTrack"><span class="bank-ghost" id="bankGhost"></span><span class="bank-fill" id="bankBar"></span><i class="bank-flag" id="bankFlag" aria-hidden="true"></i></div>
+            <div class="daylight-track" title="Free cells on the board"><span id="daylightBar"></span></div>
           </div>
         </div>
         <div class="hud-right">
@@ -110,10 +114,10 @@
           <ol>
             <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
             <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
-            <li><strong>The ride is always running.</strong> Every day starts with a tiny loop over the station, already open, and a train on it.</li>
-            <li><strong>Tap a tile next to the ride to grow it.</strong> The loop bulges out over that tile and the cell beside it, and both become track (an empty cell becomes flat track). Merge tiles first: bigger pieces make a wilder ride. Glowing tiles are the ones you can grow into. Tiles hop over the track, so it never cuts the board apart.</li>
-            <li><strong>Every move rolls the train one stop on.</strong> When it comes back through the station, that's a <strong>lap</strong>: everyone in line rides the loop as it is right now and pays for every puke. The tickets go in the bank, the riders get off, and a bigger, wilder ride draws a bigger crowd. If a lap pays nothing, the loop needs to get wilder.</li>
-            <li><strong>Close the park</strong> whenever you're happy: the last ride runs in full and pays like a lap. Every swipe drops in a new tile, so the board fills; if nothing can slide and the loop can't grow, it's gridlock and the park closes by itself. Today's bank plus the last ride has to reach the target.</li>
+            <li><strong>Every move earns your ride's rate.</strong> Each day starts with a tiny loop over the station, already open and always running, and a few tickets in your wallet. Every swipe or purchase rolls the train one stop and pays the rate (shown under your wallet: "+12 / move").</li>
+            <li><strong>Tap a glowing tile to buy it into the ride.</strong> Its price tag shows what it costs: gold when you can afford it. The loop bulges out over that tile and the cell beside it. Bigger pieces cost more and earn more, and every piece makes the next one 12% pricier. <strong>Merge first</strong> (merging is free) to make better pieces.</li>
+            <li><strong>Pukes are jackpots.</strong> When the train comes back through the station, that's a lap: everyone in line rides the loop as it is and pays the full rating for every puke. A bigger, wilder ride draws a bigger crowd.</li>
+            <li><strong>Close the park with at least the target in hand.</strong> The last ride runs in full and pays like a lap; the day's score is your wallet at closing. Every swipe drops in a new tile; if nothing can slide and the loop can't grow, it's gridlock and the park closes by itself.</li>
             <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
             <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line (hover a guest to meet them). A shuttle hits every piece twice but pays half.</li>
             <li><strong>Your park plot:</strong> attractions and upgrades sit on a grid you arrange between days. Attractions score top row first, left to right, and each gets +1 multiplier for every touching spot of its theme. Targets climb fast, so build combos.</li>
@@ -122,7 +126,7 @@
             <li>Each park ends with a <strong>boss</strong> who bends the rules for the day. Make them puke enough times to break their composure: they ride every lap until they break. Breaking a boss grows your plot and drops a legendary attraction.</li>
             <li>Between days, pick an <strong>upgrade</strong> (permanent) or a <strong>tool</strong> (Paint Can, Crane, Dynamite, Coffee, Megaphone) to spend when it counts.</li>
           </ol>
-          <p class="keys">Keys: arrows or WASD swipe, click or tap a glowing tile to grow the ride, 1–5 use tools, Esc cancels a tool, Enter closes the park, Z undoes. Seed <span id="seed"></span></p>
+          <p class="keys">Keys: arrows or WASD swipe, click or tap a glowing tile to buy it into the ride, 1–5 use tools, Esc cancels a tool, Enter closes the park, Z undoes. Seed <span id="seed"></span></p>
           <div class="help-actions">
             <button type="button" class="ghost-dark" id="unlocksHelp">Unlocks</button>
             <button type="button" class="ghost-dark" id="newRunHelp">Start a new season</button>

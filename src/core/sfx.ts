@@ -267,6 +267,31 @@ export const sfx = {
     tone(220, 0.18, 'triangle', 0.08, 0, 200);
     tone(165, 0.32, 'triangle', 0.08, 0.16, 140);
   },
+  /** A move earns the rate: the faintest coin tick. */
+  earn: () => tone(1760 + Math.random() * 120, 0.04, 'triangle', 0.018),
+  /** A coin lands in the wallet. */
+  coin: (i: number) => {
+    tone(semi(1568, i % 7), 0.06, 'square', 0.012);
+    tone(semi(2093, i % 7), 0.12, 'triangle', 0.035, 0.02);
+  },
+  /** Bought track: a cash drawer ka-chunk. */
+  buy() {
+    noise(0.06, 0.12, 0, 2400, 600, 2);
+    tone(330, 0.07, 'square', 0.03, 0.02, 220);
+    tone(784, 0.12, 'triangle', 0.07, 0.07);
+    tone(1175, 0.18, 'triangle', 0.05, 0.12);
+  },
+  /** The rate went up: a bright rising two-note ding. */
+  rateUp: () => {
+    tone(880, 0.1, 'triangle', 0.06);
+    tone(1319, 0.2, 'triangle', 0.06, 0.08);
+  },
+  /** Can't afford it: a soft muffled double thud. */
+  broke() {
+    tone(150, 0.1, 'sine', 0.12, 0, 110);
+    tone(120, 0.14, 'sine', 0.1, 0.11, 85);
+    noise(0.08, 0.04, 0, 500, 200, 1);
+  },
   isMuted: () => muted,
   setMuted(m: boolean) {
     muted = m;

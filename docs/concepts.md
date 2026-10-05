@@ -338,6 +338,25 @@ The eating versions took away control: the user missed choosing where the track 
   Shop prices follow the targets. Big Barry's snacking stops at +6, and some boss stomachs were lowered. The bot reaches day 9 at the median and wins about 30% of seasons.
 - **The eating rules** (`Board.eat`) and the mouths are still in the code but switched off.
 
+## Earn, spend, earn faster (v0.24)
+The always-running ride evolved nicely, but it didn't feel incremental, and the gameplay wasn't clean: money only came in lumps at the end of a lap (often 0, for hidden reasons), there was nothing to spend inside a day, and you never saw a rate. Cookie Clicker works because one number keeps ticking up and every purchase visibly raises how fast it climbs. Loophole now works the same way.
+- **One wallet, always rising.** Every move pays the ride's rate (its rating ÷ 2), shown big as "+N / move" with the wallet ticking up.
+- **Growing costs tickets.** Tapping a glowing tile next to the loop buys that bulge. The price is the two pieces' prices by tier, 12% more for every piece already in the ride:
+
+  | Piece | Flat | Bump | Hill | Drop | Helix | Loop | Corkscrew | Mega Loop |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Price | 3 | 5 | 12 | 30 | 75 | 180 | 450 | 1,100 |
+
+  Bigger pieces cost more and raise the rate more. You start each day with 30 tickets. The Track Crew grows for free. Every growable tile wears a price tag with the rate it adds; tapping one you can't afford shakes it and says how much you're short.
+- **Merging is free and upgrades what's for sale:** "buy the Bump now, or merge it into a Drop and buy that?"
+- **Pukes are jackpots.** Each lap, the riders who puke pay the full rating each, times their worth. Bosses still need their composure cracked by pukes.
+- **The score is the wallet when you close the park**, so you choose when to stop investing. Anything over the target becomes shop funds.
+- **Balance** (bot that buys the juiciest affordable grow, 60 seasons): it wins about 32% of seasons and reaches day 10 at the median. The early economy was too slow at first (+1 a move, the next buy 16 moves away), so the rate doubled and prices roughly halved. The Meadow bosses need 2 pukes.
+
+  | Day | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | Finale |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Target | 2,200 | 3,200 | 7,000 | 60,000 | 85,000 | 140,000 | 220,000 | 270,000 | 380,000 | 2,000,000 |
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

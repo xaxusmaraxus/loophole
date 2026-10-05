@@ -3,7 +3,7 @@ import './boss.css';
 import { music } from './core/music';
 import { sfx } from './core/sfx';
 import { Game } from './game';
-import type { Dir } from './puzzle/board';
+import { bulgeFor, type Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
 import type { ToolId } from './run/run';
 import { Hud } from './ui/hud';
@@ -48,7 +48,25 @@ Object.assign(window, { loophole: game, loopholeRenderer: renderer, loopholeHud:
 renderer.onRideDone = () => act(() => game.rideDone());
 renderer.onOpenMe = () => act(() => game.open());
 // The always-running ride: a lap paid out at the station, so the bank ticks up.
-renderer.onLap = (lap, total, bossHits) => hud.lapPaid(lap, total, bossHits);
+renderer.onLap = (lap, total, bossHits) => hud.lapPaid(lap, total, bossHits, renderer.stationScreen());
+// The wallet counter waits for laps still on their way round; can't-afford taps shake it.
+hud.pendingLaps = () => renderer.pendingLapTickets();
+renderer.onBroke = () => hud.broke();
+
+/** Tap a tile: buy it into the ride (with the purchase juice), or aim a tool. */
+function tapCell(x: number, y: number): void {
+  const buying = !game.aiming && game.board.loop && game.phase === 'build';
+  const bulge = buying ? bulgeFor(game.board, x, y) : null;
+  const cost = bulge ? game.bulgeCost(bulge) : 0;
+  const rate = game.rate;
+  act(() => game.tap(x, y));
+  // It went in if the bulge's tile is track now.
+  const bought = !!bulge && game.board.ends[0].some((c) => c.x === bulge.c.x && c.y === bulge.c.y);
+  if (!bought) return;
+  const pts = renderer.purchased([bulge.c, bulge.d], cost, game.rate - rate);
+  hud.spend(cost, pts);
+}
+Object.assign(window, { loopholeTap: tapCell });
 // Boss days: pips crack as the boss pukes, and the title card waits for "Bring it on!".
 renderer.show.onBossPuke = () => {
   hud.bossCrack();
@@ -152,7 +170,7 @@ wrap.addEventListener('pointerup', (e) => {
     // A tap aims a tool, or grows the always-running loop over a tile next to it.
     const cell = game.aiming || game.board.loop ? renderer.cellAt(e.clientX, e.clientY) : null;
     const grows = !!cell && !game.aiming && game.growCells.some((c) => c.x === cell.x && c.y === cell.y);
-    if (cell && (game.aiming || grows)) act(() => game.tap(cell.x, cell.y));
+    if (cell && (game.aiming || grows)) tapCell(cell.x, cell.y);
     else if (e.pointerType !== 'mouse') showGuest(e.clientX, e.clientY, true);
     return;
   }
@@ -403,6 +421,7 @@ document.addEventListener('pointerdown', (e) => {
 
 function frame(t: number): void {
   renderer.frame(t);
+  hud.tick(performance.now());
   requestAnimationFrame(frame);
 }
 
