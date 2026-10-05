@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Game } from '../src/game';
+import { Game, PIECE_PRICE } from '../src/game';
 import { idx, stationPoint, trackAt } from '../src/puzzle/board';
 import { dayConfig, modsFor, parkFor } from '../src/run/run';
 
@@ -50,6 +50,7 @@ describe('the always-running ride', () => {
     b.tiles[idx(b, s.x, s.y - 2)] = 3;
     b.tiles[idx(b, s.x + 1, s.y - 2)] = 2;
     expect(g.growCells.some((c) => c.x === s.x && c.y === s.y - 2)).toBe(true);
+    g.banked = 1000;
     g.tap(s.x, s.y - 2);
     expect(b.ends[0].map((c) => c.tier)).toEqual([0, 3, 2, 0]);
     expect(g.openKind).toBe('circuit');
@@ -70,9 +71,39 @@ describe('the always-running ride', () => {
     b.tiles[idx(b, 0, 0)] = 1;
     for (const d of ['right', 'down', 'left'] as const) g.swipe(d);
     expect(g.lap).toBe(1);
-    expect(g.banked).toBeGreaterThan(0);
-    expect(g.events.some((e) => e.type === 'lap' && e.total === g.banked)).toBe(true);
+    // Two Mega Loops and corn-dog stomachs: the lap is a jackpot on top of the per-move rate.
+    const lap = g.events.find((e) => e.type === 'lap');
+    expect(lap && lap.type === 'lap' && lap.total).toBeGreaterThan(g.rate * 3);
     expect(g.queue.filter((r) => !r.boss).length).toBeLessThan(riders + 3);
+  });
+
+  it('every move earns the ride’s rate; growing costs tickets, more as the ride gets bigger', () => {
+    const g = cleared();
+    const b = g.board;
+    const s = stationPoint(b, 0);
+    const start = g.banked;
+    b.tiles[idx(b, 0, 0)] = 1;
+    g.swipe('right');
+    expect(g.banked).toBe(start + g.rate);
+    expect(g.events.some((e) => e.type === 'earn')).toBe(true);
+    // A Drop and a Hill above the loop.
+    b.tiles[idx(b, s.x, s.y - 2)] = 3;
+    b.tiles[idx(b, s.x + 1, s.y - 2)] = 2;
+    const cost = g.growCost(s.x, s.y - 2)!;
+    expect(cost).toBe(PIECE_PRICE[3] + PIECE_PRICE[2]);
+    // Can't afford it yet.
+    g.banked = cost - 1;
+    g.tap(s.x, s.y - 2);
+    expect(b.ends[0]).toHaveLength(2);
+    expect(g.events.some((e) => e.type === 'broke')).toBe(true);
+    g.banked = cost;
+    g.tap(s.x, s.y - 2);
+    expect(b.ends[0]).toHaveLength(4);
+    expect(g.banked).toBe(g.rate);
+    // The next pieces cost more: the ride has 4 pieces now.
+    b.tiles[idx(b, s.x, s.y - 3)] = 3;
+    b.tiles[idx(b, s.x + 1, s.y - 3)] = 2;
+    expect(g.growCost(s.x, s.y - 3)).toBeGreaterThan(cost);
   });
 
   it('tiles hop over the loop', () => {

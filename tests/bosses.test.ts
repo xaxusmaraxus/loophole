@@ -111,7 +111,7 @@ describe('boss days', () => {
 
   it('the boss rides every lap until broken; the day fails if they never break', () => {
     const g = bossDay('barry');
-    expect(g.fight).toMatchObject({ hp: 3, max: 3 });
+    expect(g.fight).toMatchObject({ hp: 2, max: 2 });
     const barry = g.queue[0];
     for (const c of g.board.ends[0]) c.tier = 3; // two Drops: 4 nausea a lap, Barry needs 14+
     // Lap after lap he keeps it down, and stays in line.
@@ -121,7 +121,7 @@ describe('boss days', () => {
     for (let k = 0; k < 40 && g.lap < 2; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
     expect(g.lap).toBe(2);
     expect(g.queue[0]).toBe(barry);
-    expect(g.fight!.hp).toBe(3);
+    expect(g.fight!.hp).toBe(2);
     const hearts = g.hearts;
     expect([g.phase, g.openKind]).toEqual(['build', 'circuit']);
     g.open('circuit');
@@ -143,7 +143,7 @@ describe('boss days', () => {
     g.board.tiles[0] = 1;
     for (let k = 0; k < 40 && g.lap < 1; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
     expect(g.lap).toBe(1);
-    expect(g.fight!.hp).toBeLessThan(3);
+    expect(g.fight!.hp).toBeLessThan(2);
     expect(g.events.some((e) => e.type === 'lap' && e.bossHits > 0)).toBe(true);
   });
 

@@ -11,6 +11,7 @@ import {
   build,
   buildTargets,
   applyBulge,
+  type Bulge,
   boxedIn,
   bulgeCells,
   bulgeFor,
@@ -104,6 +105,10 @@ export type GameEvent =
   | { type: 'unlock'; id: UnlockId }
   /** A boss rule kicked in: a wave sloshed the board, the controls spun, or Barry had a snack. */
   | { type: 'boss'; what: 'wave' | 'spin' | 'snack'; dir?: Dir }
+  /** Every move the ride earns its rate. */
+  | { type: 'earn'; amount: number }
+  /** Not enough tickets to grow there. */
+  | { type: 'broke'; cost: number; at: Pt }
   /** The train came round: everyone on board rode a lap and paid. */
   | { type: 'lap'; lap: number; total: number; tickets: RiderTicket[]; bossHits: number }
   /** A big combo paid out a free special piece. */
@@ -166,6 +171,14 @@ interface Snapshot {
 const HEARTS = 3;
 /** Merges in one swipe that pay a free special piece (each once a day). */
 export const COMBO_PRIZES = [6, 9, 12];
+/** The ride earns its rating / this every move (a puke pays the full rating). */
+export const RATE_DIV = 4;
+/** What each piece costs to grow into the ride, by tier (Flat first). */
+export const PIECE_PRICE = [4, 8, 20, 50, 120, 300, 750, 1800];
+/** Every piece already in the ride makes the next ones this much pricier. */
+export const PRICE_GROWTH = 1.12;
+/** Tickets you start each day with: enough for a first little grow. */
+export const START_CASH = 20;
 
 function spawnAt(b: Board, c: Pt, tier: number): void {
   b.tiles[c.y * b.size + c.x] = tier;
@@ -346,7 +359,7 @@ export class Game {
     this.board = generateBoard(this.cfg, this.rng);
     // The ride starts as the smallest loop, already open: up, across, down.
     startLoop(this.board);
-    this.banked = 0;
+    this.banked = START_CASH;
     this.lap = 0;
     this.trainPos = 0;
     this.queue = [];
@@ -699,14 +712,20 @@ export class Game {
    * Tap a tile touching the ride: the loop bulges out to take it in, along with
    * the cell beside it (both become track). A move like a swipe: the train rolls on.
    */
-  grow(x: number, y: number, anyCell = false): boolean {
+  grow(x: number, y: number, anyCell = false, free = false): boolean {
     if (this.phase !== 'build') return false;
     const g = bulgeFor(this.board, x, y, anyCell);
     if (!g) {
       this.events.push({ type: 'blocked' });
       return false;
     }
+    const cost = free ? 0 : this.bulgeCost(g);
+    if (cost > this.banked) {
+      this.events.push({ type: 'broke', cost, at: { x, y } });
+      return false;
+    }
     this.snapshot();
+    this.banked -= cost;
     const cells = applyBulge(this.board, g);
     // The train keeps its place on the track if the bulge went in behind it.
     if (g.at < this.trainPos) this.trainPos += cells.length;
@@ -718,9 +737,33 @@ export class Game {
     return true;
   }
 
-  /** The train rolls one stop on; past the station, that's a lap. */
+  /**
+   * The ride's rate: what every move earns, the number that keeps ticking up.
+   * About a quarter of what one puke pays, so a puke is a jackpot.
+   */
+  get rate(): number {
+    return Math.max(1, Math.round(this.score('circuit').rating / RATE_DIV));
+  }
+
+  /** What growing the loop through this bulge costs: its two pieces, pricier the bigger the ride already is. */
+  bulgeCost(g: Bulge): number {
+    const b = this.board;
+    const piece = (p: Pt) => PIECE_PRICE[b.tiles[p.y * b.size + p.x]] ?? PIECE_PRICE[PIECE_PRICE.length - 1];
+    return Math.round((piece(g.c) + piece(g.d)) * PRICE_GROWTH ** Math.max(0, b.ends[0].length - 2));
+  }
+
+  /** What tapping (x, y) would cost to grow the ride (null: it can't grow there). */
+  growCost(x: number, y: number): number | null {
+    const g = bulgeFor(this.board, x, y);
+    return g ? this.bulgeCost(g) : null;
+  }
+
+  /** The train rolls one stop on and the ride earns its rate; past the station, that's a lap. */
   private rollTrain(): void {
     if (this.phase !== 'build') return;
+    const earn = this.rate;
+    this.banked += earn;
+    this.events.push({ type: 'earn', amount: earn });
     this.trainPos++;
     if (this.trainPos >= this.lapLength) {
       this.trainPos = 0;
@@ -863,7 +906,7 @@ export class Game {
       this.tools.crew--;
       this.aiming = null;
       this.events.push({ type: 'tool', tool: 'crew', at: { x, y } });
-      this.grow(x, y, true);
+      this.grow(x, y, true, true);
       return;
     }
     if (aim.tool === 'crew') {

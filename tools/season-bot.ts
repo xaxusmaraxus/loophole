@@ -17,9 +17,11 @@ function playDay(g: Game, rnd: () => number, greed: number) {
     const b = g.board;
     const sure = g.banked + g.projected('circuit');
     if (!process.env.MAXOUT && sure >= g.cfg.target * (1 + greed / 20) || (g.room <= 2 && sure >= g.cfg.target) || guard > 300) { g.open('circuit'); break; }
-    // Grow: the best bulge by the tiles it takes in.
+    // Buy: the best affordable grow by the tiles it takes in (a Hill or better), keeping a little in hand.
     let grow: { x: number; y: number; v: number } | null = null;
     for (const c of g.growCells) {
+      const cost = g.growCost(c.x, c.y);
+      if (cost === null || cost > g.banked) continue;
       const v = b.tiles[c.y * b.size + c.x] + rnd() * 0.5;
       if (!grow || v > grow.v) grow = { ...c, v };
     }
