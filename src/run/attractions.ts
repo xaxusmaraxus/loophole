@@ -112,7 +112,7 @@ export const ATTRACTIONS: Record<AttractionId, AttractionDef> = {
   },
   photobooth: {
     name: 'Photo Booth',
-    desc: '×1.5 multiplier for each Mega Loop.',
+    desc: '×1.5 multiplier for each Top Hat.',
     rarity: 'rare',
     theme: 'show',
     effect: (c) => when(c.stats.tierCounts[7] > 0, { xmult: 1.5 ** c.stats.tierCounts[7] }),
@@ -204,7 +204,7 @@ export const ATTRACTIONS: Record<AttractionId, AttractionDef> = {
   },
   gravitywell: {
     name: 'Gravity Well',
-    desc: 'Upside-down pieces make every rider 2 sicker. Drops make nobody sick.',
+    desc: 'Upside-down pieces make every rider 2 sicker. Helixes make nobody sick.',
     rarity: 'legendary',
     theme: 'thrill',
     effect: () => null,

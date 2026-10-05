@@ -27,10 +27,10 @@
           <span id="hearts" class="hearts"></span>
         </div>
         <div class="hud-mid wallet" id="wallet">
-          <div class="w-money" aria-live="off" title="Your wallet: every move earns the ride's rate. Spend it to grow the ride; what's left when the park closes is the day's score.">
+          <div class="w-money" aria-live="off" title="Your wallet. Every move the ride's hype draws guests, and each one buys a ticket at the gate. Spend tickets to grow the ride; what you hold when the park closes, plus what the last ride's pukes pay, is the day's score.">
             <span class="w-ticket" aria-hidden="true"></span>
             <span class="w-num"><b id="bankNum">0</b></span>
-            <span class="w-rate" id="rateLine"><b id="rateNum">+0</b><small>/ move</small><span class="rate-delta" id="rateDelta"></span></span>
+            <span class="w-rate" id="rateLine"><b id="rateNum">0.0</b><small>guests/move</small><span class="w-sep" aria-hidden="true">×</span><i class="w-tk-mini" aria-hidden="true"></i><b class="w-price" id="priceNum">0</b><small class="w-each">each</small><span class="rate-delta" id="rateDelta"></span></span>
           </div>
           <div class="daylight" aria-live="off">
             <div class="bank-line" id="bankLine" title="Tickets in hand, out of the day's target">
@@ -112,12 +112,13 @@
           <p class="eyebrow">Loophole</p>
           <h2>How to play</h2>
           <ol>
-            <li><strong>Swipe</strong> to slide and merge tiles like 2048: Bump, Hill, Drop, Helix, Loop, Corkscrew, Mega Loop.</li>
+            <li><strong>Swipe</strong> to slide and merge tiles like 2048: Airtime Hill, Lift Hill, Helix, Vertical Loop, Corkscrew, Cobra Roll, Top Hat.</li>
+            <li><strong>Lift Hills</strong> score nothing on their own: they store height. The next element after a chain of lifts hits harder (×2 after one lift, ×3 after two…). Height left over at the end of the ride becomes a finale drop into the station.</li>
             <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
-            <li><strong>Every move earns your ride's rate.</strong> Each day starts with a tiny loop over the station, already open and always running, and a few tickets in your wallet. Every swipe or purchase rolls the train one stop and pays the rate (shown under your wallet: "+12 / move").</li>
+            <li><strong>Hype sells tickets.</strong> Each day starts with a tiny loop over the station and a few tickets in your wallet. The train waits at the station while you build; every move, the ride's hype draws guests to the gate and each one buys a ticket (shown under your wallet: guests per move × ticket price). A wilder ride draws more guests and charges more.</li>
             <li><strong>Tap a glowing tile to buy it into the ride.</strong> Its price tag shows what it costs: gold when you can afford it. The loop bulges out over that tile and the cell beside it. Bigger pieces cost more and earn more, and every piece makes the next one 12% pricier. <strong>Merge first</strong> (merging is free) to make better pieces.</li>
-            <li><strong>Pukes are jackpots.</strong> When the train comes back through the station, that's a lap: everyone in line rides the loop as it is and pays the full rating for every puke. A bigger, wilder ride draws a bigger crowd.</li>
-            <li><strong>Close the park with at least the target in hand.</strong> The last ride runs in full and pays like a lap; the day's score is your wallet at closing. Every swipe drops in a new tile; if nothing can slide and the loop can't grow, it's gridlock and the park closes by itself.</li>
+            <li><strong>Pukes are jackpots.</strong> When you close the park, everyone in line rides once and pays the full rating for every puke. A bigger, wilder ride draws a bigger crowd.</li>
+            <li><strong>Close the park with at least the target in hand.</strong> Everyone in line rides once; the day's score is your wallet at closing plus what their pukes pay. Every swipe drops in a new tile; if nothing can slide and the loop can't grow, it's gridlock and the park closes by itself.</li>
             <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
             <li><strong>Make them puke.</strong> Every puke pays <strong>excitement × multiplier</strong>. Each rider has a stomach size and a weakness, so build for the crowd in line (hover a guest to meet them). A shuttle hits every piece twice but pays half.</li>
             <li><strong>Your park plot:</strong> attractions and upgrades sit on a grid you arrange between days. Attractions score top row first, left to right, and each gets +1 multiplier for every touching spot of its theme. Targets climb fast, so build combos.</li>

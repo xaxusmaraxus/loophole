@@ -2,6 +2,7 @@ import { type BufferGeometry, Matrix4, Quaternion, Vector3 } from 'three';
 import { HAIRS, MYSTERY, PAL, PANTS, SHIRTS, SKINS, TIER_RAMPS } from '../render/palette';
 import type { Look } from '../riders/riders';
 import { type Col, Geo, rng, shade, v3 } from './geo';
+import { leaningLoop, teardrop, topHatProfile } from './track';
 
 // Procedural models, built once and cached: piece crates with sculpted icons,
 // chibi guests, coaster cars, trees, rocks, ponds, the snack stand, lamps.
@@ -30,8 +31,8 @@ export const CRATE_W = 0.8;
 // Merge tiles are soft clay plinths: a pillowy body of stacked rolls around a
 // rounded square, a raised rim framing a recessed lid, tier pips on the front,
 // and a chunky little clay model of the coaster element standing on the lid.
-// Higher tiers build up: a wider foot, belts, gold trim (Loop on), corner
-// studs, gems (Corkscrew) and pearl, rubies and a crown (Mega Loop).
+// Higher tiers build up: a wider foot, belts, gold trim (Corkscrew on), corner
+// studs, gems (Cobra Roll) and pearl, rubies and a crown (Top Hat).
 
 type Ramp4 = readonly [string, string, string, string];
 const GOLD: Ramp4 = ['#fff1a8', '#ffc93a', '#e0932a', '#9a5a1c'];
@@ -319,32 +320,33 @@ function tileIcon(g: Geo, tier: number, r: Ramp4): void {
   const rib = tier === 7 ? PEARL[0] : PAL.white;
   const rail = tier === 7 ? PAL.red : r[2];
   const leg = shade(PAL.white, -0.12);
+  const y0 = top + 0.055;
   switch (tier) {
     case 1: {
-      const pts = arc(22, (t) => v3(-0.25 + t * 0.5, top + 0.055 + Math.sin(Math.PI * t) ** 2 * 0.11, 0));
+      // Airtime Hill: one smooth hump.
+      const pts = arc(26, (t) => v3(-0.26 + t * 0.52, y0 + Math.sin(Math.PI * t) ** 2 * 0.15, 0));
       track(g, pts, UP, rib, rail);
-      supports(g, pts, [6, 16], leg);
+      supports(g, pts, [7, 13, 19], leg);
       break;
     }
     case 2: {
-      const pts = arc(28, (t) => v3(-0.26 + t * 0.52, top + 0.055 + Math.sin(Math.PI * t) ** 2 * 0.19, 0));
-      track(g, pts, UP, rib, rail);
-      supports(g, pts, [8, 14, 20], leg);
-      break;
-    }
-    case 3: {
-      const y0 = top + 0.055;
-      const pts = spline([v3(-0.27, y0, 0), v3(-0.19, y0 + 0.02, 0), v3(0.02, y0 + 0.2, 0), v3(0.08, y0 + 0.2, 0), v3(0.17, y0, 0), v3(0.27, y0, 0)], 7);
+      // Lift Hill: a chain ramp that climbs and stays up.
+      const pts = arc(30, (t) => {
+        const u = Math.min(1, t / 0.72);
+        return v3(-0.27 + t * 0.54, y0 + 0.2 * (u * u * (3 - 2 * u)), 0);
+      });
       const F = track(g, pts, UP, rib, rail);
-      supports(g, pts, [7, 12, 17, 22, 27], leg);
-      // Lift chain: dark ticks up the climb.
-      for (let i = 8; i < 20; i += 2) {
+      supports(g, pts, [8, 14, 20, 27], leg);
+      for (let i = 3; i < 22; i += 2) {
         const c = pts[i].clone().addScaledVector(F.u[i], RIB_T * 0.9);
         g.sphere(c, 0.013, r[3], 1.1, 0.7, 1.6, 6, 3, true);
       }
+      for (let i = 4; i < 22; i += 4)
+        for (const sd of [-1, 1]) g.sphere(pts[i].clone().addScaledVector(F.l[i], sd * RIB_W * 1.15).addScaledVector(F.u[i], RIB_T), 0.012, GOLD[1], 1, 1, 1, 6, 3, true);
       break;
     }
-    case 4: {
+    case 3: {
+      // Helix: coils climbing round a pole.
       const n = 64;
       const pts = arc(n, (t) => {
         const a = -Math.PI / 2 + t * Math.PI * 2 * 1.75;
@@ -357,15 +359,21 @@ function tileIcon(g: Geo, tier: number, r: Ramp4): void {
       supports(g, pts, [0], leg);
       break;
     }
-    case 5: {
-      const L = loopPath(0.125, top + 0.05, 0.27);
+    case 4: {
+      // Vertical Loop: a big round loop with bulbs.
+      const L = loopPath(0.15, top + 0.05, 0.27);
       track(g, L.pts, L.hint, rib, rail);
       supports(g, L.pts, [1, 44], leg);
+      for (let k = 0; k < 10; k++) {
+        const a = (k / 10) * Math.PI * 2;
+        g.sphere(L.c.clone().add(v3(Math.sin(a) * 0.19, -Math.cos(a) * 0.19, 0.075)), 0.014, '#fff1b0', 1, 1, 1, 6, 3, true);
+      }
       break;
     }
-    case 6: {
+    case 5: {
+      // Corkscrew: a barrel roll round the heartline.
       const R = 0.1;
-      const yc = top + 0.055 + R;
+      const yc = y0 + R;
       const off = (t: number) => {
         const s = Math.min(1, Math.max(0, (t - 0.14) / 0.72));
         const a = Math.PI * 2 * s * s * (3 - 2 * s);
@@ -377,11 +385,53 @@ function tileIcon(g: Geo, tier: number, r: Ramp4): void {
       supports(g, pts, [3, n - 3], leg);
       break;
     }
+    case 6: {
+      // Cobra Roll: two loops back to back, their tops leaning apart: the hood.
+      const lobe = teardrop(0.075, 0.11, 0.3);
+      const pts: Vector3[] = [];
+      const hints: Vector3[] = [];
+      const n = 80;
+      for (let k = 0; k <= n; k++) {
+        const t = k / n;
+        let x: number;
+        let y = 0;
+        let hint = v3(0, 1, 0);
+        let z = 0;
+        if (t < 0.12) x = -0.27 + (0.15 * t) / 0.12;
+        else if (t > 0.88) x = 0.12 + (0.15 * (t - 0.88)) / 0.12;
+        else {
+          const u = (t - 0.12) / 0.76;
+          const second = u >= 0.5;
+          const v = second ? (u - 0.5) * 2 : u * 2;
+          const L = leaningLoop(lobe, v * Math.PI * 2, second ? -0.5 : 0.5);
+          x = -0.12 + 0.24 * u + L.al;
+          y = L.dh;
+          z = 0.05 * Math.sin(Math.PI * u);
+          hint = v3(L.up[0], L.up[2], 0);
+        }
+        pts.push(v3(x, y0 + y, z));
+        hints.push(hint);
+      }
+      track(g, pts, (i) => hints[i], rib, rail);
+      supports(g, pts, [3, 40, n - 3], leg);
+      break;
+    }
     case 7: {
-      const L = loopPath(0.14, top + 0.05, 0.27);
-      track(g, L.pts, L.hint, rib, rail);
-      supports(g, L.pts, [1, 44], leg);
-      star(g, L.c, 0.085, RUBY, 0.05);
+      // Top Hat: straight up, over the crown, straight down.
+      const hat = topHatProfile(0.3);
+      const n = 70;
+      const qs = arc(n, (t) => {
+        const q = hat(t);
+        return v3(-0.27 + q.s * 0.54, y0 + q.dh * 0.9, 0);
+      });
+      const hint = (i: number) => {
+        const q = hat(i / n);
+        return v3(-q.tY, q.ts, 0);
+      };
+      track(g, qs, hint, rib, rail);
+      supports(g, qs, [3, n - 3], leg);
+      g.post(0, top, -0.03, 0.024, 0.26, leg, 8);
+      star(g, v3(0, y0 + 0.33, 0.02), 0.06, RUBY, 0.04);
       break;
     }
   }

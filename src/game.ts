@@ -34,7 +34,7 @@ import {
   swipe,
   trackCells,
 } from './puzzle/board';
-import { BRAKES_NAUSEA, type Flavor, MAX_TIER, type RideStats, SPECIALS, type SpecialId, invertedCell, rideStats } from './puzzle/pieces';
+import { BRAKES_NAUSEA, FINALE_NAUSEA, type Flavor, LIFT, MAX_TIER, pathThrills, type RideStats, SPECIALS, type SpecialId, invertedCell, rideStats } from './puzzle/pieces';
 import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
 import { BOSSES, BOSS_POOL, BOSS_ROUNDS, type BossId, type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
 import { type OwnedAttraction, type Score, scoreRide } from './run/attractions';
@@ -171,8 +171,16 @@ interface Snapshot {
 const HEARTS = 3;
 /** Merges in one swipe that pay a free special piece (each once a day). */
 export const COMBO_PRIZES = [6, 9, 12];
-/** The ride earns its rating / this every move (a puke pays the full rating, times the rider's worth). */
-export const RATE_DIV = 2;
+/**
+ * The hype economy: the ride draws rating / HYPE_DIV guests a move, and each pays
+ * at the gate. The price climbs with the ride too, but slowly (log2 of the rating):
+ * pricing by the full rating made income grow with its square and run away.
+ */
+export const HYPE_DIV = 14;
+
+export function ticketFor(rating: number): number {
+  return Math.max(1, Math.round(Math.log2(1 + Math.max(0, rating))));
+}
 /** What each piece costs to grow into the ride, by tier (Flat first). */
 export const PIECE_PRICE = [3, 5, 12, 30, 75, 180, 450, 1100];
 /** Every piece already in the ride makes the next ones this much pricier. */
@@ -556,11 +564,33 @@ export class Game {
 
   /** Stats of the track as a full circuit. */
   get stats(): RideStats {
-    return rideStats(trackCells(this.board), this.mods);
+    return rideStats(this.rideCells(), this.mods);
+  }
+
+  /** The track's pieces in the order the train rides them (each piece once): Lift Hills charge what comes next. */
+  rideCells(): TrackCell[] {
+    const seen = new Set<string>();
+    const out: TrackCell[] = [];
+    for (const s of rideOrder(this.board, 'circuit')) {
+      const key = `${s.x},${s.y}${s.cross ? 'x' : ''}`;
+      if (s.station || seen.has(key)) continue;
+      seen.add(key);
+      out.push(s);
+    }
+    // Pieces off the circuit's path (bare test boards with two loose ends) still count.
+    for (const c of trackCells(this.board)) {
+      const key = `${c.x},${c.y}${c.cross ? 'x' : ''}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(c);
+      }
+    }
+    return out;
   }
 
   private has(id: string): boolean {
-    return this.attractions.some((a) => a.id === id);
+    // Hot path (every rider × every stop): skip the plot's neighbor math.
+    return this.plot.items.some((i) => i.kind === 'attraction' && i.id === id);
   }
 
   /** How much nausea it takes to make this rider puke once, after upgrades and attractions. */
@@ -577,7 +607,7 @@ export class Game {
   nausea(r: Rider, tier: number, flavor: Flavor | null = null): number {
     if (tier === 3 && this.has('gravitywell')) return 0;
     const inv = invertedCell({ tier, flavor });
-    let n = pieceNausea(r, tier, inv) + (tier === 4 && this.has('tilttable') ? 3 : 0);
+    let n = pieceNausea(r, tier, inv) + (tier === 3 && this.has('tilttable') ? 3 : 0);
     if (inv && this.has('gravitywell')) n += 2;
     // Spinning cars: the car whirls through it.
     if (flavor === 'spin') n = Math.ceil(n * this.mods.spinNausea);
@@ -600,6 +630,21 @@ export class Game {
     // Granny Grit has seen it all: only the first piece of each type gets to her.
     if (r.boss && this.bossRule === 'seenitall' && stops.slice(0, i).some((o) => !o.station && o.tier === s.tier)) return 0;
     let n = this.nausea(r, s.tier, s.flavor ?? null);
+    // Lift Hills: the height stored by the lifts just before this piece (Flats don't count).
+    let charge = 0;
+    for (let k = i - 1; k >= 0; k--) {
+      const o = stops[k];
+      if (o.station) break;
+      if (o.tier === 0) continue;
+      if (o.tier !== LIFT) break;
+      charge++;
+    }
+    if (s.tier === LIFT) {
+      // The last lift before the station with nothing to cash it in: a finale drop.
+      let k = i + 1;
+      while (k < stops.length && !stops[k].station && (stops[k].tier === 0 || stops[k].tier === LIFT)) k++;
+      n = k >= stops.length || stops[k].station ? (stops.slice(i + 1, k).some((o) => o.tier === LIFT) ? 0 : FINALE_NAUSEA * (charge + 1)) : 0;
+    } else if (s.tier > 0) n *= 1 + charge;
     let j = i - 1;
     while (j >= 0 && stops[j].station) j--;
     if (j >= 0 && stops[j].special === 'launch') n *= 2;
@@ -692,7 +737,6 @@ export class Game {
     if (this.bossRule === 'whistle' && result.mergeCount === 0)
       for (let k = 0; k < WHISTLE_COST - 1; k++) spawnTile(this.board, this.rng, this.mods.hillChance);
     this.tick();
-    this.rollTrain();
     this.checkGridlock();
   }
 
@@ -732,17 +776,15 @@ export class Game {
     for (const laid of cells) this.events.push({ type: 'build', laid, end: 0 });
     // (No new tile on a grow: the loop already takes up two more cells.)
     this.tick();
-    this.rollTrain();
     this.checkGridlock();
     return true;
   }
 
   /**
-   * The ride's rate: what every move earns, the number that keeps ticking up.
-   * Half of what one puke pays, so a lap full of pukes is a jackpot.
+   * The ride's rate: roughly what a move earns at the gate (guests drawn × ticket price).
    */
   get rate(): number {
-    return Math.max(1, Math.round(this.score('circuit').rating / RATE_DIV));
+    return Math.max(1, Math.round(this.hypeRate * this.ticketPrice));
   }
 
   /** What growing the loop through this bulge costs: its two pieces, pricier the bigger the ride already is. */
@@ -756,41 +798,6 @@ export class Game {
   growCost(x: number, y: number): number | null {
     const g = bulgeFor(this.board, x, y);
     return g ? this.bulgeCost(g) : null;
-  }
-
-  /** The train rolls one stop on and the ride earns its rate; past the station, that's a lap. */
-  private rollTrain(): void {
-    if (this.phase !== 'build') return;
-    const earn = this.rate;
-    this.banked += earn;
-    this.events.push({ type: 'earn', amount: earn });
-    this.trainPos++;
-    if (this.trainPos >= this.lapLength) {
-      this.trainPos = 0;
-      this.runLap();
-    }
-  }
-
-  /**
-   * A lap: everyone in line rides the loop as it stands and pays for every puke.
-   * Then they get off (an unbroken boss gets straight back in line) and new guests
-   * come along: a bigger, wilder ride draws a bigger crowd.
-   */
-  private runLap(): void {
-    const rating = this.score('circuit').rating;
-    const tickets: RiderTicket[] = this.queue.map((rider) => {
-      const pukes = this.pukes(rider, 'circuit');
-      return { rider, pukes, paid: this.points(rider, pukes, rating) };
-    });
-    const total = tickets.reduce((a, t) => a + t.paid, 0);
-    const f = this.fight;
-    const bossHits = tickets.find((t) => t.rider.boss)?.pukes ?? 0;
-    if (f) f.hp = Math.max(0, f.hp - bossHits);
-    this.banked += total;
-    this.lap++;
-    this.record.totalPukes += tickets.reduce((a, t) => a + t.pukes, 0);
-    this.events.push({ type: 'lap', lap: this.lap, total, tickets, bossHits });
-    this.queue = this.queue.filter((r) => r.boss && f && f.hp > 0);
   }
 
   /**
@@ -1021,11 +1028,27 @@ export class Game {
     this.selected = end ?? (this.selected === 0 ? 1 : 0);
   }
 
-  private arrive(reason: ArrivalReason): void {
+  private arrive(reason: ArrivalReason, ticket?: number): void {
+    // The hype economy: everyone the ride draws buys a ticket at the gate, even if the line is full.
+    if (this.board.loop) {
+      const price = ticket ?? this.ticketPrice;
+      this.banked += price;
+      this.events.push({ type: 'earn', amount: price });
+    }
     if (this.queue.length >= this.cfg.maxQueue) return;
     const rider = this.newRider();
     this.queue.push(rider);
     this.events.push({ type: 'arrive', rider, reason });
+  }
+
+  /** What a ticket costs at the gate: a wilder-looking ride charges more. */
+  get ticketPrice(): number {
+    return ticketFor(this.score('circuit').rating);
+  }
+
+  /** Guests the ride draws per move: its hype, plus the odd walk-in. */
+  get hypeRate(): number {
+    return this.score('circuit').rating / HYPE_DIV + 1 / WALKIN_EVERY;
   }
 
   /** One swipe passes. */
@@ -1035,10 +1058,13 @@ export class Game {
     // Street Sweepers: every so often the smallest loose tile is swept away.
     if (this.mods.sweepEvery && this.actions % this.mods.sweepEvery === 0) this.sweep();
     this.bossTick();
-    this.buzz += this.stats.chips / BUZZ_PER;
+    // Hype: the crowd at the fence grows with how wild the ride looks (old days: its excitement).
+    const rating = this.board.loop ? this.score('circuit').rating : 0;
+    this.buzz += this.board.loop ? rating / HYPE_DIV : this.stats.chips / BUZZ_PER;
+    const price = ticketFor(rating);
     while (this.buzz >= 1) {
       this.buzz -= 1;
-      this.arrive('buzz');
+      this.arrive('buzz', this.board.loop ? price : undefined);
     }
   }
 
@@ -1126,8 +1152,11 @@ export class Game {
     const passed = dayTotal >= this.cfg.target && bossPuked;
     const refused = !!boss && this.refuses(boss.rider, kind);
     const stops = rideOrder(this.board, kind);
+    const cells = this.rideCells();
+    const thrills = pathThrills(cells, this.mods);
     const timeline = rideTimeline({
       stops,
+      thrills: new Map(cells.map((c, k) => [`${c.x},${c.y}${c.cross ? 'x' : ''}`, thrills[k]])),
       mods: this.mods,
       score,
       shuttle: kind === 'shuttle',

@@ -46,7 +46,7 @@ describe('the always-running ride', () => {
     const g = cleared();
     const b = g.board;
     const s = stationPoint(b, 0);
-    // Above the loop's top edge: a Drop, with a Hill next to it.
+    // Above the loop's top edge: a Helix, with a Lift Hill next to it.
     b.tiles[idx(b, s.x, s.y - 2)] = 3;
     b.tiles[idx(b, s.x + 1, s.y - 2)] = 2;
     expect(g.growCells.some((c) => c.x === s.x && c.y === s.y - 2)).toBe(true);
@@ -55,38 +55,39 @@ describe('the always-running ride', () => {
     expect(b.ends[0].map((c) => c.tier)).toEqual([0, 3, 2, 0]);
     expect(g.openKind).toBe('circuit');
     expect(g.actions).toBe(1);
-    expect(g.trainPos).toBe(1);
+    // The train stays parked while you build: it rides once, at the end.
+    expect(g.trainPos).toBe(0);
+    expect(g.lap).toBe(0);
     // Both tiles went into the track; growing drops in no tile (only because the board went empty does one appear).
     expect(b.tiles.filter((t) => t > 0)).toHaveLength(1);
   });
 
-  it('every move rolls the train on; each lap pays and the riders get off', () => {
+  it('the hype draws guests; each buys a ticket priced by the ride, and nobody rides until closing', () => {
     const g = cleared();
     const b = g.board;
     for (const c of b.ends[0]) c.tier = 7;
-    g.queue.forEach((r) => (r.stomach = 4));
-    const riders = g.queue.length;
-    expect(riders).toBeGreaterThan(0);
-    // Three stops a lap: three swipes (each moves the one tile around).
+    const price = g.ticketPrice;
+    expect(price).toBeGreaterThan(1);
+    const start = g.banked;
     b.tiles[idx(b, 0, 0)] = 1;
-    for (const d of ['right', 'down', 'left'] as const) g.swipe(d);
-    expect(g.lap).toBe(1);
-    // Two Mega Loops and corn-dog stomachs: the lap is a jackpot on top of the per-move rate.
-    const lap = g.events.find((e) => e.type === 'lap');
-    expect(lap && lap.type === 'lap' && lap.total).toBeGreaterThan(g.rate * 3);
-    expect(g.queue.filter((r) => !r.boss).length).toBeLessThan(riders + 3);
+    for (let k = 0; k < 8; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
+    const earned = g.events.filter((e) => e.type === 'earn');
+    expect(earned.length).toBeGreaterThan(0);
+    expect(g.events.filter((e) => e.type === "arrive").length).toBeLessThanOrEqual(earned.length);
+    expect(g.banked).toBe(start + earned.length * price);
+    expect(g.lap).toBe(0);
+    expect(g.events.some((e) => e.type === 'lap')).toBe(false);
+    // A bigger ride draws more and charges more.
+    const small = cleared();
+    expect(small.ticketPrice).toBeLessThan(price);
+    expect(small.hypeRate).toBeLessThan(g.hypeRate);
   });
 
-  it('every move earns the ride’s rate; growing costs tickets, more as the ride gets bigger', () => {
+  it('growing costs tickets, more as the ride gets bigger', () => {
     const g = cleared();
     const b = g.board;
     const s = stationPoint(b, 0);
-    const start = g.banked;
-    b.tiles[idx(b, 0, 0)] = 1;
-    g.swipe('right');
-    expect(g.banked).toBe(start + g.rate);
-    expect(g.events.some((e) => e.type === 'earn')).toBe(true);
-    // A Drop and a Hill above the loop.
+    // A Helix and a Lift Hill above the loop.
     b.tiles[idx(b, s.x, s.y - 2)] = 3;
     b.tiles[idx(b, s.x + 1, s.y - 2)] = 2;
     const cost = g.growCost(s.x, s.y - 2)!;
@@ -97,9 +98,12 @@ describe('the always-running ride', () => {
     expect(b.ends[0]).toHaveLength(2);
     expect(g.events.some((e) => e.type === 'broke')).toBe(true);
     g.banked = cost;
+    g.events.length = 0;
     g.tap(s.x, s.y - 2);
     expect(b.ends[0]).toHaveLength(4);
-    expect(g.banked).toBe(g.rate);
+    // Whatever's left is what guests paid this move.
+    const paid = g.events.filter((e) => e.type === 'earn').length * g.ticketPrice;
+    expect(g.banked).toBeLessThanOrEqual(paid);
     // The next pieces cost more: the ride has 4 pieces now.
     b.tiles[idx(b, s.x, s.y - 3)] = 3;
     b.tiles[idx(b, s.x + 1, s.y - 3)] = 2;
@@ -289,7 +293,7 @@ describe('puking', () => {
     const g = freshGame();
     const b = g.board;
     const s = stationPoint(b, 0);
-    // A U-shaped ride: two Mega Loops (9 nausea each for an ordinary stomach).
+    // A U-shaped ride: two Top Hats (10 nausea each for an ordinary stomach).
     b.tiles[idx(b, s.x, s.y - 1)] = 7;
     b.tiles[idx(b, s.x + 1, s.y - 1)] = 7;
     // The ride starts as a two-piece loop on those cells: give it the tiles we just set.
@@ -298,9 +302,9 @@ describe('puking', () => {
       if (g.board.tiles[i]) [c.tier, g.board.tiles[i]] = [g.board.tiles[i], 0];
     }
     expect(g.openKind).toBe('circuit');
-    const corndog = { ...g.queue[0], kind: 'corndog' as const, boss: undefined, stomach: 4 };
-    expect(g.pukes(corndog)).toBe(4); // 18 nausea / stomach 4
-    const thrill = { ...corndog, kind: 'thrill' as const, stomach: 20 };
+    const corndog = { ...g.queue[0], kind: 'corndog' as const, boss: undefined, stomach: 5 };
+    expect(g.pukes(corndog)).toBe(4); // 20 nausea / stomach 5
+    const thrill = { ...corndog, kind: 'thrill' as const, stomach: 25 };
     expect(g.pukes(thrill)).toBe(0);
     // A shuttle passes each piece twice.
     expect(g.pukes(corndog, 'shuttle')).toBe(5);
@@ -310,8 +314,8 @@ describe('puking', () => {
     const g = freshGame();
     const b = g.board;
     const s = stationPoint(b, 0);
-    b.tiles[idx(b, s.x, s.y - 1)] = 5; // Loop, 4 nausea, upside down
-    b.tiles[idx(b, s.x + 1, s.y - 1)] = 5;
+    b.tiles[idx(b, s.x, s.y - 1)] = 4; // Vertical Loop, 4 nausea, upside down
+    b.tiles[idx(b, s.x + 1, s.y - 1)] = 4;
     // The ride starts as a two-piece loop on those cells: give it the tiles we just set.
     for (const c of g.board.ends[0].slice(0, 2)) {
       const i = c.y * g.board.size + c.x;

@@ -269,6 +269,20 @@ export const sfx = {
   },
   /** A move earns the rate: the faintest coin tick. */
   earn: () => tone(1760 + Math.random() * 120, 0.04, 'triangle', 0.018),
+  /** Guests buy tickets at the gate: a small ka-ching (a little brighter, the more came at once). */
+  kaching(guests = 1) {
+    const k = Math.min(7, Math.max(0, Math.round(Math.log2(guests) * 2)));
+    noise(0.04, 0.06, 0, 5200, 2600, 3);
+    tone(semi(1319, k), 0.05, 'square', 0.014, 0.02);
+    tone(semi(1976, k), 0.16, 'triangle', 0.04, 0.05);
+  },
+  /** A Lift Hill goes in: the chain catches, clack-clack-clack, climbing. */
+  chainLift() {
+    for (let i = 0; i < 7; i++) {
+      noise(0.022, 0.06, i * 0.075, 2600 + i * 220, 1100, 4);
+      tone(190 + i * 14, 0.03, 'square', 0.012, i * 0.075);
+    }
+  },
   /** A coin lands in the wallet. */
   coin: (i: number) => {
     tone(semi(1568, i % 7), 0.06, 'square', 0.012);

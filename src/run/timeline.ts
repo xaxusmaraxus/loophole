@@ -58,6 +58,8 @@ export interface TimelineInput {
   shuttle: boolean;
   /** Riders in car order: car 0 leads. */
   riders: readonly TimelineRider[];
+  /** Each piece's thrill (lifts and the finale drop included), keyed like the dedupe key; else plain cellThrill. */
+  thrills?: Map<string, number>;
   /** How far (in stops) each car trails the one ahead. */
   carLag?: number;
 }
@@ -90,7 +92,7 @@ export function rideTimeline(input: TimelineInput): ScoreEvent[] {
     const key = `${s.x},${s.y}${s.cross ? 'x' : ''}`;
     if (seen.has(key)) return;
     seen.add(key);
-    rawThrill += cellThrill(s, mods);
+    rawThrill += input.thrills?.get(key) ?? cellThrill(s, mods);
     pieces++;
     const chips = Math.round(rawThrill * mods.thrillMult) + pieces;
     raw.push({ ...blank, kind: 'chips', at: i, stop: i, tier: s.tier, amount: chips - chipsSoFar });

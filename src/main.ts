@@ -52,6 +52,8 @@ renderer.onLap = (lap, total, bossHits) => hud.lapPaid(lap, total, bossHits, ren
 // The wallet counter waits for laps still on their way round; can't-afford taps shake it.
 hud.pendingLaps = () => renderer.pendingLapTickets();
 renderer.onBroke = () => hud.broke();
+// Guests buy tickets at the gate every move: coins hop from the line into the wallet.
+renderer.onEarn = (amount, guests, from) => hud.earned(amount, guests, from);
 
 /** Tap a tile: buy it into the ride (with the purchase juice), or aim a tool. */
 function tapCell(x: number, y: number): void {

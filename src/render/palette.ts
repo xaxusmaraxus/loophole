@@ -4,13 +4,13 @@ export type Ramp = readonly [string, string, string, string];
 
 export const TIER_RAMPS: readonly Ramp[] = [
   ['#e6e9f0', '#b8bfcc', '#7f889c', '#4a5064'], // Flat
-  ['#f0d29a', '#d9a95f', '#a8743a', '#6b4526'], // Bump
-  ['#b6ec8a', '#72c457', '#3f8f45', '#245a36'], // Hill
-  ['#9fe3ff', '#45a8e0', '#2a6fb0', '#1d3f7a'], // Drop
-  ['#d7b4ff', '#9d6ef0', '#6a45c0', '#3d2a80'], // Helix
-  ['#ffb0a0', '#f0584e', '#b83344', '#6e1f36'], // Loop
-  ['#ffd9a0', '#ff9a3c', '#d0602a', '#8a3524'], // Corkscrew
-  ['#fff4b0', '#ffd23f', '#e0962a', '#9a5a1c'], // Mega Loop
+  ['#f0d29a', '#d9a95f', '#a8743a', '#6b4526'], // Airtime Hill
+  ['#b6ec8a', '#72c457', '#3f8f45', '#245a36'], // Lift Hill
+  ['#9fe3ff', '#45a8e0', '#2a6fb0', '#1d3f7a'], // Helix
+  ['#d7b4ff', '#9d6ef0', '#6a45c0', '#3d2a80'], // Vertical Loop
+  ['#ffb0a0', '#f0584e', '#b83344', '#6e1f36'], // Corkscrew
+  ['#ffd9a0', '#ff9a3c', '#d0602a', '#8a3524'], // Cobra Roll
+  ['#fff4b0', '#ffd23f', '#e0962a', '#9a5a1c'], // Top Hat
 ];
 
 export const PAL = {

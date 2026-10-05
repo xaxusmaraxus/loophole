@@ -94,7 +94,7 @@ describe('piers', () => {
 });
 
 describe('special pieces', () => {
-  /** A U ride of two Hills, with the given special on the first. */
+  /** A U ride of two Airtime Hills, with the given special on the first. */
   function uRide(special?: 'launch' | 'splash' | 'brakes'): Game {
     const g = new Game('SPECIAL');
     g.beginPark();
@@ -102,8 +102,8 @@ describe('special pieces', () => {
     const b = g.board;
     const s = b.station;
     b.obstacles = b.obstacles.map(() => null);
-    b.tiles[(s.y - 1) * b.size + s.x] = 2;
-    b.tiles[(s.y - 1) * b.size + s.x + 1] = 2;
+    b.tiles[(s.y - 1) * b.size + s.x] = 1;
+    b.tiles[(s.y - 1) * b.size + s.x + 1] = 1;
     // The ride starts as a two-piece loop on those cells: give it the tiles we just set.
     for (const c of g.board.ends[0].slice(0, 2)) {
       const i = c.y * g.board.size + c.x;
@@ -124,7 +124,7 @@ describe('special pieces', () => {
     const g = uRide('launch');
     expect(g.stats.thrill).toBe(plain.stats.thrill + 10);
     const r = { ...makeRider(new Rng(1), 1, 99, 'meadow', 'tourist'), stomach: 3 };
-    // Two Hills: 1 + 1 nausea; after a Launch the second hits double: 1 + 2.
+    // Two Airtime Hills: 1 + 1 nausea; after a Launch the second hits double: 1 + 2.
     expect(plain.pukes(r)).toBe(0);
     expect(g.pukes(r)).toBe(1);
   });
@@ -160,8 +160,8 @@ describe('ghosts', () => {
     g.beginPark();
     g.chooseNode(0, 0);
     const ghost = makeRider(new Rng(3), 7, 99, 'hollow', 'ghost');
-    expect(g.nausea(ghost, 3)).toBe(0); // a Drop does nothing
-    expect(g.nausea(ghost, 5)).toBe(8); // a Loop: 4 × 2
+    expect(g.nausea(ghost, 3)).toBe(0); // a Helix does nothing
+    expect(g.nausea(ghost, 4)).toBe(8); // a Vertical Loop: 4 × 2
   });
 });
 

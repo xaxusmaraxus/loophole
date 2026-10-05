@@ -109,17 +109,16 @@ describe('boss days', () => {
     expect([...seen].sort()).toEqual(['barry', 'granny']);
   });
 
-  it('the boss rides every lap until broken; the day fails if they never break', () => {
+  it('the boss rides once, at closing; the day fails if they never break', () => {
     const g = bossDay('barry');
     expect(g.fight).toMatchObject({ hp: 2, max: 2 });
     const barry = g.queue[0];
-    for (const c of g.board.ends[0]) c.tier = 3; // two Drops: 4 nausea a lap, Barry needs 14+
-    // Lap after lap he keeps it down, and stays in line.
+    for (const c of g.board.ends[0]) c.tier = 1; // two Airtime Hills: Barry keeps it down
     g.board.tiles = g.board.tiles.map(() => 0);
-    g.board.obstacles = g.board.obstacles.map(() => null);
     g.board.tiles[0] = 1;
-    for (let k = 0; k < 40 && g.lap < 2; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
-    expect(g.lap).toBe(2);
+    for (let k = 0; k < 8; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
+    // Nobody rides while you build.
+    expect(g.lap).toBe(0);
     expect(g.queue[0]).toBe(barry);
     expect(g.fight!.hp).toBe(2);
     const hearts = g.hearts;
@@ -132,19 +131,16 @@ describe('boss days', () => {
     expect(g.hearts).toBe(hearts - 1);
   });
 
-  it('boss pukes on every lap crack their composure', () => {
+  it('boss pukes on the closing ride crack their composure', () => {
     const g = bossDay('granny');
     const granny = g.queue[0];
     granny.stomach = 2;
-    g.board.ends[0][0].tier = 3;
-    g.board.ends[0][1].tier = 4;
-    g.board.tiles = g.board.tiles.map(() => 0);
-    g.board.obstacles = g.board.obstacles.map(() => null);
-    g.board.tiles[0] = 1;
-    for (let k = 0; k < 40 && g.lap < 1; k++) g.swipe((['right', 'down', 'left', 'up'] as const)[k % 4]);
-    expect(g.lap).toBe(1);
+    g.board.ends[0][0].tier = 4;
+    g.board.ends[0][1].tier = 5;
+    g.cfg.target = 0;
+    g.open('circuit');
+    expect(g.result!.bossHits).toBeGreaterThan(0);
     expect(g.fight!.hp).toBeLessThan(2);
-    expect(g.events.some((e) => e.type === 'lap' && e.bossHits > 0)).toBe(true);
   });
 
   it('breaking the boss grows the plot and offers legendaries', () => {
@@ -220,11 +216,11 @@ describe('boss days', () => {
     const g = bossDay('mayor');
     expect(g.fight!.demands).toHaveLength(3);
     g.fight!.demands = ['loop'];
-    uRide(g, 3, 3);
+    uRide(g, 2, 3); // a Lift Hill into a Helix: nothing upside down
     const mayor = g.queue[0];
     expect(g.refuses(mayor, 'circuit')).toBe(true);
     expect(g.pukes(mayor)).toBe(0);
-    g.fight!.demands = ['drop'];
+    g.fight!.demands = ['drop', 'circuit'];
     expect(g.refuses(mayor, 'circuit')).toBe(false);
   });
 

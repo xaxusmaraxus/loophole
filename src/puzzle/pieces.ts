@@ -7,16 +7,55 @@ export interface Piece {
   inversion: boolean;
 }
 
+// Every tier is a real coaster element (v0.25). The Lift Hill does nothing on
+// its own: it stores height for the next element (see liftPlan).
 export const PIECES: readonly Piece[] = [
   { name: 'Flat', thrill: 0, nausea: 0, inversion: false },
-  { name: 'Bump', thrill: 1, nausea: 1, inversion: false },
-  { name: 'Hill', thrill: 2, nausea: 1, inversion: false },
-  { name: 'Drop', thrill: 4, nausea: 2, inversion: false },
-  { name: 'Helix', thrill: 6, nausea: 3, inversion: false },
-  { name: 'Loop', thrill: 9, nausea: 4, inversion: true },
-  { name: 'Corkscrew', thrill: 13, nausea: 6, inversion: true },
-  { name: 'Mega Loop', thrill: 20, nausea: 9, inversion: true },
+  { name: 'Airtime Hill', thrill: 1, nausea: 1, inversion: false },
+  { name: 'Lift Hill', thrill: 0, nausea: 0, inversion: false },
+  { name: 'Helix', thrill: 4, nausea: 2, inversion: false },
+  { name: 'Vertical Loop', thrill: 8, nausea: 4, inversion: true },
+  { name: 'Corkscrew', thrill: 12, nausea: 6, inversion: true },
+  { name: 'Cobra Roll', thrill: 17, nausea: 8, inversion: true },
+  { name: 'Top Hat', thrill: 24, nausea: 10, inversion: false },
 ];
+
+/** The Lift Hill's tier: it charges the next element instead of thrilling on its own. */
+export const LIFT = 2;
+/** Height left over at the end of the ride drops into the station: thrill and nausea per lift. */
+export const FINALE_THRILL = 6;
+export const FINALE_NAUSEA = 3;
+
+/**
+ * Lift Hills store height; the first proper element after them (any piece but a
+ * Flat or another lift) cashes it in: it hits ×(1 + lifts) harder. Height still
+ * stored at the end of the ride becomes a finale drop into the station.
+ * Returns, per piece in ride order, its multiplier and the finale lifts it pays
+ * (only on the last lift of a chain that nothing cashes in).
+ */
+export function liftPlan(path: readonly { tier: number }[]): { mult: number[]; finale: number[] } {
+  const mult = path.map(() => 1);
+  const finale = path.map(() => 0);
+  let charge = 0;
+  let lastLift = -1;
+  path.forEach((c, i) => {
+    if (c.tier === LIFT) {
+      charge++;
+      lastLift = i;
+    } else if (c.tier > 0) {
+      mult[i] = 1 + charge;
+      charge = 0;
+    }
+  });
+  if (charge > 0 && lastLift >= 0) finale[lastLift] = charge;
+  return { mult, finale };
+}
+
+/** Each piece's raw thrill in ride order, lifts and the finale drop included. */
+export function pathThrills(path: readonly PieceCell[], mods: StatMods): number[] {
+  const plan = liftPlan(path);
+  return path.map((c, i) => cellThrill(c, mods) * plan.mult[i] + FINALE_THRILL * plan.finale[i]);
+}
 
 export const MAX_TIER = PIECES.length - 1;
 
@@ -132,11 +171,13 @@ export function rideStats(path: readonly PieceCell[], mods: StatMods): RideStats
   let crossings = 0;
   const flavors: Record<Flavor, number> = { spin: 0, water: 0, hang: 0 };
   const tierCounts = new Array<number>(PIECES.length).fill(0);
-  for (const c of path) {
+  const plan = liftPlan(path);
+  const thrills = pathThrills(path, mods);
+  for (const [i, c] of path.entries()) {
     const { tier } = c;
     const p = PIECES[tier];
-    thrill += cellThrill(c, mods);
-    nausea += p.nausea + (c.special === 'brakes' ? BRAKES_NAUSEA : 0);
+    thrill += thrills[i];
+    nausea += p.nausea * plan.mult[i] + FINALE_NAUSEA * plan.finale[i] + (c.special === 'brakes' ? BRAKES_NAUSEA : 0);
     if (c.special === 'splash') splashes++;
     if (c.cross) crossings++;
     if (invertedCell(c)) inversions++;

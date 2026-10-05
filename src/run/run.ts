@@ -18,7 +18,7 @@ export interface UpgradeDef {
 
 export const UPGRADES: Record<UpgradeId, UpgradeDef> = {
   sweeper: { name: 'Street Sweepers', desc: 'Every 8 swipes, the smallest loose tile is swept away. Room to breathe.' },
-  lumber: { name: 'Better Lumber', desc: 'New tiles are Hills 15% more often.' },
+  lumber: { name: 'Better Lumber', desc: 'New tiles are Lift Hills 15% more often.' },
   hype: { name: 'Hype Guy', desc: '+25% thrill on every ride.' },
   fries: { name: 'Greasy Fries', desc: 'Every rider’s stomach is 1 smaller.' },
   billboard: { name: 'Billboard', desc: '+2 riders waiting each morning.' },
@@ -295,8 +295,8 @@ export interface DayConfig {
  */
 export const BASE_TARGET = 2800;
 /** Ticket targets per season day (days 1 to 9; the finale has its own). */
-export const DAY_TARGETS = [2200, 3200, 7000, 60000, 85000, 140000, 220000, 270000, 380000];
-export const FINALE_TARGET = 2000000;
+export const DAY_TARGETS = [3500, 5000, 12000, 75000, 110000, 180000, 380000, 500000, 700000];
+export const FINALE_TARGET = 3500000;
 export const TARGET_GROWTH = 1.4;
 
 /** Funds, prices and payouts scale with the targets. */
@@ -325,7 +325,7 @@ export function dayConfig(day: number, mods: Mods, node: NodeKind = 'day', parkB
     target: Math.round(target / 10) * 10,
     spawns: node === 'storm' ? 2 : 1,
     startRiders: 3 + mods.extraRiders + (park.id === 'finale' ? 3 : 0),
-    maxQueue: park.id === 'finale' ? 12 : 10,
+    maxQueue: park.id === 'finale' ? 30 : 24,
   };
 }
 

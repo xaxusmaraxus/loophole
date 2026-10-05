@@ -157,15 +157,13 @@ export class Hud {
         ? `<strong>Out of moves:</strong> nothing can slide and you can't afford any track yet. Close the park to cash in your ${g.banked.toLocaleString()} tickets.`
         : g.room <= 3
           ? `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge or buy track to make room, or close the park before it jams.${stuck}`
-          : g.lap > 0 && this.lastLap === 0
-            ? `<strong>Nobody puked on lap ${g.lap}.</strong> The ride needs to get wilder: merge bigger pieces and buy them in.${stuck}`
-            : g.actions === 0
-              ? `<strong>Every move earns your ride's rate.</strong> Tap a glowing tile to buy it into the ride: bigger pieces cost more and earn more. Merge first to make better pieces.${stuck}`
-              : afford
-                ? `<strong>You can afford track!</strong> Tap a glowing tile to buy it and raise your rate. Lap ${g.lap + 1} in ${g.lapLength - g.trainPos} move${g.lapLength - g.trainPos === 1 ? '' : 's'}: pukes are jackpots.${stuck}`
-                : wait
-                  ? `Saving up: the cheapest track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. Merge while you wait to make better pieces. Close the park with the target in hand.${stuck}`
-                  : `Swipe to earn and merge. Lap ${g.lap + 1} in ${g.lapLength - g.trainPos} move${g.lapLength - g.trainPos === 1 ? '' : 's'}: pukes are jackpots.${stuck}`;
+          : g.actions === 0
+            ? `<strong>Hype sells tickets.</strong> Every move, guests come to the gate and buy a ticket. Tap a glowing tile to buy it into the ride: a wilder ride draws more guests and charges more. Lift Hills power up the next element.${stuck}`
+            : afford
+              ? `<strong>You can afford track!</strong> Tap a glowing tile to buy it in and grow the hype. When you close the park, everyone in line rides once: pukes are jackpots.${stuck}`
+              : wait
+                ? `Saving up: the cheapest track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. Merge while you wait to make better pieces. Close the park with the target in hand.${stuck}`
+                : `Swipe to sell tickets and merge. ${g.queue.length} in line will ride when you close the park: pukes are jackpots.${stuck}`;
     } else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit now, or keep building for a wilder ride.';
     else hint.innerHTML = 'Swipe to merge tiles: the bigger the piece, the wilder the ride.';
     const outOfMoves = building && g.board.loop && !canSwipe(g.board) && !g.growCells.some((c) => (g.growCost(c.x, c.y) ?? Infinity) <= g.banked);
@@ -177,7 +175,7 @@ export class Hud {
     if (g.board.loop) {
       // The always-running ride: the button ends the day with one last full ride.
       open.innerHTML = `Close the park <span class="count">+${g.projected('circuit').toLocaleString()}</span>`;
-      open.title = 'Run the last ride in full (it pays like a lap) and end the day';
+      open.title = 'Everyone in line rides once (pukes pay out) and the day ends';
     } else {
       open.innerHTML = kind ? `${kind === 'circuit' ? 'Open the ride' : 'Open as shuttle'} <span class="count">${g.projected(kind).toLocaleString()}</span>` : 'Open the ride';
       open.title = kind === 'shuttle' ? 'Out and back along the track, at half the rating' : '';
@@ -211,7 +209,7 @@ export class Hud {
   /** Tickets spent on track today, by the move they were spent on (so an undo takes them back). */
   private spent = new Map<number, number>();
 
-  /** Today's wallet, the rate, the target bar and the lap count. */
+  /** Today's wallet, the hype (guests a move × ticket price) and the target bar. */
   private renderBank(): void {
     const g = this.game;
     const target = g.cfg.target;
@@ -234,13 +232,18 @@ export class Hud {
       quota.textContent = `Sell ${target.toLocaleString()} tickets`;
       return;
     }
-    quota.textContent = `Lap ${g.lap}`;
+    // The hype economy: guests a move × what each pays at the gate, and roughly what that makes a move.
     const rate = g.rate;
+    quota.textContent = `≈ +${rate.toLocaleString()} / move`;
+    quota.title = 'Tickets the gate takes in a move, roughly';
+    const hype = Math.round(g.hypeRate * 10) / 10;
     if (g.phase === 'build') {
-      if (this.lastRate >= 0 && rate !== this.lastRate) this.ratePulse(rate - this.lastRate);
-      this.lastRate = rate;
+      if (this.lastRate >= 0 && hype !== this.lastRate) this.ratePulse(hype - this.lastRate);
+      this.lastRate = hype;
     }
-    $('rateNum').textContent = `+${rate.toLocaleString()}`;
+    $('rateNum').textContent = hype.toFixed(1);
+    $('priceNum').textContent = g.ticketPrice.toLocaleString();
+    $('rateLine').title = `${hype.toFixed(1)} guests a move, each paying ${g.ticketPrice.toLocaleString()} at the gate`;
     this.ghost = g.phase === 'build' ? g.projected('circuit') : 0;
     this.paintBank();
   }
@@ -310,7 +313,8 @@ export class Hud {
   /** The rate changed: it pulses and shows by how much. */
   private ratePulse(delta: number): void {
     const d = $('rateDelta');
-    d.textContent = delta > 0 ? `+${delta.toLocaleString()}` : `−${(-delta).toLocaleString()}`;
+    const v = Math.abs(delta) < 10 ? Math.abs(delta).toFixed(1) : Math.round(Math.abs(delta)).toLocaleString();
+    d.textContent = delta > 0 ? `+${v}` : `−${v}`;
     const line = $('rateLine');
     line.classList.remove('up', 'down');
     void line.offsetWidth;
@@ -338,6 +342,12 @@ export class Hud {
       const n = Math.min(26, 10 + Math.round(Math.log2(1 + total / Math.max(1, g.rate)) * 2));
       this.fly(from, this.walletPoint(), n, 'coin', 1.4);
     }
+  }
+
+  /** Guests bought tickets at the gate: a few coins hop into the wallet (more when a crowd came). */
+  earned(_amount: number, guests: number, from: { x: number; y: number }): void {
+    if (document.hidden) return;
+    this.fly(from, this.walletPoint(), Math.min(6, 1 + Math.ceil(guests / 2)), 'coin', 0.4);
   }
 
   /** Where the counter is on the page. */
@@ -438,9 +448,9 @@ export class Hud {
       live = tiers.length ? `Counts once each: ${tiers.map((t) => PIECES[t].name).join(', ')}` : 'Every piece type counts once';
     } else if (def.rule === 'blackout') live = 'You can only see tiles next to your track';
     else if (def.rule === 'demands') live = `<span class="demands">${g.demands().map((d) => `<span class="${d.met ? 'met' : ''}">${d.met ? '✓' : '✗'} ${d.text}</span>`).join('')}</span>`;
-    const ride = g.board.loop ? 'Each lap' : 'This ride';
+    const ride = g.board.loop ? 'At closing' : 'This ride';
     const preview = building && boss ? (g.refuses(boss, g.openKind ?? 'circuit') ? 'Won’t get on yet' : hits ? `${ride} cracks ${hits}` : `${ride}: no crack yet`) : '';
-    const roundTxt = g.board.loop ? `Rides every lap · lap ${g.lap}` : `Ride ${f.round} of ${BOSS_ROUNDS}`;
+    const roundTxt = g.board.loop ? 'Rides when the park closes' : `Ride ${f.round} of ${BOSS_ROUNDS}`;
     const html = `
       <div class="bb-who">${bossPortrait(id) ? `<img class="bb-face" src="${bossPortrait(id)}" alt="">` : ''}
         <div class="bb-name"><strong>${def.name}</strong><span>${roundTxt}${f.banked ? ` · ${f.banked.toLocaleString()} banked` : ''}</span></div></div>
@@ -479,7 +489,7 @@ export class Hud {
           <h2 class="bc-name">${def.name}</h2>
           <p class="bc-quip">“${def.quip}”</p>
           <div class="bc-rule"><strong>${def.ruleName}</strong><span>${def.ruleDesc}</span></div>
-          <p class="bc-goal">Make them puke <b>${def.composure}×</b> to break them. ${g.board.loop ? 'They ride <b>every lap</b> until they break.' : `You get up to <b>${BOSS_ROUNDS} rides</b>.`} Stomach ${def.stomach}. ${def.trait}</p>
+          <p class="bc-goal">Make them puke <b>${def.composure}×</b> to break them. ${g.board.loop ? 'They ride <b>once</b>, when you close the park.' : `You get up to <b>${BOSS_ROUNDS} rides</b>.`} Stomach ${def.stomach}. ${def.trait}</p>
           <button type="button" class="primary bc-go" data-boss-go>Bring it on!</button>
         </div>`;
       this.onBossCard?.('intro');
@@ -817,7 +827,7 @@ export class Hud {
         <p class="total big"><span>${g.board.loop ? 'In hand at closing' : `Tickets ${f && f.round > 1 ? 'today' : 'sold'}`}</span><strong>${r.dayTotal.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
         ${
           g.board.loop
-            ? `<p class="total"><span>Earned (moves, ${g.lap} lap${g.lap === 1 ? '' : 's'}, last ride)</span><strong>${(r.dayTotal - START_CASH + this.spentToday).toLocaleString()}</strong></p>${this.spentToday ? `<p class="total"><span>Spent on track</span><strong>−${this.spentToday.toLocaleString()}</strong></p>` : ''}<p class="total"><span>Last ride</span><strong>${r.total.toLocaleString()}</strong></p>`
+            ? `<p class="total"><span>Earned (tickets at the gate, last ride)</span><strong>${(r.dayTotal - START_CASH + this.spentToday).toLocaleString()}</strong></p>${this.spentToday ? `<p class="total"><span>Spent on track</span><strong>−${this.spentToday.toLocaleString()}</strong></p>` : ''}<p class="total"><span>Last ride</span><strong>${r.total.toLocaleString()}</strong></p>`
             : r.dayTotal !== r.total
               ? `<p class="total"><span>This ride</span><strong>${r.total.toLocaleString()}</strong></p>`
               : ''

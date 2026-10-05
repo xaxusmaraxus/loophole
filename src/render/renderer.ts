@@ -55,7 +55,7 @@ import type { Rider } from '../riders/riders';
 import { Geo, rng, shade, v3 } from '../render3d/geo';
 import { GLOW_MAT, GRASS_Y, type Island, WATER_Y, buildIsland } from '../render3d/island';
 import { type CarKind, CRATE_H, FLAVOR_COLORS, FLAVOR_PIVOT, type Face, M, type Parts, carGeo, crateGeo, flavorAnimGeo, flavorBaseGeo, mysteryGeo, personGeo, rope } from '../render3d/models';
-import { type Flavor, PIECES, SPECIALS } from '../puzzle/pieces';
+import { type Flavor, LIFT, PIECES, SPECIALS, liftPlan } from '../puzzle/pieces';
 import { Particles, Pool, bubbleMaterial, makeBubble, makeMarker, puddleGeo } from '../render3d/fx';
 import { BLOOM_LAYER, GLOW_LAYER, Post } from '../render3d/post';
 import { MATS, SHARED, toon } from '../render3d/toon';
@@ -331,6 +331,8 @@ export class Renderer {
   onLap: (lap: number, total: number, bossHits: number) => void = () => {};
   /** Tapped a grow you can't afford (the HUD shakes the wallet). */
   onBroke: () => void = () => {};
+  /** Guests bought tickets at the gate (the HUD flies coins from `from` into the wallet). */
+  onEarn: (amount: number, guests: number, from: { x: number; y: number }) => void = () => {};
   /** Price tags over the growable tiles, by cell index. */
   private tags = new Map<number, HTMLDivElement>();
   private tagInfo: { key: string; cells: Map<number, { cost: number; gain: number; names: string }> } = { key: '', cells: new Map() };
@@ -880,6 +882,7 @@ export class Renderer {
   // ---- Events --------------------------------------------------------------------
 
   handleEvents(): void {
+    const earned = { amount: 0, n: 0 };
     for (const e of this.game.events.splice(0)) {
       switch (e.type) {
         case 'day':
@@ -956,7 +959,9 @@ export class Renderer {
           this.laps.push({ e, riders: e.tickets.map((t) => t.rider), at: this.now, paying: false });
           break;
         case 'earn':
-          this.earnFx(e.amount);
+          // Every guest the hype draws buys a ticket: one ka-ching per move, however many came.
+          earned.amount += e.amount;
+          earned.n++;
           break;
         case 'broke':
           this.brokeFx(e.cost, e.at);
@@ -1027,6 +1032,7 @@ export class Renderer {
         }
       }
     }
+    if (earned.n) this.earnFx(earned.amount, earned.n);
   }
 
   private startRide(): void {
@@ -2407,6 +2413,7 @@ export class Renderer {
     }
     this.kick(0.4 + tier * 0.3, 90 + tier * 20);
     sfx.chomp(tier);
+    if (tier === LIFT) this.after(170, () => sfx.chainLift());
   }
 
   /** Eaten crates squash flat into the track as it rises under them. */
@@ -2929,26 +2936,33 @@ export class Renderer {
     return this.project(sc.setY(sc.y + 0.6));
   }
 
-  /** A move earned the rate: a small "+N" floats up off the lead car (quick moves add up into one). */
-  private earnFx(amount: number): void {
-    const lead = () => {
-      const h = this.seatPts[0]?.head;
-      return h ? h.clone().setY(h.y + 0.42) : null;
-    };
+  /** Where the line meets the gate: tickets are sold here. */
+  private gatePoint(): Vector3 {
+    const s0 = this.slot(0);
+    return v3(s0.x, 0.55, s0.z);
+  }
+
+  /**
+   * A move's guests bought their tickets: a coin pop and a ka-ching at the gate,
+   * "+N" floating up (quick moves add up into one), and coins off to the wallet.
+   */
+  private earnFx(amount: number, guests = 1): void {
+    const at = this.gatePoint();
+    this.burst(at.clone().setY(0.45), Math.min(18, 4 + guests * 2), [PAL.gold, '#fff6c8', PAL.gold, '#ffb02e']);
+    this.sparkle(at.clone().setY(0.7), Math.min(10, 2 + guests), PAL.gold);
+    sfx.kaching(guests);
+    this.onEarn(amount, guests, this.project(at.clone().setY(0.7)));
     const ew = this.earnWord;
-    if (ew && this.words.includes(ew.w) && this.now - ew.w.born < 450) {
+    if (ew && this.words.includes(ew.w) && this.now - ew.w.born < 700) {
       ew.total += amount;
       ew.w.el.textContent = `+${ew.total.toLocaleString()}`;
       ew.w.born = this.now - 120;
       return;
     }
-    const at = lead() ?? this.stationCenter().setY(1);
-    const el = this.word(`+${amount.toLocaleString()}`, at, PAL.gold, 0.62, 1000, true);
+    const el = this.word(`+${amount.toLocaleString()}`, at.clone().setY(0.95), PAL.gold, this.compact ? 0.6 : 0.72, 1100, true);
     el.classList.add('w3d-earn');
     const w = this.words[this.words.length - 1];
-    w.follow = lead;
     this.earnWord = { w, total: amount };
-    sfx.earn();
   }
 
   /** Tapped a grow you can't afford: its tag shakes red and says how much more it needs. */
@@ -3089,9 +3103,22 @@ export class Renderer {
       el.style.textShadow = '0 4px 0 var(--ink)';
     }
     this.kick(0.5 + tier * 0.3, 110 + tier * 20);
+    // A lift chain's payoff: the piece after the lifts is drawn bigger and says so.
+    const ride = this.game.rideCells();
+    const plan = liftPlan(ride);
+    const k = ride.findIndex((r) => r.x === laid.x && r.y === laid.y && !r.cross);
+    if (k >= 0 && (plan.mult[k] > 1 || plan.finale[k] > 0)) {
+      const txt = plan.finale[k] ? `FINALE DROP ×${plan.finale[k]}!` : `LIFT POWER ×${plan.mult[k]}!`;
+      this.after(380, () => {
+        const w = this.word(txt, c.clone().setY(1.45), PAL.gold, this.compact ? 0.8 : 1, 1500, true);
+        w.classList.add('w3d-rate');
+        this.sparkle(c.clone().setY(1.1), 14, PAL.gold);
+      });
+    }
     if (this.now - this.lastGrow > 80) sfx.grow();
     this.lastGrow = this.now;
     if (tier) this.after(90, () => sfx.chomp(tier));
+    if (tier === LIFT) this.after(260, () => sfx.chainLift());
   }
 
   /** Growable tiles this frame (cell index to hop lift and glow), and the bulge the hovered one would make. */

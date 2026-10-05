@@ -3,12 +3,12 @@ import { music } from '../core/music';
 import { sfx } from '../core/sfx';
 import type { DayResult } from '../game';
 import type { Board, RideStop } from '../puzzle/board';
-import { PIECES } from '../puzzle/pieces';
+import { LIFT, PIECES } from '../puzzle/pieces';
 import { PAL, SHIRTS } from '../render/palette';
 import { CAR_GAP, type Renderer } from '../render/renderer';
 import { rideArms, rideFace } from '../render/moods';
 import type { Face } from '../render3d/models';
-import type { TrackPath } from '../render3d/track';
+import type { CellLevel, TrackPath } from '../render3d/track';
 import type { ScoreEvent } from '../run/timeline';
 import type { ScoreShow } from '../ui/scoreshow';
 
@@ -28,14 +28,25 @@ const SHOUTS = ['WHOOOAAA', 'AAAAAHHH', 'MOMMYYY', 'NOPE NOPE', 'WHEEEEE', 'OH N
 const MAX_MOMENTS = 3;
 const STEP = 0.02;
 
+/** How climactic a piece is: the Top Hat, then the inversions (wilder first); a lift payoff or finale drop jumps the queue. */
+function momentScore(tier: number, power: number): number {
+  const base = tier === 7 ? 100 : PIECES[tier]?.inversion ? 50 + tier : 0;
+  return power > 0 ? Math.max(base, 40) + 30 * power : base;
+}
+
 /**
- * Slow motion goes to the wildest pieces of the ride: Mega Loops first, then
- * Corkscrews, then Loops (earliest first within a tier), up to MAX_MOMENTS. A
- * Drop only gets one if nothing goes upside down.
+ * Slow motion goes to the climaxes of the ride, up to MAX_MOMENTS (earliest
+ * first among equals): Top Hats first, then inversions (Cobra Roll, Corkscrew,
+ * Vertical Loop), and anything a lift chain powers up (`power`: the chain's
+ * extra multiplier, or the finale drop's lifts) ranks above its kind. With
+ * nothing like that, the wildest other piece gets one.
  */
-export function pickMoments(tiers: number[]): Set<number> {
-  const inv = tiers.map((t, i) => ({ t, i })).filter((c) => c.t >= 5);
-  const ranked = (inv.length ? inv : tiers.map((t, i) => ({ t, i })).filter((c) => c.t === 3).slice(0, 1)).sort((a, b) => b.t - a.t || a.i - b.i);
+export function pickMoments(tiers: number[], power: number[] = []): Set<number> {
+  const all = tiers.map((t, i) => ({ t, i, sc: momentScore(t, power[i] ?? 0) }));
+  const big = all.filter((c) => c.sc > 0);
+  const ranked = big.length
+    ? big.sort((a, b) => b.sc - a.sc || a.i - b.i)
+    : all.filter((c) => c.t > 0 && c.t !== LIFT).sort((a, b) => b.t - a.t || a.i - b.i).slice(0, 1);
   return new Set(ranked.slice(0, MAX_MOMENTS).map((c) => c.i));
 }
 
@@ -197,7 +208,10 @@ export class RideAnim {
     const pukes = result.timeline.map((e, i) => ({ e, i })).filter(({ e }) => e.kind === 'puke');
     this.photoPuke = (pukes.find(({ e }) => e.kind === 'puke' && e.boss) ?? pukes[0])?.i ?? -1;
     this.hRef = this.path.maxHeight() + 0.25;
-    this.momentPicks = pickMoments(this.path.cells.map((c) => (c.station ? 0 : c.tier)));
+    this.momentPicks = pickMoments(
+      this.path.cells.map((c) => (c.station ? 0 : c.tier)),
+      this.path.levels.map((l) => l.mult - 1 + l.finale),
+    );
     show.begin(result);
   }
 
@@ -318,21 +332,25 @@ export class RideAnim {
     );
   }
 
-  /** Slow motion at the crown of a loop or the lip of a drop, a few times a ride. */
+  /** Slow motion at the crown of a loop or a top hat, mid-roll, or the lip of a big drop, a few times a ride. */
   private checkMoment(now: number, y: number, upY: number, cell: number): void {
     const tier = this.path.cells[cell]?.tier ?? 0;
+    const lv = this.path.levels[cell];
+    const power = lv ? lv.mult - 1 + lv.finale : 0;
     const crest = this.rising && y < this.leadY - 1e-4;
     this.rising = y > this.leadY + 1e-4 ? true : y < this.leadY - 1e-4 ? false : this.rising;
     this.leadY = y;
     if (!this.momentPicks.has(cell) || this.momentCells.has(cell) || now - this.lastMoment < 1200 || this.r.inShot) return;
-    const crown = (tier === 5 || tier === 7) && upY < -0.9;
-    const lip = tier === 3 && crest && y > 0.5;
-    const twist = tier === 6 && upY < -0.95;
+    // Upside down at the top of a loop or a cobra's hood, or rolled over in a corkscrew.
+    const crown = (tier === 4 || tier === 6) && upY < -0.9;
+    const twist = tier === 5 && upY < -0.95;
+    // Over the top of a Top Hat, or the crest before a finale dive or any powered-up piece.
+    const lip = crest && ((tier === 7 && y > 0.9) || (power > 0 && !PIECES[tier].inversion && y > 0.4));
     if (!crown && !lip && !twist) return;
     this.lastMoment = now;
     this.momentCells.add(cell);
     // The bigger the piece, the longer and closer the shot.
-    const big = tier === 7 ? 1 : tier === 6 ? 0.7 : tier === 5 ? 0.45 : 0.3;
+    const big = Math.min(1, (tier === 7 ? 1 : tier === 6 ? 0.75 : tier === 5 ? 0.6 : tier === 4 ? 0.5 : 0.3) + power * 0.15);
     this.r.dramatic(() => this.heads[0], 1100 + big * 800, 0.46 - big * 0.14, 0.12, SHOUTS[Math.floor(Math.random() * SHOUTS.length)]);
     sfx.slowScream();
   }
@@ -525,13 +543,22 @@ export class RideAnim {
     this.r.dismiss();
   }
 
+  /** The lift height and payoff on a ride stop's piece of track. */
+  private levelOf(st: RideStop): CellLevel | undefined {
+    const k = this.path.cells.findIndex((c) => !c.station && c.x === st.x && c.y === st.y && !!c.cross === !!st.cross);
+    return k >= 0 ? this.path.levels[k] : undefined;
+  }
+
   private enterCell(i: number, stop: number): void {
     const v = this.result.tickets[i];
     const st = this.stops[stop];
     const tier = st.tier;
+    const lv = this.levelOf(st);
+    const power = lv ? lv.mult - 1 + lv.finale : 0;
     // Special pieces: a whoosh, a splash, a screech of sparks.
-    // The music whooshes into the big stuff with the lead car.
-    if (i === 0 && tier === 3) music.rideEvent('drop');
+    // The music whooshes into the big stuff with the lead car: the drop sting for a
+    // Top Hat, a lift chain's payoff and the finale dive; the swell for inversions.
+    if (i === 0 && (tier === 7 || power > 0)) music.rideEvent('drop');
     else if (i === 0 && PIECES[tier].inversion) music.rideEvent('loop');
     if (st.special === 'launch' && i === 0) {
       this.boostUntil = this.r.gameNow + 1100;
@@ -571,7 +598,7 @@ export class RideAnim {
       this.scream[i] = 0.9;
       if (Math.random() < 0.35) sfx.scream();
     }
-    if (tier >= 3) {
+    if ((tier >= 3 && tier !== LIFT) || power > 0) {
       this.scream[i] = 0.9;
       if (Math.random() < 0.3) {
         sfx.scream();

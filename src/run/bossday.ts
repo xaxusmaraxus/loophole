@@ -4,8 +4,8 @@ import type { RideStats } from '../puzzle/pieces';
 
 // Boss days. The boss is drawn from the park's pool when you arrive, so you see
 // who's waiting at the top of the map and can prepare. On the day they bend the
-// rules (see BossRule in riders.ts), and you get up to three rides to break
-// their composure: every time they puke, it cracks a little more.
+// rules (see BossRule in riders.ts). They ride once, when you close the park:
+// every time they puke on that ride, their composure cracks a little more.
 
 /** Swipes between the boss's rule kicking in. */
 export const SECONDS_EVERY = 4;
@@ -26,10 +26,10 @@ export interface DemandDef {
 export const DEMANDS: Record<DemandId, DemandDef> = {
   long: { text: 'At least 12 pieces of track', met: (s) => s.length >= 12 },
   loop: { text: 'Something goes upside down', met: (s) => s.inversions > 0 },
-  drop: { text: 'At least one Drop', met: (s) => s.tierCounts[3] > 0 },
+  drop: { text: 'At least one Lift Hill', met: (s) => s.tierCounts[2] > 0 },
   variety: { text: '4 or more piece types', met: (s) => s.variety >= 4 },
   park: { text: 'A park piece (spinning, water or hanging)', met: (s) => s.flavors.spin + s.flavors.water + s.flavors.hang > 0 },
-  helix: { text: 'A Helix or bigger', met: (s) => s.topTier >= 4 },
+  helix: { text: 'A Corkscrew or bigger', met: (s) => s.topTier >= 5 },
   circuit: { text: 'A full circuit, no shuttles', met: (_s, c) => c },
 };
 

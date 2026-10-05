@@ -3,7 +3,7 @@
 // purpose, so treat its numbers as a floor, not as what a player can do.
 // Run: npx vite-node tools/season-bot.ts
 import { Game } from '../src/game';
-import { DIRS, type Dir, canConnect, cloneBoard, head, slide } from '../src/puzzle/board';
+import { DIRS, type Dir, canConnect, cloneBoard, head, rideOrder, slide } from '../src/puzzle/board';
 import { spun } from '../src/run/bossday';
 
 /**
@@ -16,7 +16,9 @@ function playDay(g: Game, rnd: () => number, greed: number) {
   while (g.phase === 'build' && guard++ < 400) {
     const b = g.board;
     const sure = g.banked + g.projected('circuit');
-    if (!process.env.MAXOUT && sure >= g.cfg.target * (1 + greed / 20) || (g.room <= 2 && sure >= g.cfg.target) || guard > 300) { g.open('circuit'); break; }
+    const boss = g.fight ? g.queue.find((r) => r.boss) : undefined;
+    const bossOk = !boss || g.pukes(boss, 'circuit') >= g.fight!.hp;
+    if (!process.env.MAXOUT && bossOk && sure >= g.cfg.target * (1 + greed / 20) || (g.room <= 2 && sure >= g.cfg.target) || guard > 300) { g.open('circuit'); break; }
     // Buy: the best affordable grow by the tiles it takes in (a Hill or better), keeping a little in hand.
     let grow: { x: number; y: number; v: number } | null = null;
     for (const c of g.growCells) {
@@ -40,6 +42,11 @@ function playDay(g: Game, rnd: () => number, greed: number) {
     else { g.open('circuit'); break; }
   }
   if (g.phase === 'build') g.open();
+  if (process.env.BOSSLOG && g.fight) {
+    const boss = g.queue.find((r) => r.boss);
+    const stops = rideOrder(g.board, 'circuit');
+    if (boss) console.log('boss', boss.name, 'nausea', stops.reduce((a, _s, i) => a + g.stopNausea(boss, stops, i), 0), 'stomach', g.stomach(boss), 'len', g.board.ends[0].length, 'tiers', g.board.ends[0].map((c) => c.tier).join(''));
+  }
   g.events.length = 0;
   if (g.phase === 'ride') g.rideDone();
 }

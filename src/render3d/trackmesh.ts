@@ -48,22 +48,34 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
     const sp = q.p.clone().addScaledVector(q.up, -SPINE_DROP);
     for (const side of [-1, 1]) mt.beam(q.p.clone().addScaledVector(q.right, side * RAIL_GAP), sp, 0.013, tieCol);
   });
-  // Lift chain on the climb.
+  // Lift chain on the climb: dark links down the middle, and bright chain dogs
+  // (anti-rollback ticks) clacking along both rails.
   forEvery(pts, 0.03, (q) => {
     if (!q.lift) return;
     const c = q.p.clone().addScaledVector(q.up, 0.012);
     mt.beam(c.clone().addScaledVector(q.t, -0.01), c.clone().addScaledVector(q.t, 0.01), 0.018, '#2b2140');
   });
+  forEvery(pts, 0.075, (q) => {
+    if (!q.lift) return;
+    for (const side of [-1, 1]) {
+      const a = q.p.clone().addScaledVector(q.right, side * (RAIL_GAP + 0.026)).addScaledVector(q.up, -0.004);
+      mt.beam(a, a.clone().addScaledVector(q.t, -0.03).addScaledVector(q.up, 0.02), 0.011, PAL.gold);
+    }
+  });
   if (!cell.station) supports(path, i, pts, mt, style);
   extras(path, i, pts, parts);
   if (fl) flavorExtras(path, i, pts, parts, fl);
-  // Bulbs around the Mega Loop.
-  if (cell.tier === 7) {
-    parts.glow = new Geo();
-    forEvery(pts, 0.09, (q) => {
-      if (q.ang < 0) return;
+  // Bulbs round the big showpieces (the Vertical Loop and the Top Hat), and round
+  // any element a lift chain powers up (more of them, the bigger the payoff).
+  const lv = path.levels[i];
+  const boosted = !cell.station && lv && lv.mult > 1;
+  if (!cell.station && (cell.tier === 4 || cell.tier === 7 || boosted)) {
+    parts.glow ??= new Geo();
+    const step = boosted ? Math.max(0.05, 0.1 - lv.mult * 0.01) : 0.09;
+    forEvery(pts, step, (q) => {
+      if (q.ang < 0 && !boosted) return;
       const b = q.p.clone().addScaledVector(q.up, -SPINE_DROP - 0.03);
-      parts.glow!.sphere(b, 0.017, '#fff1b0', 1, 1, 1, 6, 4, true);
+      parts.glow!.sphere(b, boosted ? 0.02 : 0.017, boosted ? '#ffe46a' : '#fff1b0', 1, 1, 1, 6, 4, true);
     });
   }
   // A buffer stop where the track ends.
@@ -245,7 +257,20 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
   forEvery(pts, 0.3, (q) => {
     if (cell.flavor === 'hang') return;
     if (q.elem || q.up.y < 0.75 || nearMiddle(q)) return;
-    column(base(q));
+    const top = base(q);
+    column(top);
+    // High track (a lift chain and the run along its top) stands on braced A-frame trestles.
+    if (top.y > 0.55) {
+      const out = q.right.clone().setY(0);
+      if (out.lengthSq() < 1e-6) return;
+      out.normalize().multiplyScalar(0.05 + top.y * 0.09);
+      for (const sd of [-1, 1]) {
+        const ground = v3(top.x + out.x * sd, 0, top.z + out.z * sd);
+        g.beam(top, ground, 0.013, col);
+        g.post(ground.x, 0, ground.z, 0.028, 0.025, foot, 6);
+      }
+      g.beam(v3(top.x - out.x * 0.5, top.y * 0.5, top.z - out.z * 0.5), v3(top.x + out.x * 0.5, top.y * 0.5, top.z + out.z * 0.5), 0.01, col);
+    }
   });
   if (path.crossKind.get(i) === 'bridge')
     // Bridge piers either side of the track it crosses.
@@ -258,7 +283,7 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
           g.beam(top, v3(top.x + out.x * side * 0.6, 0, top.z + out.z * side * 0.6), 0.022, col);
         }
       }
-  if (cell.tier === 5 || cell.tier === 7) {
+  if (cell.tier === 4) {
     // A-frame legs from the loop's flanks.
     const flank = pts.filter((q) => q.ang > 0).reduce<TrackPt[]>((acc, q) => {
       for (const target of [Math.PI / 2, (3 * Math.PI) / 2]) if (Math.abs(q.ang - target) < 0.12 && !acc.some((a) => Math.abs(a.ang - target) < 0.5)) acc.push(q);
@@ -273,7 +298,7 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
         g.post(ground.x, 0, ground.z, 0.035, 0.03, foot, 6);
       }
     }
-  } else if (cell.tier === 4) {
+  } else if (cell.tier === 3) {
     // A central pylon with spokes out to the helix.
     const e = pts.filter((q) => q.elem);
     if (e.length) {
@@ -287,6 +312,52 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
       }
     }
   } else if (cell.tier === 6) {
+    // The cobra's hood: a leg from the outer flank of each lobe, and a post where they meet.
+    const lobes = [pts.filter((q) => q.ang > 0.3 && q.ang < Math.PI * 2 - 0.3), pts.filter((q) => q.ang > Math.PI * 2 + 0.3 && q.ang < Math.PI * 4 - 0.3)];
+    for (const lobe of lobes) {
+      if (!lobe.length) continue;
+      const c = lobe.reduce((s, q) => s.add(q.p), v3(0, 0, 0)).divideScalar(lobe.length);
+      const far = lobe.reduce((a, q) => (Math.hypot(q.p.x - c.x, q.p.z - c.z) + q.p.y * 0.2 > Math.hypot(a.p.x - c.x, a.p.z - c.z) + a.p.y * 0.2 ? q : a), lobe[0]);
+      const b = base(far);
+      const out = v3(far.p.x - c.x, 0, far.p.z - c.z);
+      if (out.lengthSq() < 1e-6) continue;
+      out.normalize();
+      const ground = v3(b.x + out.x * 0.16, 0, b.z + out.z * 0.16);
+      g.beam(far.p.clone().addScaledVector(far.up, -SPINE_DROP), ground, 0.022, col);
+      g.post(ground.x, 0, ground.z, 0.035, 0.03, foot, 6);
+    }
+    const mid = pts.find((q) => Math.abs(q.ang - Math.PI * 2) < 0.25);
+    if (mid) column(base(mid), 0.024);
+  } else if (cell.tier === 7) {
+    // The Top Hat stands on a lattice tower under its crown.
+    const hat = pts.filter((q) => q.ang >= 0);
+    if (hat.length) {
+      const top = hat.reduce((a, q) => (q.p.y > a.p.y ? q : a), hat[0]);
+      const legs = hat.filter((q) => Math.abs(q.t.y) > 0.9);
+      const lo = legs.length ? Math.min(...legs.map((q) => q.p.y)) : 0.2;
+      const across = legs.length ? legs[0].p.clone().sub(legs[legs.length - 1].p).setY(0) : v3(1, 0, 0);
+      const half = across.length() / 2;
+      const ax = across.lengthSq() > 1e-6 ? across.normalize() : v3(1, 0, 0);
+      const side = v3(-ax.z, 0, ax.x).multiplyScalar(0.11);
+      const H = top.p.y - SPINE_DROP - 0.03;
+      for (const sd of [-1, 1]) {
+        const fx = top.p.x + side.x * sd;
+        const fz = top.p.z + side.z * sd;
+        g.post(fx, 0, fz, 0.022, H, col, 6);
+        g.post(fx, 0, fz, 0.045, 0.03, foot, 6);
+      }
+      // Cross bracing up the tower, and struts out to the legs.
+      for (let y = 0.15; y < H - 0.1; y += 0.22) {
+        g.beam(v3(top.p.x - side.x, y, top.p.z - side.z), v3(top.p.x + side.x, y + 0.2, top.p.z + side.z), 0.01, col);
+        g.beam(v3(top.p.x + side.x, y, top.p.z + side.z), v3(top.p.x - side.x, y + 0.2, top.p.z - side.z), 0.01, col);
+      }
+      for (const q of legs.filter((_, k) => k % 6 === 3)) {
+        if (q.p.y < lo + 0.1) continue;
+        g.beam(v3(top.p.x, q.p.y, top.p.z), base(q), 0.013, col);
+      }
+      void half;
+    }
+  } else if (cell.tier === 5) {
     const e = pts.filter((q) => q.elem);
     if (e.length) {
       const mid = e[Math.floor(e.length / 2)];

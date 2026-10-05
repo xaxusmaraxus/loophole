@@ -357,6 +357,30 @@ The always-running ride evolved nicely, but it didn't feel incremental, and the 
   | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
   | Target | 2,200 | 3,200 | 7,000 | 60,000 | 85,000 | 140,000 | 220,000 | 270,000 | 380,000 | 2,000,000 |
 
+## Hype, one ride, and a ladder of real elements (v0.25)
+Playtest notes: the "hike" tracks (steep up, steep down) looked weird, the huge loops looked great, and the ride running laps during the build muddied the incremental feel. The answer is a park opening night.
+- **Hype pays for the build.** The ride's rating draws guests to the fence: rating ÷ 14 guests a move, plus the odd walk-in, and chain merges bring a few more. Everyone who comes buys a ticket at the gate, even when the line is full. The ticket price climbs with the ride, but slowly (log₂ of its rating). Pricing by the full rating made income grow with the square of the rating and run into the billions.
+- **One ride, at the end.** The train stays parked while you build. Close the park and everyone in line rides once; their pukes pay out. The day's score is the wallet plus that payout. Bosses get that one ride too, so their composure is lower: 2 for everyone except the Mayor, who needs 3.
+- **A new ladder of seven elements:**
+
+  | Tier | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+  | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Piece | Airtime Hill | Lift Hill | Helix | Vertical Loop | Corkscrew | Cobra Roll | Top Hat |
+  | Thrill | 1 | 0 | 4 | 8 | 12 | 17 | 24 |
+  | Nausea | 1 | 0 | 2 | 4 | 6 | 8 | 10 |
+
+  Vertical Loops, Corkscrews and Cobra Rolls go upside down.
+- **Lift Hills store height.** A Lift Hill scores nothing by itself. The next real element after a run of lifts hits ×(1 + lifts), and lifts stack. Height you never spend becomes a finale drop into the station (+6 thrill and +3 nausea per lift). It's a planning piece: line the lifts up in front of your biggest element.
+- **The track cruises at a steady height** with a distinct, readable element per tier. Tall shapes only appear as named elements (loops, the Top Hat), never as hike spikes.
+- **Balance** (60 seasons, with a bot that also builds until it can break the boss):
+  - It wins about 52% of seasons and breaks bosses about 54% of the time. Big Barry is the hardest, because his snacking punishes long builds.
+  - A related fix: `Game.has` used to rebuild the plot's neighbor data for every rider at every stop. Making it a direct lookup made the rules about 30× faster.
+
+  | Day | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | Finale |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Target | 3,500 | 5,000 | 12,000 | 75,000 | 110,000 | 180,000 | 380,000 | 500,000 | 700,000 | 3,500,000 |
+- **Not built yet:** showpieces (gold versions of elements from long chains) and tier-2 spawns.
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
