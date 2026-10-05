@@ -18,6 +18,7 @@ let mapBusy = false;
 import type { SpecialId } from './puzzle/pieces';
 import { UNLOCKS, type UnlockId } from './run/unlocks';
 import { loadRecord, openUnlocks, saveRecord, toast } from './ui/unlocks';
+import { openPatternBook, renderHand, roarBump } from './ui/skill';
 
 const game = new Game();
 // Unlocks carry over between seasons: load the record, then start the season with its kit.
@@ -80,6 +81,18 @@ document.getElementById('bossCard')!.addEventListener('click', (e) => {
     (e.currentTarget as HTMLElement).hidden = true;
     sfx.bell();
   }
+});
+// The skill layer: a new pattern pops in the hand; the roar meter pulses or shakes.
+renderer.onPattern = (id) => renderHand(game, id);
+renderer.onRoar = (roar, lost) => {
+  if (roar > 0) roarBump(true);
+  else if (lost > 0) roarBump(false);
+};
+const patternBook = () => openPatternBook(game.record, game.board.loop ? game.stats.patterns : []);
+document.getElementById('hand')!.addEventListener('click', patternBook);
+document.getElementById('patternsHelp')!.addEventListener('click', () => {
+  (document.getElementById('helpDialog') as HTMLDialogElement).close();
+  patternBook();
 });
 renderer.onUnlock = (id) => toast(`Unlocked: ${UNLOCKS[id as UnlockId].name}`, UNLOCKS[id as UnlockId].desc);
 document.getElementById('unlocksHelp')!.addEventListener('click', () => {

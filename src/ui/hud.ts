@@ -11,6 +11,8 @@ import { mapHtml } from './map';
 import { photoStore } from './photo';
 import { lastRecord, playerName, recordLocal } from './scores';
 import { setShareText, shareLinks } from './share';
+import { gradeHtml, renderHand, renderRoar } from './skill';
+import { LETTERS } from '../run/grade';
 import { ATTRACTIONS, type Effect, THEMES } from '../run/attractions';
 import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
 
@@ -105,6 +107,7 @@ export class Hud {
     $('daylightBar').classList.toggle('dusk', g.room <= 4);
     document.querySelector('.daylight')?.classList.toggle('low', tight);
     $('daylightLeft').textContent = g.phase !== 'build' ? `${g.room} free cells` : g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'}` : 'Board full!';
+    document.querySelector('.daylight-track')?.setAttribute('title', `${g.room} free cell${g.room === 1 ? '' : 's'} on the board`);
     // Tension: a vignette closes in as the board fills.
     $('tension').style.opacity = tight ? String(Math.min(1, (low + 1 - g.room) / (low + 1)) * 0.9 + 0.1) : '0';
 
@@ -132,6 +135,9 @@ export class Hud {
     for (const k of g.crowd) crowd.set(KINDS[k].label, (crowd.get(KINDS[k].label) ?? 0) + 1);
     $('crowd').textContent = crowd.size ? [...crowd].map(([k, n]) => `${k}${n > 1 ? ` ×${n}` : ''}`).join(', ') : 'None yet';
     this.renderAttractions(new Set(sc.steps.slice(1).map((st) => st.label)));
+    // The skill layer: your hand of ride patterns, and the crowd's roar.
+    renderHand(g);
+    renderRoar(g);
     this.renderTools();
 
     // What to do next, and the open button.
@@ -160,9 +166,13 @@ export class Hud {
           : g.actions === 0
             ? `<strong>Hype sells tickets.</strong> Every move, guests come to the gate and buy a ticket. Tap a glowing tile to buy it into the ride: a wilder ride draws more guests and charges more. Lift Hills power up the next element.${stuck}`
             : afford
-              ? `<strong>You can afford track!</strong> Tap a glowing tile to buy it in and grow the hype. When you close the park, everyone in line rides once: pukes are jackpots.${stuck}`
+              ? g.dayNum <= 2 && !s.patterns.length
+                ? `<strong>You can afford track!</strong> Tap a glowing tile to buy it in. Line elements up as <strong>patterns</strong> (a pair, a straight) for extra mult: tags show the pattern a tile would make.${stuck}`
+                : `<strong>You can afford track!</strong> Tap a glowing tile to buy it in and grow the hype. When you close the park, everyone in line rides once: pukes are jackpots.${stuck}`
               : wait
-                ? `Saving up: the cheapest track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. Merge while you wait to make better pieces. Close the park with the target in hand.${stuck}`
+                ? g.dayNum <= 2 && g.roar < 3
+                  ? `Saving up: track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. <strong>Merge every swipe</strong> to keep the crowd roaring: the roar multiplies hype.${stuck}`
+                  : `Saving up: the cheapest track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. Merge while you wait to make better pieces. Close the park with the target in hand.${stuck}`
                 : `Swipe to sell tickets and merge. ${g.queue.length} in line will ride when you close the park: pukes are jackpots.${stuck}`;
     } else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit now, or keep building for a wilder ride.';
     else hint.innerHTML = 'Swipe to merge tiles: the bigger the piece, the wilder the ride.';
@@ -174,7 +184,7 @@ export class Hud {
     open.classList.toggle('circuit', kind === 'circuit');
     if (g.board.loop) {
       // The always-running ride: the button ends the day with one last full ride.
-      open.innerHTML = `Close the park <span class="count">+${g.projected('circuit').toLocaleString()}</span>`;
+      open.innerHTML = `Close<span class="op-long"> the park</span> <span class="count">+${g.projected('circuit').toLocaleString()}</span>`;
       open.title = 'Everyone in line rides once (pukes pay out) and the day ends';
     } else {
       open.innerHTML = kind ? `${kind === 'circuit' ? 'Open the ride' : 'Open as shuttle'} <span class="count">${g.projected(kind).toLocaleString()}</span>` : 'Open the ride';
@@ -606,6 +616,13 @@ export class Hud {
     if (html === this.lastOverlay) return;
     this.lastOverlay = html;
     el.innerHTML = html;
+    // The grade stamp lands (once per day's result).
+    const r = g.result;
+    if (g.phase === 'results' && r?.grade && !stamped.has(r)) {
+      stamped.add(r);
+      const top = LETTERS.indexOf(r.grade.letter) >= LETTERS.indexOf('A');
+      window.setTimeout(() => sfx.stamp(top), 520);
+    }
     el.classList.toggle('mapmode', g.phase === 'map');
   }
 
@@ -824,6 +841,7 @@ export class Hud {
         <p class="eyebrow">${title[r.kind]}</p>
         <h2>${headline}</h2>
         ${bossLine}
+        ${r.grade ? gradeHtml(r) : ''}
         <p class="total big"><span>${g.board.loop ? 'In hand at closing' : `Tickets ${f && f.round > 1 ? 'today' : 'sold'}`}</span><strong>${r.dayTotal.toLocaleString()} / ${r.target.toLocaleString()}</strong></p>
         ${
           g.board.loop
@@ -860,6 +878,8 @@ export class Hud {
 
 /** Results already put on this device's highscores. */
 const recorded = new WeakSet<object>();
+/** Results whose grade stamp has already thunked. */
+const stamped = new WeakSet<object>();
 
 function escapeAttr(v: string): string {
   return v.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);

@@ -31,6 +31,7 @@
             <span class="w-ticket" aria-hidden="true"></span>
             <span class="w-num"><b id="bankNum">0</b></span>
             <span class="w-rate" id="rateLine"><b id="rateNum">0.0</b><small>guests/move</small><span class="w-sep" aria-hidden="true">×</span><i class="w-tk-mini" aria-hidden="true"></i><b class="w-price" id="priceNum">0</b><small class="w-each">each</small><span class="rate-delta" id="rateDelta"></span></span>
+            <span class="roar cold" id="roar" role="img" aria-label="Crowd roar"></span>
           </div>
           <div class="daylight" aria-live="off">
             <div class="bank-line" id="bankLine" title="Tickets in hand, out of the day's target">
@@ -84,6 +85,7 @@
                 <ul id="queue" class="queue"></ul>
               </div>
             </div>
+            <button type="button" class="hand" id="hand" hidden aria-label="Your ride patterns: open the pattern book"></button>
             <div class="pop-wrap">
               <button type="button" class="rb-chip" id="seasonChip" aria-describedby="seasonPop"><span class="rb-icon" aria-hidden="true">⭐</span><span class="chip-label">Perks</span></button>
               <div class="popover season-pop" id="seasonPop" role="tooltip">
@@ -117,6 +119,9 @@
             <li><strong>Chain reactions:</strong> a fresh merge grabs a matching neighbor and merges again, and again.</li>
             <li><strong>Hype sells tickets.</strong> Each day starts with a tiny loop over the station and a few tickets in your wallet. The train waits at the station while you build; every move, the ride's hype draws guests to the gate and each one buys a ticket (shown under your wallet: guests per move × ticket price). A wilder ride draws more guests and charges more.</li>
             <li><strong>Tap a glowing tile to buy it into the ride.</strong> Its price tag shows what it costs: gold when you can afford it. The loop bulges out over that tile and the cell beside it. Bigger pieces cost more and earn more, and every piece makes the next one 12% pricier. <strong>Merge first</strong> (merging is free) to make better pieces.</li>
+            <li><strong>Ride patterns:</strong> your ride reads like a poker hand. Elements in a row (Flats don't count) make patterns that add to the multiplier: a <strong>Pair</strong> (+1), a <strong>Straight</strong> of three tiers in a row (+2), an <strong>Inversion Chain</strong>, a <strong>Tower</strong> of lifts into a Top Hat, and secret ones. Each grow puts its pieces at one spot in the loop, so pick where they go: price tags show the pattern a grow would make. Your hand sits in the bottom bar; the 📖 pattern book lists them all.</li>
+            <li><strong>The roar:</strong> every swipe that merges something makes the crowd roar louder, and each merge in a row adds ×0.1 to the guests your hype draws (up to ×2 after ten). A swipe with no merge breaks the streak.</li>
+            <li><strong>The grade:</strong> closing the park grades your day S to D against the target (three kinds of pattern bumps it up a letter), with tips for next time. Your best grade for each day is kept.</li>
             <li><strong>Pukes are jackpots.</strong> When you close the park, everyone in line rides once and pays the full rating for every puke. A bigger, wilder ride draws a bigger crowd.</li>
             <li><strong>Close the park with at least the target in hand.</strong> Everyone in line rides once; the day's score is your wallet at closing plus what their pukes pay. Every swipe drops in a new tile; if nothing can slide and the loop can't grow, it's gridlock and the park closes by itself.</li>
             <li>A <strong>season</strong> is three parks, then the Grand Opening. Pick your route on each park's map: days, VIP days, storms, shops, repairs and treasure, then the park's boss.</li>
@@ -129,6 +134,7 @@
           </ol>
           <p class="keys">Keys: arrows or WASD swipe, click or tap a glowing tile to buy it into the ride, 1–5 use tools, Esc cancels a tool, Enter closes the park, Z undoes. Seed <span id="seed"></span></p>
           <div class="help-actions">
+            <button type="button" class="ghost-dark" id="patternsHelp">Pattern book</button>
             <button type="button" class="ghost-dark" id="unlocksHelp">Unlocks</button>
             <button type="button" class="ghost-dark" id="newRunHelp">Start a new season</button>
             <button type="button" class="primary" data-close>Got it</button>

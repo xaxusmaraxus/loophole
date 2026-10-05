@@ -306,6 +306,56 @@ export const sfx = {
     tone(120, 0.14, 'sine', 0.1, 0.11, 85);
     noise(0.08, 0.04, 0, 500, 200, 1);
   },
+  // ---- The skill layer ----
+  /** A ride pattern formed: a bright rising chord (more notes for a bigger pattern). */
+  pattern(mult: number) {
+    const steps = [0, 4, 7, 12, 16, 19].slice(0, Math.min(6, 2 + Math.ceil(mult / 2)));
+    steps.forEach((k, i) => {
+      tone(587 * 2 ** (k / 12), 0.22, 'triangle', 0.08, i * 0.055);
+      tone(587 * 2 ** (k / 12) * 2, 0.1, 'square', 0.015, i * 0.055 + 0.01);
+    });
+    noise(0.12, 0.05, 0, 6000, 3000, 1);
+  },
+  /** A pattern hit for the first time ever: a fanfare with a sparkly tail. */
+  newPattern() {
+    [0, 4, 7, 12].forEach((k, i) => {
+      tone(392 * 2 ** (k / 12), 0.18, 'square', 0.04, i * 0.09);
+      tone(392 * 2 ** (k / 12), 0.24, 'triangle', 0.08, i * 0.09);
+    });
+    [12, 16, 19, 24].forEach((k) => tone(392 * 2 ** (k / 12), 0.9, 'triangle', 0.05, 0.4));
+    for (let i = 0; i < 8; i++) tone(2093 * 2 ** ((i % 4) / 12), 0.08, 'triangle', 0.025, 0.55 + i * 0.06);
+    tone(98, 0.5, 'sine', 0.25, 0.4, 60);
+  },
+  /** The crowd cheers a merge: a swell of voices that grows louder and higher with the roar. */
+  cheer(roar: number) {
+    const k = Math.min(roar, 10) / 10;
+    const vol = 0.03 + k * 0.09;
+    // Many voices: band-limited noise swelling, with a "whoo" on top.
+    noise(0.55 + k * 0.4, vol, 0, 1200 + k * 1600, 500 + k * 500, 2.5);
+    noise(0.4 + k * 0.3, vol * 0.6, 0.06, 2600 + k * 1800, 1200, 4);
+    const base = semi(330, Math.min(roar, 10) * 1.5);
+    tone(base, 0.32 + k * 0.2, 'sawtooth', 0.008 + k * 0.012, 0.03, base * 1.5);
+    if (roar >= 5) tone(base * 1.25, 0.3, 'triangle', 0.03, 0.12, base * 1.9);
+    if (roar >= 10) [0, 4, 7].forEach((s, i) => tone(semi(784, s), 0.3, 'square', 0.02, 0.1 + i * 0.06));
+  },
+  /** The roar broke after a streak: a sad slide-whistle deflate and a crowd "aww". */
+  deflate(lost: number) {
+    const k = Math.min(lost, 10) / 10;
+    tone(520, 0.6, 'triangle', 0.08 + k * 0.04, 0, 140);
+    tone(392, 0.35, 'triangle', 0.05, 0.05, 240);
+    noise(0.7, 0.04 + k * 0.04, 0.05, 900, 250, 3);
+  },
+  /** The grade lands on the results card: a rubber-stamp thunk (with a chord for a top grade). */
+  stamp(top: boolean) {
+    tone(80, 0.25, 'sine', 0.4, 0, 45);
+    noise(0.12, 0.25, 0, 2200, 200, 1.5);
+    noise(0.05, 0.12, 0.02, 5000, 2500, 2);
+    if (top)
+      [0, 4, 7, 12].forEach((k, i) => {
+        tone(523 * 2 ** (k / 12), 0.3, 'triangle', 0.07, 0.15 + i * 0.07);
+        tone(523 * 2 ** (k / 12), 0.2, 'square', 0.02, 0.15 + i * 0.07);
+      });
+  },
   isMuted: () => muted,
   setMuted(m: boolean) {
     muted = m;

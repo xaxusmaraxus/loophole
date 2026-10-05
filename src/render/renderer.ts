@@ -66,6 +66,8 @@ import { TrackPath, stationLayout } from '../render3d/track';
 import { buildCellTrack } from '../render3d/trackmesh';
 import { composeCard, photoStore } from '../ui/photo';
 import { ScoreShow } from '../ui/scoreshow';
+import { PATTERN_COLOR, patternCallout, patternCounts, previewGrow } from '../ui/skill';
+import { PATTERNS, type PatternId } from '../puzzle/patterns';
 import { PAL, type ParkTheme, SHIRTS, THEMES, TIER_RAMPS } from './palette';
 import { lineAntics, lineFace } from './moods';
 import { lineThought, rideThought } from '../riders/thoughts';
@@ -153,6 +155,15 @@ interface Shot {
   zoom: number;
   slow: number;
   yaw: number;
+}
+
+/** A price tag's numbers: cost, rate gain, the pieces it takes in, and the patterns it would make or break. */
+interface TagInfo {
+  cost: number;
+  gain: number;
+  names: string;
+  gained: PatternId[];
+  lost: PatternId[];
 }
 
 interface Word {
@@ -335,7 +346,18 @@ export class Renderer {
   onEarn: (amount: number, guests: number, from: { x: number; y: number }) => void = () => {};
   /** Price tags over the growable tiles, by cell index. */
   private tags = new Map<number, HTMLDivElement>();
-  private tagInfo: { key: string; cells: Map<number, { cost: number; gain: number; names: string }> } = { key: '', cells: new Map() };
+  private tagInfo: { key: string; cells: Map<number, TagInfo> } = { key: '', cells: new Map() };
+  /** How many of each pattern the ride held as of the last batch of events, to spot the new ones. */
+  private patternSeen = new Map<PatternId, number>();
+  /** Track cells glowing in a pattern's colour after it formed. */
+  private patternGlows: { cells: Pt[]; color: string; born: number; fresh: boolean }[] = [];
+  /** Price tags stay hidden until then (a pattern callout is up). */
+  private tagsQuietUntil = 0;
+  /** The crowd's last cheer (the line jumps). */
+  private cheerAt = -1e9;
+  /** A pattern formed (for the HUD's hand) and the roar changed (for its meter). */
+  onPattern: (id: PatternId, fresh: boolean) => void = () => {};
+  onRoar: (roar: number, lost: number) => void = () => {};
   /** The "+N" floating up off the lead car (fast moves add up into one). */
   private earnWord: { w: Word; total: number } | null = null;
   /** Test hook (?fixeddt=ms): advance a fixed step per frame, however slow the frames are. */
@@ -883,8 +905,23 @@ export class Renderer {
 
   handleEvents(): void {
     const earned = { amount: 0, n: 0 };
-    for (const e of this.game.events.splice(0)) {
+    const events = this.game.events.splice(0);
+    let patterns = 0;
+    // The game reports every pattern whose cells changed (growing in front of one moves it along
+    // the loop; the Grand Tour takes in every new piece): only kinds the hand gained more of get a callout.
+    const newOf = new Map<PatternId, number>();
+    if (events.some((e) => e.type === 'pattern'))
+      for (const [id, n] of patternCounts(this.game.stats.patterns)) newOf.set(id, n - (this.patternSeen.get(id) ?? 0));
+    for (const e of events) {
       switch (e.type) {
+        case 'pattern':
+          if ((newOf.get(e.id) ?? 0) <= 0) break;
+          newOf.set(e.id, newOf.get(e.id)! - 1);
+          this.patternFx(e.id, e.cells, e.fresh, 420 + patterns++ * 650);
+          break;
+        case 'roar':
+          this.roarFx(e.roar, e.lost);
+          break;
         case 'day':
           this.setupDay();
           break;
@@ -1033,6 +1070,85 @@ export class Renderer {
       }
     }
     if (earned.n) this.earnFx(earned.amount, earned.n);
+    if (events.length) this.patternSeen = this.board.loop ? patternCounts(this.game.stats.patterns) : new Map();
+  }
+
+  /** A ride pattern formed: its cells light up along the track, and its name pops. */
+  private patternFx(id: PatternId, cells: Pt[], fresh: boolean, delay: number): void {
+    this.after(delay, () => {
+      if (this.game.phase !== 'build') return;
+      const color = PATTERN_COLOR[id];
+      this.patternGlows.push({ cells, color, born: this.now, fresh });
+      cells.forEach((c, k) => this.after(k * 80, () => this.sparkle(this.cell(c).setY(0.55), fresh ? 16 : 9, color)));
+      // The callout sits just above the pattern's highest point on screen, clear of the purchase words.
+      const pts = cells.map((c) => this.project(this.cell(c).setY(this.cell(c).y + 1.2)));
+      const x = pts.reduce((a, q) => a + q.x, 0) / Math.max(1, pts.length);
+      const y = Math.min(...pts.map((q) => q.y)) - 56;
+      patternCallout(id, { x, y }, fresh);
+      // Price tags step aside while it shows.
+      this.tagsQuietUntil = this.now + (fresh ? 1800 : 1300);
+      this.kick(fresh ? 2.6 : 1.2, fresh ? 340 : 170);
+      if (fresh) {
+        sfx.newPattern();
+        this.fireworks(3);
+      } else sfx.pattern(PATTERNS[id].mult);
+      this.onPattern(id, fresh);
+    });
+  }
+
+  /** The crowd's roar grew (they cheer, louder and higher each merge) or broke (a sad deflate). */
+  private roarFx(roar: number, lost: number): void {
+    this.onRoar(roar, lost);
+    if (this.game.phase !== 'build') return;
+    const line = this.slot(Math.min(3, Math.max(0, this.game.queue.length - 1))).setY(1.0);
+    if (roar > 0) {
+      this.cheerAt = this.now + SLIDE_MS;
+      this.after(SLIDE_MS + 60, () => sfx.cheer(roar));
+      if (roar === 3 || roar === 5 || roar === 10)
+        this.after(SLIDE_MS + 120, () => {
+          const el = this.word(roar >= 10 ? 'MAX ROAR! ×2' : `ROAR ×${(1 + roar * 0.1).toFixed(1)}`, line, roar >= 10 ? PAL.gold : '#ff9f43', roar >= 10 ? 1.3 : 1, 1300, true);
+          el.classList.add('w3d-roar');
+        });
+    } else if (lost >= 3) {
+      this.after(SLIDE_MS, () => {
+        sfx.deflate(lost);
+        this.kick(1.6, 280);
+        const el = this.word(`aww… roar lost (${lost})`, line, '#b9b3d6', 0.8, 1500, true);
+        el.classList.add('w3d-aww');
+      });
+    }
+  }
+
+  /** Track cells of patterns that just formed glow in the pattern's colour, a wave running along them. */
+  private drawPatternGlows(): void {
+    if (!this.patternGlows.length) return;
+    if (this.game.phase !== 'build' || !this.board.loop) {
+      this.patternGlows = [];
+      return;
+    }
+    const white = new Color('#ffffff');
+    this.patternGlows = this.patternGlows.filter((gl) => this.now - gl.born < (gl.fresh ? 3600 : 2600));
+    for (const gl of this.patternGlows) {
+      const age = this.now - gl.born;
+      const life = gl.fresh ? 3600 : 2600;
+      const fade = Math.min(1, age / 160) * Math.min(1, (life - age) / 600);
+      gl.cells.forEach((c, k) => {
+        const wave = 0.5 + 0.5 * Math.sin(age / 120 - k * 0.9);
+        const ground = GRASS_Y + this.terrain.cell(c.x, c.y);
+        const pad = this.outlines.get();
+        pad.position.set(c.x + 0.5, ground + 0.016, c.y + 0.5);
+        pad.scale.setScalar(1.18 + wave * 0.12);
+        const pm = pad.material as MeshBasicMaterial;
+        pm.color.set(gl.color).lerp(white, wave * 0.35);
+        pm.opacity = fade * (0.7 + wave * 0.3);
+        const ring = this.outlines.get();
+        ring.position.set(c.x + 0.5, ground + 0.36 + wave * 0.05, c.y + 0.5);
+        ring.scale.setScalar(0.92 + wave * 0.08);
+        const rm = ring.material as MeshBasicMaterial;
+        rm.color.set(gl.color).lerp(white, 0.3 + wave * 0.4);
+        rm.opacity = fade * (0.55 + wave * 0.45);
+      });
+    }
   }
 
   private startRide(): void {
@@ -1314,6 +1430,7 @@ export class Renderer {
     this.foamFlumes(gdt);
     this.drawCrates();
     this.drawTargets();
+    this.drawPatternGlows();
     this.drawGrow();
     this.drawMouths();
     this.drawPreview();
@@ -2632,15 +2749,23 @@ export class Renderer {
       const hovered = this.hoverId === r.id;
       // Everyone has a personality: fidgets, fist pumps, selfies, nervous glances.
       const a = p.moving ? { arms: 0, hop: 0, wobble: 0, yaw: 0 } : lineAntics(r, this.now / 1000);
+      // The roar: the line bounces with the merge streak, and jumps with arms up on each cheer.
+      const roar = this.game.phase === 'build' ? Math.min(this.game.roar, 10) / 10 : 0;
+      const cheer = Math.max(0, Math.min(1, 1 - (this.now - this.cheerAt) / 750)) * (this.now >= this.cheerAt ? 1 : 0);
+      const rowdy = !p.moving && !hovered && (roar > 0 || cheer > 0);
       const rig = this.person(r.look, v3(p.x, 0, p.z), {
         walk: p.moving ? p.ph : undefined,
         yaw: p.moving ? yaw : a.yaw,
-        face: hovered ? 'grin' : lineFace(r, sick),
-        arms: hovered ? 0.8 : a.arms,
+        face: hovered ? 'grin' : rowdy && (cheer > 0.2 || roar >= 0.5) ? 'grin' : lineFace(r, sick),
+        arms: hovered ? 0.8 : rowdy && (cheer > 0.2 || roar >= 0.5) ? Math.max(a.arms, 0.9) : a.arms,
         wobble: hovered ? 0 : a.wobble,
       });
       // The hovered guest bounces and waves.
       if (!p.moving) rig.position.y = hovered ? Math.abs(Math.sin(this.now / 150)) * 0.06 : a.hop;
+      if (rowdy) {
+        const beat = Math.abs(Math.sin(this.now / (240 - roar * 100) + i * 1.3));
+        rig.position.y = Math.max(rig.position.y, beat * (0.012 + roar * 0.05) + cheer * 0.07 * Math.abs(Math.sin(this.now / 85 + i * 0.7)));
+      }
       // Only the ones this ride will make puke get a (green) thought bubble; hover for the rest.
       if (this.game.phase === 'build' && !p.moving && sick) {
         const g = personGeo(r.look, 'smile');
@@ -3004,29 +3129,13 @@ export class Renderer {
     return cells.map((c) => this.project(this.cell(c).setY(0.35)));
   }
 
-  /** What the ride's rate would be after growing through (x, y): tried on a copy of the board, then put back. */
-  private rateIf(x: number, y: number): number | null {
-    const g = this.game;
-    const saved = g.board;
-    try {
-      const b = cloneBoard(saved);
-      const bg = bulgeFor(b, x, y);
-      if (!bg) return null;
-      applyBulge(b, bg);
-      g.board = b;
-      return g.rate;
-    } finally {
-      g.board = saved;
-    }
-  }
-
-  /** Price, rate gain and piece names for every growable tile (recomputed only when the park changes). */
-  private growInfo(): Map<number, { cost: number; gain: number; names: string }> {
+  /** Price, rate gain, piece names and pattern changes for every growable tile (recomputed only when the park changes). */
+  private growInfo(): Map<number, TagInfo> {
     const g = this.game;
     const b = this.board;
     const key = `${g.actions}|${g.banked}|${g.queue.length}|${b.ends[0].length}|${b.tiles.join('')}`;
     if (this.tagInfo.key === key) return this.tagInfo.cells;
-    const cells = new Map<number, { cost: number; gain: number; names: string }>();
+    const cells = new Map<number, TagInfo>();
     const rate = g.rate;
     for (const c of g.growCells) {
       const bg = bulgeFor(b, c.x, c.y);
@@ -3035,7 +3144,9 @@ export class Renderer {
         const t = b.tiles[idx(b, p.x, p.y)];
         return t ? PIECES[t].name : 'Track';
       };
-      cells.set(idx(b, c.x, c.y), { cost: g.bulgeCost(bg), gain: (this.rateIf(c.x, c.y) ?? rate) - rate, names: `${name(bg.c)} + ${name(bg.d)}` });
+      // Tried on a copy of the board: what the rate and the ride's patterns would become.
+      const pv = previewGrow(g, c.x, c.y);
+      cells.set(idx(b, c.x, c.y), { cost: g.bulgeCost(bg), gain: (pv?.rate ?? rate) - rate, names: `${name(bg.c)} + ${name(bg.d)}`, gained: pv?.gained ?? [], lost: pv?.lost ?? [] });
     }
     this.tagInfo = { key, cells };
     return cells;
@@ -3045,8 +3156,8 @@ export class Renderer {
   private drawTags(): void {
     const g = this.game;
     const b = this.board;
-    const show = b.loop && g.phase === 'build' && !g.aiming && !this.ride && !this.tileAnim && !this.ridePending && !this.homeRun;
-    const info = show ? this.growInfo() : new Map<number, { cost: number; gain: number; names: string }>();
+    const show = b.loop && g.phase === 'build' && !g.aiming && !this.ride && !this.tileAnim && !this.ridePending && !this.homeRun && this.now >= this.tagsQuietUntil;
+    const info = show ? this.growInfo() : new Map<number, TagInfo>();
     for (const [i, el] of this.tags)
       if (!info.has(i)) {
         el.remove();
@@ -3062,13 +3173,13 @@ export class Renderer {
       if (!el) {
         el = document.createElement('div');
         el.className = 'price-tag';
-        el.innerHTML = '<span class="pt-cost"><i class="pt-tk"></i><b></b><span class="pt-gain"></span></span><span class="pt-more"></span>';
+        el.innerHTML = '<span class="pt-cost"><i class="pt-tk"></i><b></b><span class="pt-gain"></span></span><span class="pt-pat"></span><span class="pt-more"></span>';
         this.wordLayer.append(el);
         this.tags.set(i, el);
       }
       const ok = t.cost <= g.banked;
       const on = i === hovI;
-      const sig = `${t.cost}|${t.gain}|${ok}|${on}`;
+      const sig = `${t.cost}|${t.gain}|${ok}|${on}|${t.gained.join()}|${t.lost.join()}`;
       if (el.dataset.sig !== sig) {
         el.dataset.sig = sig;
         el.classList.toggle('ok', ok);
@@ -3077,7 +3188,19 @@ export class Renderer {
         el.querySelector('b')!.textContent = t.cost.toLocaleString();
         el.querySelector<HTMLElement>('.pt-gain')!.textContent = t.gain > 0 ? `+${t.gain.toLocaleString()}` : '';
         const wait = ok ? '' : ` · ${Math.ceil((t.cost - g.banked) / Math.max(1, g.rate))} moves away`;
-        el.querySelector<HTMLElement>('.pt-more')!.textContent = `${t.names}${t.gain > 0 ? ` · +${t.gain.toLocaleString()} / move` : ''}${wait}`;
+        const broke = t.lost.length ? ` · breaks ${t.lost.map((id) => PATTERNS[id].name).join(', ')}` : '';
+        el.querySelector<HTMLElement>('.pt-more')!.textContent = `${t.names}${t.gain > 0 ? ` · +${t.gain.toLocaleString()} / move` : ''}${wait}${broke}`;
+        // The planning aid: which pattern(s) this grow would complete.
+        const pat = el.querySelector<HTMLElement>('.pt-pat')!;
+        const best = [...t.gained].sort((a, c) => PATTERNS[c].mult - PATTERNS[a].mult);
+        pat.hidden = !best.length;
+        if (best.length) {
+          const top = best[0];
+          const secret = PATTERNS[top].secret && !g.record.patterns.includes(top);
+          pat.style.setProperty('--pc', PATTERN_COLOR[top]);
+          pat.textContent = `→ ${secret ? '???' : PATTERNS[top].name} +${PATTERNS[top].mult}${best.length > 1 ? ` +${best.length - 1} more` : ''}`;
+        }
+        el.classList.toggle('pat', best.length > 0);
       }
       const x = i % b.size;
       const y = Math.floor(i / b.size);

@@ -381,6 +381,36 @@ Playtest notes: the "hike" tracks (steep up, steep down) looked weird, the huge 
   | Target | 3,500 | 5,000 | 12,000 | 75,000 | 110,000 | 180,000 | 380,000 | 500,000 | 700,000 | 3,500,000 |
 - **Not built yet:** showpieces (gold versions of elements from long chains) and tier-2 spawns.
 
+## The skill layer (v0.26)
+Feedback: "what I'm missing is a skill layer, a feeling that I am doing and getting better." Players already had decisions to make, but nothing told them whether a decision was clever. So each part of a move now gets feedback.
+- **Ride patterns: the track is a poker hand.** The ride's elements in order (Flats are filler and don't count) score named patterns that add to the multiplier. Every bulge inserts its pieces at one spot in the loop, so you choose the order. Buying becomes "where does this go in my sequence?"
+
+  | Pattern | Made of | Mult |
+  | --- | --- | --- |
+  | Pair / Triple | the same element 2 / 3+ times in a row (not Lift Hills) | +1 / +3 |
+  | Straight / Big / Royal | 3 / 4 / 5+ elements in a row, each a tier up | +2 / +4 / +7 |
+  | Inversion Chain | Vertical Loop, Corkscrew and Cobra Roll back to back, in any order | +5 |
+  | Tower | 2 Lift Hills straight into a Top Hat | +4 |
+  | *Sky Piercer* (secret) | 3+ Lift Hills into a Top Hat | +8 |
+  | *Camelback Run* (secret) | 4+ Airtime Hills in a row | +4 |
+  | *Mirror* (secret) | 5+ elements that read the same backwards | +6 |
+  | *Grand Tour* (secret) | all seven elements somewhere | +10 |
+
+  Patterns stack (3-4-5-6 is a Big Straight and an Inversion Chain). They light up as they form, show as your "hand" in the HUD, and fire in the ride's scoring show on the piece that completes them. Secret ones appear in the Pattern Book once you've hit them.
+- **The roar: merge streaks.** Every swipe that merges adds to the crowd's roar, and every point of roar adds +10% hype, up to ×2 at 10 in a row. A dry swipe breaks it. Good 2048 play now pays off right away, and "merge first or buy now?" becomes a sharper choice.
+- **A grade that teaches.** Closing the park grades the day:
+  - C at the target, B at 1.4×, A at 2× and S at 3×. A failed day is a D.
+  - Three or more kinds of pattern bump the grade one letter.
+  - The card lists what went well (patterns, best roar) and up to three tips: unspent lift height, near misses such as "one Corkscrew away from an Inversion Chain", and a nudge to keep merging.
+  - Your best grade per day and the patterns you've discovered are saved in the play record.
+- **Balance:**
+  - With patterns and roar, the old targets got easy, so they went up about 25%.
+  - The bot doesn't aim for patterns at all. It wins about 35% of seasons and breaks bosses about 45% of the time, so a player who plays the patterns has real headroom.
+
+  | Day | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | Finale |
+  | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+  | Target | 4,500 | 6,000 | 15,000 | 95,000 | 140,000 | 230,000 | 480,000 | 630,000 | 900,000 | 4,500,000 |
+
 ## Roadmap ideas
 
 ### Progression: a season of parks

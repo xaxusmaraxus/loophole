@@ -2,6 +2,8 @@ import { music } from '../core/music';
 import { sfx } from '../core/sfx';
 import type { DayResult } from '../game';
 import type { ScoreEvent } from '../run/timeline';
+import { PATTERNS } from '../puzzle/patterns';
+import { PATTERN_COLOR } from './skill';
 
 // The live scoring show: page elements over and beside the park that build the
 // day's score up while the train runs (Balatro's chips × mult, then the total).
@@ -21,6 +23,8 @@ export interface PopupOpts {
   sub?: string;
   /** Scale boost for big hits. */
   big?: number;
+  /** A colour of its own (ride patterns). */
+  color?: string;
 }
 
 export class ScoreShow {
@@ -167,6 +171,15 @@ export class ScoreShow {
         break;
       case 'mult':
         this.bump(this.el.multBox, 'bump');
+        if (e.why === 'pattern' && e.pattern) {
+          // A ride pattern completes on this piece: its name pops over it, in its colour.
+          const name = PATTERNS[e.pattern].name;
+          if (at) this.popup({ x: at.x, y: at.y - 18 }, { cls: 'mult pattern', text: `${name.toUpperCase()}!`, sub: `+${fmtMult(e.amount)} mult`, big: 1.15 + Math.min(0.6, e.amount * 0.06), color: PATTERN_COLOR[e.pattern] });
+          this.ticker(`${name}: +${fmtMult(e.amount)} mult`);
+          sfx.pattern(e.amount);
+          this.onShake(1 + Math.min(3, e.amount * 0.3), 160);
+          break;
+        }
         {
           const why = e.why === 'water' ? 'water run' : e.why === 'splash' ? 'splashdown' : 'new piece type';
           if (at) this.popup(at, { cls: 'mult', text: `+${fmtMult(e.amount)} mult`, sub: why });
@@ -422,8 +435,15 @@ export class ScoreShow {
     p.style.top = `${at.y - j * Math.random() * 14}px`;
     p.style.setProperty('--s', String(o.big ?? 1));
     p.style.setProperty('--r', `${(Math.random() - 0.5) * 14}deg`);
+    if (o.color) p.style.setProperty('--pc', o.color);
     p.innerHTML = `${o.sub ? `<small>${o.sub}</small>` : ''}<span>${o.text}</span>`;
     this.layer.append(p);
+    // Wide popups (ride patterns) stay on screen on a phone.
+    if (o.color) {
+      const half = (p.offsetWidth * 1.25) / 2 + 6;
+      const w = this.layer.clientWidth || window.innerWidth;
+      if (half * 2 < w) p.style.left = `${Math.min(w - half, Math.max(half, at.x))}px`;
+    }
     const kill = () => p.remove();
     p.addEventListener('animationend', kill);
     setTimeout(kill, 2500);

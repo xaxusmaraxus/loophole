@@ -9,7 +9,11 @@ export function loadRecord(): PlayRecord {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return emptyRecord();
-    return { ...emptyRecord(), ...(JSON.parse(raw) as Partial<PlayRecord>) };
+    const r = { ...emptyRecord(), ...(JSON.parse(raw) as Partial<PlayRecord>) };
+    // Saves from before the skill layer (or damaged ones) lack these: start them empty.
+    if (!Array.isArray(r.patterns)) r.patterns = [];
+    if (!r.grades || typeof r.grades !== 'object' || Array.isArray(r.grades)) r.grades = {};
+    return r;
   } catch {
     return emptyRecord();
   }

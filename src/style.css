@@ -4347,3 +4347,888 @@ body {
     animation: none !important;
   }
 }
+
+/* ==== The skill layer: the roar, the hand of ride patterns, the pattern book, the grade ==== */
+
+/* The wallet's target line had no room for the free-cell count (it showed as "1…"):
+   the thin room bar under it and the hint below the park say it instead. */
+.wallet .daylight-left {
+  display: none;
+}
+
+/* The roar: a flame, the hype multiplier and ten pips under the wallet's rate line. */
+.roar {
+  --roar: 0;
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  line-height: 1;
+  white-space: nowrap;
+  transition: opacity 200ms ease;
+}
+
+.roar:empty {
+  display: none;
+}
+
+.roar-flame {
+  position: relative;
+  flex: none;
+  width: 11px;
+  height: 14px;
+  border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%;
+  background: radial-gradient(circle at 50% 75%, #fff3a0 0 22%, #ffb13c 48%, #ff5a2a 100%);
+  box-shadow: 0 0 calc(4px + var(--roar) * 12px) rgba(255, 140, 40, calc(0.3 + var(--roar) * 0.6));
+  transform-origin: 50% 100%;
+  scale: calc(0.85 + var(--roar) * 0.45);
+}
+
+.roar.hot .roar-flame {
+  animation: roar-flicker 260ms ease-in-out infinite alternate;
+}
+
+@keyframes roar-flicker {
+  from {
+    rotate: -6deg;
+    scale: calc(0.95 + var(--roar) * 0.45) calc(0.85 + var(--roar) * 0.5);
+  }
+  to {
+    rotate: 6deg;
+    scale: calc(0.85 + var(--roar) * 0.45) calc(1 + var(--roar) * 0.5);
+  }
+}
+
+.roar-word {
+  font-family: var(--font-sign);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #ffb36b;
+}
+
+.roar-x {
+  min-width: 3.2ch;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 12px;
+  color: #ffd27a;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+.roar-bar {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.roar-bar i {
+  width: 7px;
+  height: 9px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.13);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.roar-bar i.on {
+  background: linear-gradient(180deg, #ffe07a, #ff7a2a);
+  box-shadow: 0 0 6px rgba(255, 140, 40, 0.65);
+}
+
+.roar-bar i.on:nth-child(n + 6) {
+  background: linear-gradient(180deg, #fff1a0, #ff4f3a);
+}
+
+.roar.max .roar-bar i.on {
+  background: linear-gradient(180deg, #fffbe0, #ffd23f);
+  box-shadow: 0 0 9px rgba(255, 220, 90, 0.9);
+  animation: roar-max 520ms ease-in-out infinite alternate;
+}
+
+.roar.max .roar-x {
+  color: #fff3a0;
+}
+
+@keyframes roar-max {
+  to {
+    transform: translateY(-1.5px);
+    filter: brightness(1.3);
+  }
+}
+
+.roar.cold {
+  opacity: 0.55;
+}
+
+.roar.cold .roar-flame {
+  filter: grayscale(0.8);
+}
+
+.roar.up {
+  animation: roar-up 380ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+.roar.up .roar-x {
+  animation: roar-up-x 380ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+@keyframes roar-up {
+  35% {
+    filter: brightness(1.5);
+  }
+}
+
+@keyframes roar-up-x {
+  35% {
+    transform: scale(1.4);
+    color: #fff;
+  }
+}
+
+.roar.broke {
+  animation: roar-broke 520ms ease-in-out;
+}
+
+@keyframes roar-broke {
+  0% {
+    filter: none;
+  }
+  15% {
+    translate: -4px 0;
+    filter: saturate(0) brightness(0.8);
+  }
+  35% {
+    translate: 4px 0;
+  }
+  55% {
+    translate: -3px 0;
+  }
+  75% {
+    translate: 2px 0;
+  }
+}
+
+.w3d.w3d-roar {
+  -webkit-text-stroke: 2.5px var(--ink);
+  text-shadow: 0 4px 0 var(--ink), 0 0 16px rgba(255, 140, 40, 0.8);
+  animation: w3d-slam 420ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+.w3d.w3d-aww {
+  font-family: var(--font-body);
+  font-weight: 700;
+  -webkit-text-stroke: 1px rgba(30, 20, 50, 0.85);
+  text-shadow: 0 2px 0 rgba(30, 20, 50, 0.6);
+  animation: w3d-sag 1500ms ease-in forwards;
+}
+
+@keyframes w3d-sag {
+  to {
+    translate: 0 26px;
+  }
+}
+
+/* The hand: the ride's patterns right now, in the bottom bar. Click for the pattern book. */
+.hand {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 6px 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.1);
+  color: var(--paper);
+  font: inherit;
+  cursor: pointer;
+}
+
+.hand[hidden] {
+  display: none;
+}
+
+.hand:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.hand-label {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--paper-edge);
+}
+
+.hand-label::before {
+  content: '📖';
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.hand-label b {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: 0;
+  color: #ff8a7a;
+}
+
+.hand-chips {
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.hand-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.hand-empty {
+  font-size: 12px;
+  color: var(--paper-edge);
+  white-space: nowrap;
+}
+
+.pat-chip {
+  --pc: #7fd6ff;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pc) 22%, rgba(20, 22, 50, 0.9));
+  box-shadow: inset 0 0 0 1.5px var(--pc);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.pat-chip b {
+  padding: 2px 5px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 10.5px;
+  color: var(--ink);
+  background: var(--pc);
+}
+
+.pat-chip.pop {
+  animation: pat-pop 700ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+@keyframes pat-pop {
+  0% {
+    transform: scale(0.4);
+    box-shadow: inset 0 0 0 1.5px var(--pc), 0 0 0 0 var(--pc);
+  }
+  40% {
+    transform: scale(1.3);
+    box-shadow: inset 0 0 0 1.5px var(--pc), 0 0 18px 4px var(--pc);
+  }
+}
+
+/* The planning aid on a price tag: the pattern this grow would complete. */
+.pt-pat {
+  --pc: #8dff6a;
+  order: 2;
+  margin-top: 4px;
+  padding: 2px 6px 3px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-size: 9.5px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--ink);
+  background: var(--pc);
+  box-shadow: 0 0 0 1.5px var(--ink), 0 0 10px var(--pc);
+  animation: pt-pat-glow 900ms ease-in-out infinite alternate;
+}
+
+.pt-pat[hidden] {
+  display: none;
+}
+
+@keyframes pt-pat-glow {
+  to {
+    box-shadow: 0 0 0 1.5px var(--ink), 0 0 2px var(--pc);
+    translate: 0 -1px;
+  }
+}
+
+.price-tag.on .pt-pat {
+  scale: 1.15;
+}
+
+/* A pattern formed: its name slams in over the track. */
+.pattern-call {
+  --pc: #8dff6a;
+  position: absolute;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -100%);
+  pointer-events: none;
+  animation: pc-in 1900ms cubic-bezier(0.2, 1.6, 0.4, 1) forwards;
+}
+
+.pattern-call .pc-name {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--pc);
+  -webkit-text-stroke: 3px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 2px 2px 0 var(--ink), -2px 2px 0 var(--ink), 2px -2px 0 var(--ink), -2px -2px 0 var(--ink), 0 5px 0 var(--ink), 0 0 26px var(--pc);
+}
+
+.pattern-call .pc-mult {
+  margin-top: 4px;
+  padding: 3px 10px 4px;
+  border-radius: 999px;
+  font-family: var(--font-sign);
+  font-size: 15px;
+  line-height: 1;
+  color: #fff;
+  background: #e8453c;
+  box-shadow: 0 3px 0 #9a2420, 0 0 0 2px var(--ink);
+}
+
+@keyframes pc-in {
+  0% {
+    opacity: 0;
+    scale: 2.2;
+    rotate: -8deg;
+  }
+  14% {
+    opacity: 1;
+    scale: 0.92;
+    rotate: 3deg;
+  }
+  22% {
+    scale: 1;
+    rotate: -2deg;
+  }
+  80% {
+    opacity: 1;
+    translate: 0 -16px;
+  }
+  100% {
+    opacity: 0;
+    translate: 0 -34px;
+  }
+}
+
+/* The first time ever: a big banner in the middle of the park. */
+.pattern-call.fresh {
+  left: 50%;
+  top: 38%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 32px));
+  animation: pc-fresh 3200ms cubic-bezier(0.2, 1.6, 0.4, 1) forwards;
+  pointer-events: auto;
+  cursor: pointer;
+  text-align: center;
+}
+
+.pattern-call .pc-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 16px 18px 16px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, #2c2560, #1b1640);
+  box-shadow: 0 0 0 3px var(--pc), 0 0 0 6px var(--ink), 0 10px 0 6px var(--ink), 0 0 60px color-mix(in srgb, var(--pc) 70%, transparent);
+}
+
+.pattern-call.fresh .pc-rays {
+  position: absolute;
+  inset: -90px -40px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--pc) 45%, transparent) 0 10deg, transparent 10deg 24deg);
+  mask: radial-gradient(circle, #000 30%, transparent 70%);
+  -webkit-mask: radial-gradient(circle, #000 30%, transparent 70%);
+  animation: pc-spin 6s linear infinite;
+}
+
+.pattern-call.fresh .pc-eyebrow {
+  font-family: var(--font-sign);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  color: var(--bulb);
+  text-shadow: 0 2px 0 var(--ink);
+  animation: pc-blink 400ms steps(2) 4;
+}
+
+.pattern-call.fresh .pc-name {
+  margin-top: 6px;
+  font-size: 38px;
+  white-space: normal;
+}
+
+.pattern-call.fresh .pc-desc {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--paper-edge);
+}
+
+@keyframes pc-fresh {
+  0% {
+    opacity: 0;
+    scale: 0.2;
+    rotate: -14deg;
+  }
+  9% {
+    opacity: 1;
+    scale: 1.12;
+    rotate: 3deg;
+  }
+  15% {
+    scale: 1;
+    rotate: 0deg;
+  }
+  88% {
+    opacity: 1;
+    scale: 1;
+  }
+  100% {
+    opacity: 0;
+    scale: 0.9;
+  }
+}
+
+@keyframes pc-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes pc-blink {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* During the ride: a pattern's name pops over the piece that completes it. */
+.ss-pop.pattern span {
+  color: var(--ink);
+  background: var(--pc, #8dff6a);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 0 var(--ink), 0 0 0 2px var(--ink), 0 0 26px var(--pc, #8dff6a);
+}
+
+.ss-pop.pattern {
+  z-index: 2;
+  animation-duration: 1500ms;
+}
+
+.ss-pop.pattern small {
+  order: 2;
+  margin: 4px 0 0;
+  font-family: var(--font-sign);
+  color: #ff9a8a;
+}
+
+/* The pattern book. */
+.pattern-list {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pattern-list li {
+  --pc: #7fd6ff;
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 14px;
+  background: #ece7fb;
+  box-shadow: inset 4px 0 0 var(--pc);
+}
+
+.pattern-list li.got {
+  background: color-mix(in srgb, var(--pc) 16%, #fffaf0);
+}
+
+.pattern-list li.now {
+  box-shadow: inset 4px 0 0 var(--pc), inset 0 0 0 2px var(--pc);
+}
+
+.pattern-list li.secret {
+  background: #ddd7ef;
+  box-shadow: inset 4px 0 0 #9a93b8;
+}
+
+.pb-tick {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: 13px;
+  color: #fff;
+  background: #c9c2e0;
+}
+
+.pattern-list li.got .pb-tick {
+  background: #4fb84a;
+}
+
+.pattern-list li.secret .pb-tick {
+  background: #7d7699;
+}
+
+.pb-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pb-text strong em {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+  vertical-align: 2px;
+  color: #fff;
+  background: #7d5ac9;
+}
+
+.pb-text strong em.in {
+  background: #3f8f45;
+}
+
+.pb-text small {
+  color: var(--ink-soft);
+  line-height: 1.25;
+}
+
+.pb-mult {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 15px;
+  color: var(--marquee);
+}
+
+.pattern-list li.secret .pb-mult {
+  color: var(--ink-soft);
+}
+
+/* The day's grade on the results card: a rubber stamp. */
+.grade-card {
+  --gc: #6b6584;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 4px 0 10px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--gc) 12%, #fff);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--gc) 40%, transparent);
+}
+
+.grade-S {
+  --gc: #e0a400;
+}
+
+.grade-A {
+  --gc: #3f9f52;
+}
+
+.grade-B {
+  --gc: #2f7fd0;
+}
+
+.grade-C {
+  --gc: #8a62c9;
+}
+
+.grade-D {
+  --gc: #c9473c;
+}
+
+.gr-stamp {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  border: 4px double var(--gc);
+  color: var(--gc);
+  rotate: -12deg;
+  animation: gr-stamp 620ms cubic-bezier(0.3, 1.5, 0.5, 1) 200ms backwards;
+}
+
+.gr-stamp span {
+  font-family: var(--font-sign);
+  font-size: 46px;
+  line-height: 1;
+  text-shadow: 2px 2px 0 color-mix(in srgb, var(--gc) 25%, transparent);
+}
+
+.grade-S .gr-stamp {
+  color: #fff;
+  border: 4px solid #a87400;
+  background: radial-gradient(circle at 35% 30%, #fff6c0, #ffd23f 45%, #e0a400);
+  box-shadow: 0 0 0 3px #fff3b0, 0 0 26px rgba(255, 200, 40, 0.9);
+}
+
+.grade-S .gr-stamp span {
+  -webkit-text-stroke: 2px #8a5a00;
+  paint-order: stroke fill;
+  text-shadow: 0 3px 0 #8a5a00;
+}
+
+@keyframes gr-stamp {
+  0% {
+    opacity: 0;
+    scale: 3.2;
+    rotate: 8deg;
+  }
+  55% {
+    opacity: 1;
+    scale: 0.88;
+    rotate: -14deg;
+  }
+  75% {
+    scale: 1.06;
+  }
+  100% {
+    scale: 1;
+    rotate: -12deg;
+  }
+}
+
+.grade-card {
+  animation: gr-thud 620ms ease-out 200ms backwards;
+}
+
+@keyframes gr-thud {
+  0%,
+  50% {
+    translate: 0 0;
+  }
+  60% {
+    translate: 0 3px;
+  }
+  75% {
+    translate: 0 -1px;
+  }
+}
+
+.gr-side {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.gr-word {
+  font-family: var(--font-sign);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--gc);
+}
+
+.gr-ratio {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.gr-best {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: rgba(43, 33, 64, 0.08);
+}
+
+.gr-best.new {
+  color: #3a2400;
+  background: var(--bulb);
+  box-shadow: 0 2px 0 #b07a00;
+  animation: gr-new 900ms ease-in-out 800ms infinite alternate;
+}
+
+@keyframes gr-new {
+  to {
+    scale: 1.08;
+  }
+}
+
+.gr-new {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 8px;
+}
+
+.gr-new-label {
+  font-family: var(--font-sign);
+  font-size: 13px;
+  color: #7d5ac9;
+}
+
+.pat-chip.shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.pat-chip.shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.7) 50%, transparent 70%);
+  translate: -120% 0;
+  animation: chip-shine 1800ms ease-in-out 900ms infinite;
+}
+
+@keyframes chip-shine {
+  60%,
+  100% {
+    translate: 120% 0;
+  }
+}
+
+.gr-good,
+.gr-tips ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13.5px;
+  line-height: 1.3;
+}
+
+.gr-good li::marker {
+  content: '✓  ';
+  color: #3f8f45;
+  font-weight: 800;
+}
+
+.gr-tips {
+  margin: 0 0 10px;
+  padding: 7px 10px 2px;
+  border-radius: 12px;
+  background: #eef6ff;
+  box-shadow: inset 3px 0 0 #2f7fd0;
+}
+
+.gr-tips-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #2f7fd0;
+}
+
+.gr-tips ul {
+  margin-bottom: 6px;
+}
+
+.gr-tips li::marker {
+  content: '→  ';
+  color: #2f7fd0;
+}
+
+@media (max-width: 620px) {
+  .roar-word {
+    display: none;
+  }
+
+  /* Four buttons under the help text: two rows. */
+  .help-actions {
+    flex-wrap: wrap;
+  }
+
+  .help-actions > * {
+    flex: 1 1 40%;
+  }
+
+  /* "Close the park +12,345" didn't fit beside the tools on a phone. */
+  .controls .open .op-long {
+    display: none;
+  }
+
+  .hand-chips {
+    -webkit-mask: linear-gradient(90deg, #000 85%, transparent);
+    mask: linear-gradient(90deg, #000 85%, transparent);
+    padding-right: 14px;
+  }
+
+  .roar-bar i {
+    width: 6px;
+    height: 8px;
+  }
+
+  .hand {
+    order: 4;
+    width: 100%;
+  }
+
+  .pattern-call .pc-name {
+    font-size: 24px;
+  }
+
+  .pattern-call.fresh .pc-name {
+    font-size: 30px;
+  }
+
+  .gr-stamp {
+    width: 62px;
+    height: 62px;
+  }
+
+  .gr-stamp span {
+    font-size: 38px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roar,
+  .roar *,
+  .pat-chip,
+  .pat-chip::after,
+  .pt-pat,
+  .gr-stamp,
+  .grade-card,
+  .gr-best.new,
+  .pattern-call .pc-rays {
+    animation: none !important;
+  }
+}

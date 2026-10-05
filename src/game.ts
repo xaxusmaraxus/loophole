@@ -218,8 +218,6 @@ const WALKIN_EVERY = 5;
  */
 const BUZZ_PER = 40;
 
-/** Identifies a pattern by kind and cells, to spot the new ones. */
-const patternKey = (h: PatternHit) => `${h.id}:${h.cells.join(',')}`;
 
 export class Game {
   seed = '';
@@ -806,7 +804,7 @@ export class Game {
     }
     this.snapshot();
     this.banked -= cost;
-    const before = new Set(this.stats.patterns.map(patternKey));
+    const before = new Set(this.stats.patterns.map((h) => this.patternKey(h)));
     const cells = applyBulge(this.board, g);
     // The train keeps its place on the track if the bulge went in behind it.
     if (g.at < this.trainPos) this.trainPos += cells.length;
@@ -818,11 +816,17 @@ export class Game {
     return true;
   }
 
+  /** Identifies a pattern by kind and where its cells are (not their index, which shifts as the loop grows). */
+  private patternKey(h: PatternHit): string {
+    const path = this.rideCells();
+    return `${h.id}:${h.cells.map((k) => `${path[k].x},${path[k].y}`).join(';')}`;
+  }
+
   /** Tells the page about patterns that weren't there before (keys from `patternKey`). */
   private announcePatterns(before: Set<string>): void {
     const path = this.rideCells();
     for (const h of this.stats.patterns) {
-      if (before.has(patternKey(h))) continue;
+      if (before.has(this.patternKey(h))) continue;
       this.events.push({ type: 'pattern', id: h.id, cells: h.cells.map((k) => ({ x: path[k].x, y: path[k].y })), fresh: !this.record.patterns.includes(h.id) });
     }
   }
