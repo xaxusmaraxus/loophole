@@ -9,12 +9,12 @@ open the ride, and score every puke (excitement × multiplier, Balatro-style).
 ## Repo layout
 - `src/`, `tests/`, `index.html`: the playable **web prototype** (TypeScript + Vite + Three.js: a cel-shaded, ink-lined 3D diorama built in code). The game rules live and get tested here.
 - `godot/`: the **Godot 4.3 style test**, a procedural 3D diorama for the art direction. Models dropped into `godot/assets/models/<name>.glb` replace placeholders automatically (see `godot/README.md`).
-- `tools/`: `season-bot.ts` (balance simulation) and `bundle-artifact.py` (single-file build for the playable link).
+- `tools/`: playtest bots (`bots.ts` policies; `metrics.ts` season metrics per policy; `tune.ts` strategy search for the skill gap; `bench.ts`; `play.ts` text harness to play by hand), `season-bot.ts` (old balance floor) and `bundle-artifact.py` (single-file build for the playable link).
 - `docs/concepts.md`: design notes and roadmap. `docs/asset-brief.md`: art tasks. `docs/style-test/`: Godot renders.
 
 ## Commands
 - `npm install`, `npm run dev`, `npm test`, `npx tsc --noEmit -p .`, `npm run build`
-- `npx vite-node tools/season-bot.ts`: rerun after any balance change
+- `RUNS=16 npx vite-node tools/metrics.ts random,greedy,tuned`: rerun after any balance change (win rates, pacing, per-day scores vs targets); `SEEDS=12 npx vite-node tools/tune.ts` checks the skill gap. Try rule variants with `RULES='{...}'` (see `RULES` in `src/game.ts`).
 - `godot --path godot -- --shots`: renders comparison shots to `godot/shots/`
 
 ## Conventions

@@ -5,6 +5,10 @@ Object.assign(RULES, JSON.parse(process.env.RULES ?? '{}'));
 import { trackAt, idx } from '../src/puzzle/board';
 import { PIECES } from '../src/puzzle/pieces';
 import { PATTERNS } from '../src/puzzle/patterns';
+import { apply, tunedBot } from './bots';
+const bot = tunedBot();
+let bs = 5;
+const brnd = () => ((bs = (bs * 16807) % 2147483647) / 2147483647);
 
 const [seed = 'P1', script = ''] = process.argv.slice(2);
 const g = new Game(seed);
@@ -29,6 +33,7 @@ for (const tok of script.split(/\s+/).filter(Boolean)) {
   else if (tok[0] === 'w') g.chooseReward(Number(tok.slice(1)));
   else if (tok === 's') { if (g.phase === 'shop') g.leaveShop(); else if (g.phase === 'reward') g.skipReward(); }
   else if (tok[0] === 'b') g.buy(Number(tok.slice(1)));
+  else if (tok[0] === 'a') for (let k = 0; k < Number(tok.slice(1)) && g.phase === 'build'; k++) { const a = bot.act(g, brnd); if (a.kind === 'close') break; apply(g, a); g.events.length = 0; }
   for (const e of g.events) {
     if (e.type === 'pattern') log.push(`  ${tok}: PATTERN ${PATTERNS[e.id].name}${e.fresh ? ' (new!)' : ''}`);
     if (e.type === 'roar' && e.lost >= 3) log.push(`  ${tok}: roar lost (${e.lost})`);

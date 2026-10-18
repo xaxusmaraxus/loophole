@@ -411,6 +411,54 @@ Feedback: "what I'm missing is a skill layer, a feeling that I am doing and gett
   | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
   | Target | 4,500 | 6,000 | 15,000 | 95,000 | 140,000 | 230,000 | 480,000 | 630,000 | 900,000 | 4,500,000 |
 
+## v0.2: tested, tuned and made to bite
+The brief: improve everything, but especially gameplay. Test it, iterate, and find the most addictive version. Players should keep coming back for that best-coaster feeling. There are no human playtesters here, so bots play instead (all in `tools/`):
+- `bots.ts`: policies (random, greedy, a parameterised "tuned" strategy) and a game cloner for lookahead.
+- `metrics.ts`: plays seeded seasons per policy and reports win rate, moves and buys per day, the longest wait between buys, near misses, jams, grades and per-day scores against targets.
+- `tune.ts`: grid-searches a family of strategies on day 1. The best one stands in for a skilled player; best ÷ random is the skill gap, and best ÷ median shows how much decisions matter.
+- `play.ts`: a text harness to play by hand (`aN` lets the bot play N moves first).
+
+**What v0.1 got wrong:**
+- **Random play won normal days.** It passed 19 of 22 non-boss days and scored about 13× the day-1 target. On day 1, random scored more than the "smart" bot.
+- **The best strategy was to never stop.** Only buying Corkscrew-or-better tiles and swiping on reached 232 moves and 427k on day 1, against a 4.5k target. Every move pays, nothing ends the day, and a full board still lets you merge forever.
+- **Skill barely paid.** The greedy bot did *worse* than random, because it bought low tiers as soon as it could.
+
+**Variants tried** (day 1, best tuned strategy against random):
+
+| Variant | Best play | Skill gap | Notes |
+| --- | --- | --- | --- |
+| v0.1 | 232 moves | 9.5× | the grind: swipe forever |
+| score only the ride | 232 moves | 9.2× | still the grind |
+| + jams pay ×0.5 | 232 moves | 6.7× | still the grind, jams every time |
+| + 1 extra tile a swipe | 42 moves | 3.1× | grind gone, but a flat squeeze from move 1 |
+| rising tide (+1 tile every 20 moves) | 33–62 moves | 2–3× | days get a calm start and a frantic end |
+| tide + hype ×2.5, prices ×0.6 | 57 moves | 4.7× | best play waits 23–40 moves for big tiles |
+| tide + steeper prices (×3.5 a tier) + hype ×5 | 50 moves | 3.0× | best play: cheap pieces first, raise the bar as the ride grows |
+| + the park closes when packed | 40–47 moves | 2.8× | ends the full-board stall; space management decides |
+
+**What shipped** (the last row):
+- **The park gets busier.** Every swipe drops in one more tile every 20 moves, sooner on bigger boards, up to +4.
+- **Packed.** When a swipe's new tiles don't fit, the park is packed and closes: everyone rides. Days end on their own, Tetris-style, and the skill is keeping room. A jam (nothing slides and nothing affordable) also closes it. Neither is penalised, because a breakdown that happens every day feels like punishment.
+- **An incremental price curve.** Pieces cost 2, 3, 10, 37, 130, 450, 1,580 and 5,500, up 12% for each piece already in the ride, and hype is 5× stronger. You can't afford a Corkscrew with a tiny ride, so you build income with cheap pieces first. Cheap pieces take space, though, which is the tension. The best strategy found starts at Lift Hills and raises its bar every 4 pieces.
+- **Start with 60 tickets**, so the first buy is on move 1.
+- **Targets raised about 5×:** 25k, 35k, 60k, 500k, 600k, 900k, 1.6M, 2.2M and 3M, then 12M for the finale. Day 1 is still easy for random play (2.7× the target), and the Boardwalk is where weak play starts to fail.
+
+**Results** (24 seasons each):
+
+| Policy | Wins | Near-miss days | Moves a day |
+| --- | --- | --- | --- |
+| random | 0 / 24 | 11 | ~33 |
+| greedy (buy the best tile when affordable) | 4 / 24 | 17 | ~23 |
+| tuned | 21 / 24 | 4 | 40–75 |
+
+A player who also plans patterns (the bots don't) has headroom above the tuned bot.
+
+**The Daily Ride** gives players a reason to come back tomorrow:
+- One day per date, the same for everyone: the date picks the seed, the park (Meadow, Boardwalk or Hollow, by day number) and a kit of two commons and an upgrade. Unlocks don't apply, so nobody starts ahead.
+- Its own targets (120k, 250k, 150k) sit just above random play's median: a clean run is a C, and good play an A or S.
+- Your first run is your score on today's shared board; later runs are practice.
+- The card shows today's board, a countdown to the next one, and share text ("Loophole Daily #2482 🎢 …").
+
 ## Roadmap ideas
 
 ### Progression: a season of parks
