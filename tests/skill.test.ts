@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Game, ROAR_MAX, ROAR_STEP } from '../src/game';
+import { Game, ROAR_MAX, ROAR_STEP, RULES } from '../src/game';
 import { idx, stationPoint } from '../src/puzzle/board';
 import { PATTERNS, findPatterns, nearMisses, patternMult } from '../src/puzzle/patterns';
 import { better, gradeDay, letterFor } from '../src/run/grade';
@@ -133,5 +133,45 @@ describe('the grade', () => {
     expect(g.record.grades['1']).toBe(r.grade.letter);
     expect(better('S', 'A')).toBe(true);
     expect(better('C', 'B')).toBe(false);
+  });
+});
+
+describe('the rising tide', () => {
+  it('drops in one more tile a swipe as the day gets busier (faster on bigger boards)', () => {
+    const g = new Game('TIDE');
+    g.beginPark();
+    g.chooseNode(0, 0);
+    expect(g.tide).toBe(0);
+    g.actions = 20;
+    expect(g.tide).toBe(1);
+    g.actions = 1000;
+    expect(g.tide).toBe(RULES.rampMax);
+    g.board.size = 6;
+    g.actions = 14;
+    expect(g.tide).toBe(1);
+  });
+
+  it('a swipe whose new tiles don’t fit packs the park, and it closes', () => {
+    const g = new Game('PACK');
+    g.beginPark();
+    g.chooseNode(0, 0);
+    const b = g.board;
+    // Fill every free cell with alternating tiles that can't merge, except one gap that lets a swipe move.
+    let k = 0;
+    for (let y = 0; y < b.size; y++)
+      for (let x = 0; x < b.size; x++) {
+        const i = idx(b, x, y);
+        if (b.obstacles[i] || b.ends[0].some((c) => c.x === x && c.y === y)) continue;
+        b.tiles[i] = (k++ % 2) + 1;
+      }
+    const free = b.tiles.findIndex((t, i) => t && !b.obstacles[i]);
+    b.tiles[free] = 0;
+    g.actions = 60; // a tide of several tiles, only one gap
+    for (const d of ['left', 'right', 'up', 'down'] as const) {
+      if (g.phase !== 'build') break;
+      g.swipe(d);
+    }
+    expect(g.phase).not.toBe('build');
+    expect(g.jammed).toBe(true);
   });
 });

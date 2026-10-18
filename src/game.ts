@@ -190,7 +190,7 @@ export const COMBO_PRIZES = [6, 9, 12];
  * at the gate. The price climbs with the ride too, but slowly (log2 of the rating):
  * pricing by the full rating made income grow with its square and run away.
  */
-export const HYPE_DIV = 14;
+export const HYPE_DIV = 2.8;
 /** Each merge in a row adds this much to the hype multiplier, up to ROAR_MAX merges (×2). */
 export const ROAR_STEP = 0.1;
 export const ROAR_MAX = 10;
@@ -199,11 +199,35 @@ export function ticketFor(rating: number): number {
   return Math.max(1, Math.round(Math.log2(1 + Math.max(0, rating))));
 }
 /** What each piece costs to grow into the ride, by tier (Flat first). */
-export const PIECE_PRICE = [3, 5, 12, 30, 75, 180, 450, 1100];
+export const PIECE_PRICE = [2, 3, 10, 37, 130, 450, 1580, 5500];
 /** Every piece already in the ride makes the next ones this much pricier. */
 export const PRICE_GROWTH = 1.12;
 /** Tickets you start each day with: enough for a first little grow. */
-export const START_CASH = 30;
+export const START_CASH = 60;
+
+/**
+ * Tunable rules, for playtesting variants with the bots (tools/metrics.ts).
+ * The defaults are the shipped game.
+ */
+export const RULES = {
+  /** What the day scores: the wallet plus the closing ride, or only the ride (the wallet just builds). */
+  score: 'wallet+ride' as 'wallet+ride' | 'ride',
+  /** A jam (nothing can slide and nothing affordable to grow) breaks the ride down: its payout × this. */
+  jamPay: 1,
+  /** Track prices × this. */
+  costMult: 1,
+  /** If set, piece prices grow by this factor per tier (instead of PIECE_PRICE's curve). */
+  priceBase: 0,
+  /** Hype (guests a move) × this. */
+  hypeMult: 1,
+  /** Tiles that drop in after each swipe (on top of the park's). */
+  extraSpawns: 0,
+  /** The rising tide: one more tile a swipe every this many moves (0: off), up to rampMax more. */
+  rampEvery: 20,
+  rampMax: 4,
+  /** The park closes when a swipe's new tiles don't all fit. */
+  overflow: true,
+};
 
 function spawnAt(b: Board, c: Pt, tier: number): void {
   b.tiles[c.y * b.size + c.x] = tier;
@@ -282,6 +306,8 @@ export class Game {
   private rewardFrom: 'day' | 'treasure' | 'boss' = 'day';
   private nextUid = 1;
   private buzz = 0;
+  /** The park jammed today (nothing could slide and nothing affordable to grow). */
+  jammed = false;
   /** The crowd's roar: merges in a row. It multiplies hype; a dry swipe breaks it. */
   roar = 0;
   bestRoar = 0;
@@ -398,6 +424,7 @@ export class Game {
     if (this.cfg.boss) this.queue.unshift(makeBoss(this.rng, this.cfg.boss, this.nextId++));
     this.actions = 0;
     this.buzz = 0;
+    this.jammed = false;
     this.roar = 0;
     this.bestRoar = 0;
     this.bestCombo = 0;
@@ -701,7 +728,7 @@ export class Game {
 
   /** Every puke pays the rating, times the rider's worth (VIPs, influencers, ghosts, bosses). */
   points(r: Rider, pukes: number, rating: number): number {
-    return pukes * rating * riderWorth(r);
+    return pukes * rating * riderWorth(r) * this.jamFactor;
   }
 
   /** Tickets if the ride opened now as `kind`. */
@@ -739,9 +766,10 @@ export class Game {
     // Dr. Vertigo: the controls have turned.
     if (this.fight && this.bossRule === 'spin') dir = spun(dir, this.fight.spin);
     this.snapshot();
+    const spawns = this.mods.spawns + this.cfg.spawns - 1 + RULES.extraSpawns + this.tide;
     const result = swipe(this.board, dir, this.rng, {
       hillChance: this.mods.hillChance,
-      spawns: this.mods.spawns + this.cfg.spawns - 1,
+      spawns,
       parkFlavor: this.parkFlavor,
       flavorSpawn: this.mods.flavorSpawn,
     });
@@ -771,6 +799,12 @@ export class Game {
     if (this.bossRule === 'whistle' && result.mergeCount === 0)
       for (let k = 0; k < WHISTLE_COST - 1; k++) spawnTile(this.board, this.rng, this.mods.hillChance);
     this.tick();
+    // Packed: the tide brought more guests' litter than there was room for. The park closes.
+    if (this.board.loop && RULES.overflow && result.spawned.length < spawns && this.phase === 'build') {
+      this.jammed = true;
+      this.events.push({ type: 'gridlock' });
+      return this.open('circuit');
+    }
     this.checkGridlock();
   }
 
@@ -831,6 +865,19 @@ export class Game {
     }
   }
 
+  /** The rising tide: extra tiles per swipe as the day gets busier. */
+  get tide(): number {
+    if (!RULES.rampEvery) return 0;
+    // Bigger parks get busier faster, so a day lasts about as long anywhere.
+    const every = Math.max(6, Math.round((RULES.rampEvery * 25) / (this.board.size * this.board.size)));
+    return Math.min(RULES.rampMax, Math.floor(this.actions / every));
+  }
+
+  /** A jammed park breaks the ride down: every puke pays less. */
+  get jamFactor(): number {
+    return this.jammed ? RULES.jamPay : 1;
+  }
+
   /** What the roar multiplies hype by right now. */
   get roarMult(): number {
     return 1 + ROAR_STEP * Math.min(this.roar, ROAR_MAX);
@@ -846,8 +893,11 @@ export class Game {
   /** What growing the loop through this bulge costs: its two pieces, pricier the bigger the ride already is. */
   bulgeCost(g: Bulge): number {
     const b = this.board;
-    const piece = (p: Pt) => PIECE_PRICE[b.tiles[p.y * b.size + p.x]] ?? PIECE_PRICE[PIECE_PRICE.length - 1];
-    return Math.round((piece(g.c) + piece(g.d)) * PRICE_GROWTH ** Math.max(0, b.ends[0].length - 2));
+    const piece = (p: Pt) => {
+      const t = Math.min(b.tiles[p.y * b.size + p.x], PIECE_PRICE.length - 1);
+      return RULES.priceBase ? PIECE_PRICE[1] * RULES.priceBase ** Math.max(0, t - 1) : PIECE_PRICE[t];
+    };
+    return Math.round((piece(g.c) + piece(g.d)) * PRICE_GROWTH ** Math.max(0, b.ends[0].length - 2) * RULES.costMult);
   }
 
   /** What tapping (x, y) would cost to grow the ride (null: it can't grow there). */
@@ -882,7 +932,10 @@ export class Game {
       // The always-running ride: the park jams when nothing can slide and the ride can't grow.
       // (An empty board isn't a jam: a fresh tile drops in.)
       if (!this.board.tiles.some((t) => t > 0)) spawnTile(this.board, this.rng, this.mods.hillChance);
-      if (canSwipe(this.board) || bulgeCells(this.board).length) return;
+      if (canSwipe(this.board)) return;
+      const canBuy = this.growCells.some((c) => (this.growCost(c.x, c.y) ?? Infinity) <= this.banked);
+      if (canBuy) return;
+      this.jammed = true;
       this.events.push({ type: 'gridlock' });
       return this.open('circuit');
     }
@@ -1104,7 +1157,7 @@ export class Game {
 
   /** Guests the ride draws per move: its hype, plus the odd walk-in. */
   get hypeRate(): number {
-    return (this.score('circuit').rating / HYPE_DIV) * this.roarMult + 1 / WALKIN_EVERY;
+    return (this.score('circuit').rating / HYPE_DIV) * this.roarMult * RULES.hypeMult + 1 / WALKIN_EVERY;
   }
 
   /** One swipe passes. */
@@ -1116,7 +1169,7 @@ export class Game {
     this.bossTick();
     // Hype: the crowd at the fence grows with how wild the ride looks (old days: its excitement).
     const rating = this.board.loop ? this.score('circuit').rating : 0;
-    this.buzz += this.board.loop ? (rating / HYPE_DIV) * this.roarMult : this.stats.chips / BUZZ_PER;
+    this.buzz += this.board.loop ? (rating / HYPE_DIV) * this.roarMult * RULES.hypeMult : this.stats.chips / BUZZ_PER;
     const price = ticketFor(rating);
     while (this.buzz >= 1) {
       this.buzz -= 1;
@@ -1206,7 +1259,7 @@ export class Game {
     const hpBefore = f?.hp ?? 0;
     if (f) f.hp = Math.max(0, f.hp - bossHits);
     const bossPuked = !f || f.hp <= 0;
-    const dayTotal = (f?.banked ?? 0) + this.banked + total;
+    const dayTotal = (f?.banked ?? 0) + (RULES.score === 'ride' ? 0 : this.banked) + total;
     const passed = dayTotal >= this.cfg.target && bossPuked;
     const refused = !!boss && this.refuses(boss.rider, kind);
     const stops = rideOrder(this.board, kind);
@@ -1218,7 +1271,7 @@ export class Game {
       mods: this.mods,
       score,
       shuttle: kind === 'shuttle',
-      riders: this.queue.map((r) => ({ nausea: (i: number) => (this.refuses(r, kind) ? 0 : this.stopNausea(r, stops, i)), stomach: this.stomach(r), worth: riderWorth(r), boss: !!r.boss })),
+      riders: this.queue.map((r) => ({ nausea: (i: number) => (this.refuses(r, kind) ? 0 : this.stopNausea(r, stops, i)), stomach: this.stomach(r), worth: riderWorth(r) * this.jamFactor, boss: !!r.boss })),
     });
     const grade = gradeDay({
       dayTotal,
