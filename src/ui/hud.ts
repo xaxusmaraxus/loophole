@@ -1,4 +1,4 @@
-import { type Game, type RideKind, START_CASH } from '../game';
+import { type Game, type RideKind, START_CASH, dailyNumber } from '../game';
 import { sfx } from '../core/sfx';
 import { canConnect, canSwipe } from '../puzzle/board';
 import { SPECIALS, type SpecialId } from '../puzzle/pieces';
@@ -9,7 +9,7 @@ import { PLOT_W } from '../run/plot';
 import { drawPortrait3D } from '../render3d/portrait';
 import { mapHtml } from './map';
 import { photoStore } from './photo';
-import { lastRecord, playerName, recordLocal } from './scores';
+import { type DailyLocal, type DailyRow, dailyScores, lastRecord, playerName, recordLocal } from './scores';
 import { setShareText, shareLinks } from './share';
 import { gradeHtml, renderHand, renderRoar } from './skill';
 import { LETTERS } from '../run/grade';
@@ -20,6 +20,7 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 /** Free cells at or below which the park starts to feel the squeeze. */
 const LOW_ROOM = 6;
+const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 const ARROW = { up: '↑', right: '→', down: '↓', left: '←' } as const;
 
@@ -78,7 +79,25 @@ export class Hud {
   private lastOverlay = '';
   private lastStrip = '';
 
+  /** Today's Daily Ride on this device, and the shared board (null: not loaded or none here). */
+  dailyLocal: DailyLocal | null = null;
+  private dailyBoard: DailyRow[] | null = null;
+  private dailyBoardFor = '';
+
   constructor(private game: Game) {}
+
+  /** Loads today's shared Daily board into the card. */
+  async loadDailyBoard(): Promise<void> {
+    const g = this.game;
+    if (!g.daily) return;
+    const date = g.daily;
+    const rows = await dailyScores(dailyNumber(date));
+    if (g.daily !== date) return;
+    this.dailyBoard = rows;
+    this.dailyBoardFor = date;
+    this.lastOverlay = '';
+    this.update();
+  }
 
   update(): void {
     const g = this.game;
@@ -93,21 +112,31 @@ export class Hud {
     // Today's twist: boss, storm or VIP.
     const banner = $('dayBanner');
     const node = g.cfg.node;
-    if (g.cfg.boss) this.renderBossBar(banner);
+    if (g.daily) {
+      const kit = g.plot.items.map((i) => (i.kind === 'attraction' ? ATTRACTIONS[i.id].name : UPGRADES[i.id].name)).join(', ');
+      banner.innerHTML = `<strong>Daily Ride #${dailyNumber(g.daily)}.</strong> The same park for everyone today. Kit: ${kit}. Your first run counts.`;
+    } else if (g.cfg.boss) this.renderBossBar(banner);
     else if (node === 'storm' || node === 'vip' || node === 'finale') banner.innerHTML = `<strong>${NODE_INFO[node].name}.</strong> ${NODE_INFO[node].desc}`;
-    banner.hidden = !(g.cfg.boss || node === 'storm' || node === 'vip' || node === 'finale');
-    banner.className = `day-banner ${g.cfg.boss ? 'boss' : node}`;
+    banner.hidden = !(g.daily || g.cfg.boss || node === 'storm' || node === 'vip' || node === 'finale');
+    banner.className = `day-banner ${g.daily ? 'daily' : g.cfg.boss ? 'boss' : node}`;
+    if (g.daily) $('day').innerHTML = `📅 Daily #${dailyNumber(g.daily)}`;
 
     // Room: free cells left on the board. When nothing can move, it's gridlock.
     const cells = g.board.size * g.board.size;
     const frac = Math.min(1, Math.max(0, g.room / cells));
     $('daylightBar').style.width = `${frac * 100}%`;
-    const low = g.board.loop ? 3 : LOW_ROOM;
+    // The rising tide: tight once the next swipe's new tiles barely fit.
+    const per = g.spawnsPerSwipe;
+    const low = g.board.loop ? Math.max(3, per + 1) : LOW_ROOM;
     const tight = g.phase === 'build' && g.room <= low;
     $('daylightBar').classList.toggle('dusk', g.room <= 4);
     document.querySelector('.daylight')?.classList.toggle('low', tight);
+    const tideIn = g.tideIn;
     $('daylightLeft').textContent = g.phase !== 'build' ? `${g.room} free cells` : g.room > 0 ? `${g.room} free cell${g.room === 1 ? '' : 's'}` : 'Board full!';
-    document.querySelector('.daylight-track')?.setAttribute('title', `${g.room} free cell${g.room === 1 ? '' : 's'} on the board`);
+    document.querySelector('.daylight-track')?.setAttribute(
+      'title',
+      `${g.room} free cell${g.room === 1 ? '' : 's'} on the board. The park gets busier through the day: every swipe drops in ${per} new tile${per === 1 ? '' : 's'}${tideIn !== null ? `, one more every ${g.tideEvery} moves` : ''}. If they don't fit, the park is packed and closes.`,
+    );
     // Tension: a vignette closes in as the board fills.
     $('tension').style.opacity = tight ? String(Math.min(1, (low + 1 - g.room) / (low + 1)) * 0.9 + 0.1) : '0';
 
@@ -162,23 +191,23 @@ export class Hud {
       hint.innerHTML = broke
         ? `<strong>Out of moves:</strong> nothing can slide and you can't afford any track yet. Close the park to cash in your ${g.banked.toLocaleString()} tickets.`
         : g.room <= 3
-          ? `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left!</strong> Merge or buy track to make room, or close the park before it jams.${stuck}`
+          ? `<strong>Only ${g.room} free cell${g.room === 1 ? '' : 's'} left, ${per} new tile${per === 1 ? '' : 's'} a swipe!</strong> Merge to make room or buy track: if a swipe's tiles don't fit, the park is packed and closes.${stuck}`
           : g.actions === 0
-            ? `<strong>Hype sells tickets.</strong> Every move, guests come to the gate and buy a ticket. Tap a glowing tile to buy it into the ride: a wilder ride draws more guests and charges more. Lift Hills power up the next element.${stuck}`
+            ? `<strong>Hype sells tickets.</strong> Every move, guests come to the gate and buy a ticket. Tap a glowing tile to buy it into the ride: cheap pieces first, they raise the hype for the big ones. The park gets busier through the day; when it's packed, everyone rides.${stuck}`
             : afford
               ? g.dayNum <= 2 && !s.patterns.length
                 ? `<strong>You can afford track!</strong> Tap a glowing tile to buy it in. Line elements up as <strong>patterns</strong> (a pair, a straight) for extra mult: tags show the pattern a tile would make.${stuck}`
-                : `<strong>You can afford track!</strong> Tap a glowing tile to buy it in and grow the hype. When you close the park, everyone in line rides once: pukes are jackpots.${stuck}`
+                : `<strong>You can afford track!</strong> Tap a glowing tile to buy it in and grow the hype. When the park's packed (or you close it), everyone in line rides once: pukes are jackpots.${stuck}`
               : wait
                 ? g.dayNum <= 2 && g.roar < 3
                   ? `Saving up: track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. <strong>Merge every swipe</strong> to keep the crowd roaring: the roar multiplies hype.${stuck}`
-                  : `Saving up: the cheapest track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. Merge while you wait to make better pieces. Close the park with the target in hand.${stuck}`
+                  : `Saving up: the cheapest track is <strong>${wait} move${wait === 1 ? '' : 's'}</strong> away. Merge while you wait to make better pieces.${stuck}`
                 : `Swipe to sell tickets and merge. ${g.queue.length} in line will ride when you close the park: pukes are jackpots.${stuck}`;
     } else if (canConnect(g.board)) hint.innerHTML = '<strong>The ends meet!</strong> Open the full circuit now, or keep building for a wilder ride.';
     else hint.innerHTML = 'Swipe to merge tiles: the bigger the piece, the wilder the ride.';
     const outOfMoves = building && g.board.loop && !canSwipe(g.board) && !g.growCells.some((c) => (g.growCost(c.x, c.y) ?? Infinity) <= g.banked);
     hint.classList.toggle('ready', building && ((!g.board.loop && canConnect(g.board)) || outOfMoves));
-    hint.classList.toggle('tight', building && !aim && g.room <= (g.board.loop ? 3 : LOW_ROOM));
+    hint.classList.toggle('tight', building && !aim && g.room <= low);
     const open = $<HTMLButtonElement>('open');
     open.disabled = !kind;
     open.classList.toggle('circuit', kind === 'circuit');
@@ -606,7 +635,7 @@ export class Hud {
   private renderOverlay(): void {
     const g = this.game;
     const el = $('overlay');
-    el.hidden = !['intro', 'map', 'results', 'reward', 'conquered', 'shop', 'egg', 'over', 'won'].includes(g.phase);
+    el.hidden = !['intro', 'map', 'results', 'reward', 'conquered', 'shop', 'egg', 'over', 'won', 'dailyDone'].includes(g.phase);
     if (el.hidden) {
       this.lastOverlay = '';
       return;
@@ -639,6 +668,7 @@ export class Hud {
           <ul class="rules">${park.rules.map((r) => `<li>${r}</li>`).join('')}</ul>
           ${g.record.bosses.length ? `<p class="eyebrow shelf-label">Trophy shelf</p>${trophyShelf(g.record.bosses)}` : ''}
           <button class="primary" data-action="begin" autofocus>${park.id === 'finale' ? 'Open the gates' : 'See the map'}</button>
+          ${g.dayNum === 1 && n === 1 ? '<button class="ghost-dark daily-invite" data-action="daily">📅 Or play today\'s Daily Ride</button>' : ''}
         </div>`;
     }
     if (g.phase === 'map') return this.mapHtml();
@@ -747,6 +777,7 @@ export class Hud {
           <button class="ghost-dark" data-action="skip">Skip</button>
         </div>`;
     }
+    if (g.phase === 'dailyDone' && g.daily && g.result) return this.dailyHtml();
     if (g.phase === 'over') {
       return `
         <div class="card">
@@ -758,6 +789,49 @@ export class Hud {
         </div>`;
     }
     return '';
+  }
+
+  /** The Daily Ride's card: today's score and grade, the shared board, and when the next one comes. */
+  private dailyHtml(): string {
+    const g = this.game;
+    const r = g.result!;
+    const num = dailyNumber(g.daily!);
+    const loc = this.dailyLocal;
+    const official = loc?.official ?? g.runScore;
+    const practice = !!loc && loc.tries > 1;
+    const rows = this.dailyBoardFor === g.daily ? this.dailyBoard : null;
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const hrs = Math.max(0, Math.floor((next.getTime() - now.getTime()) / 3600000));
+    const mins = Math.max(0, Math.floor((next.getTime() - now.getTime()) / 60000) % 60);
+    setShareText(`Loophole Daily #${num} 🎢 ${official.toLocaleString()} tickets, grade ${loc?.grade || r.grade.letter}${r.grade.patterns.length ? ` · ${r.grade.patterns.length} patterns` : ''}. Beat my coaster!`);
+    const board = rows
+      ? rows.length
+        ? `<ol class="daily-board">${rows
+            .slice(0, 10)
+            .map((x, i) => `<li class="${x.mine ? 'mine' : ''}"><span class="rank">${i + 1}</span><span class="name">${esc(x.name)}</span><span class="grade">${esc(x.grade)}</span><strong>${x.score.toLocaleString()}</strong></li>`)
+            .join('')}</ol>`
+        : '<p class="muted">Nobody else has ridden today yet. You set the bar!</p>'
+      : '<p class="muted">Today\'s board shows here when the game runs on claude.ai.</p>';
+    return `
+        <div class="card daily-card">
+          <p class="eyebrow">Daily Ride #${num} · ${g.cfg.park.name}</p>
+          <h2>${practice ? 'Practice run' : r.passed ? 'Ride report' : 'Short of the target'}</h2>
+          ${gradeHtml(r, false)}
+          <p class="total big"><span>${practice ? 'This run' : 'Today\'s score'}</span><strong>${g.runScore.toLocaleString()}</strong></p>
+          ${practice ? `<p class="muted">Your official score today is <strong>${official.toLocaleString()}</strong> (your first run). Best today: ${loc!.best.toLocaleString()}.</p>` : ''}
+          <p class="eyebrow">Today's board</p>
+          ${board}
+          <p class="muted center">Next Daily Ride in ${hrs}h ${mins}m.</p>
+          <div class="share" aria-label="Share today's score">
+            <button type="button" class="primary-soft" data-action="share">Share</button>
+            <button type="button" class="share-btn copy" data-action="copy-share">Copy</button>
+          </div>
+          <div class="row-buttons">
+            <button class="ghost-dark" data-action="daily">Practice again</button>
+            <button class="primary" data-action="newrun" autofocus>Start a season</button>
+          </div>
+        </div>`;
   }
 
   /**

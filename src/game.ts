@@ -39,7 +39,7 @@ import {
 import { BRAKES_NAUSEA, FINALE_NAUSEA, type Flavor, LIFT, MAX_TIER, pathThrills, type RideStats, SPECIALS, type SpecialId, invertedCell, liftPlan, rideStats } from './puzzle/pieces';
 import { type PlayRecord, type UnlockId, checkUnlocks, emptyRecord, startingKit, unlockedSpecials } from './run/unlocks';
 import { BOSSES, BOSS_POOL, BOSS_ROUNDS, type BossId, type Rider, makeBoss, makeRider, makeVip, pieceNausea, pukesFor, riderWorth } from './riders/riders';
-import { type OwnedAttraction, type Score, scoreRide } from './run/attractions';
+import { ATTRACTIONS, type AttractionId, type OwnedAttraction, type Score, scoreRide } from './run/attractions';
 import { type BossFight, DEMANDS, SECONDS_CAP, SECONDS_EVERY, SPIN_EVERY, WAVE_EVERY, WHISTLE_COST, pickDemands, spun } from './run/bossday';
 import {
   PLOT_MAX_H,
@@ -87,7 +87,7 @@ import {
   shopStock,
 } from './run/run';
 
-export type Phase = 'intro' | 'map' | 'build' | 'ride' | 'results' | 'reward' | 'conquered' | 'shop' | 'egg' | 'over' | 'won';
+export type Phase = 'intro' | 'map' | 'build' | 'ride' | 'results' | 'reward' | 'conquered' | 'shop' | 'egg' | 'over' | 'won' | 'dailyDone';
 export type RideKind = 'circuit' | 'shuttle';
 
 /** Why a rider joined the queue. */
@@ -243,6 +243,22 @@ const WALKIN_EVERY = 5;
 const BUZZ_PER = 40;
 
 
+/** Days a Daily Ride can be (a Meadow, Boardwalk or Hollow day). */
+const DAILY_DAYS = [2, 5, 8];
+const DAILY_TARGET: Record<number, number> = { 2: 120000, 5: 250000, 8: 150000 };
+const DAILY_UPGRADES: UpgradeId[] = ['hype', 'lumber', 'fries', 'billboard', 'wrench'];
+
+/** Today's date as YYYY-MM-DD (local time). */
+export function dailyKey(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Days since 2020-01-01 for a YYYY-MM-DD key: the Daily Ride's number. */
+export function dailyNumber(key: string): number {
+  const [y, m, d] = key.split('-').map(Number);
+  return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(2020, 0, 1)) / 86400000);
+}
+
 export class Game {
   seed = '';
   rng = new Rng(0);
@@ -319,6 +335,7 @@ export class Game {
   }
 
   newRun(seed = randomSeed()): void {
+    this.daily = null;
     this.seed = seed;
     this.rng = Rng.fromSeed(seed);
     this.dayNum = 1;
@@ -337,6 +354,33 @@ export class Game {
     for (const [t, n] of Object.entries(kit.specials)) this.specials[t as SpecialId] += n ?? 0;
     this.mods = modsFor([]);
     this.enterPark(0);
+  }
+
+  // ---- The Daily Ride ------------------------------------------------------
+  // One day, the same for everyone: the date picks the seed, the park, and a
+  // small starting kit (no unlocks, so nobody starts ahead). One shot, then
+  // come back tomorrow.
+
+  /** The date (YYYY-MM-DD) of the Daily Ride being played, or null in a season. */
+  daily: string | null = null;
+
+  newDaily(date = dailyKey()): void {
+    this.newRun(`DAILY-${date}`);
+    this.daily = date;
+    const n = dailyNumber(date);
+    // Meadow, Boardwalk or Hollow, by the day; a mid-park day's board and target.
+    this.dayNum = DAILY_DAYS[n % DAILY_DAYS.length];
+    this.parkIndex = Math.floor((this.dayNum - 1) / 3);
+    this.tools = { ...emptyTools(), paint: 1 };
+    this.specials = emptySpecials();
+    // Today's kit: two commons and an upgrade, drawn from the date.
+    const commons = (Object.keys(ATTRACTIONS) as AttractionId[]).filter((a) => ATTRACTIONS[a].rarity === 'common');
+    for (const id of this.rng.shuffle(commons).slice(0, 2)) this.gain({ kind: 'attraction', id });
+    this.gain({ kind: 'upgrade', id: this.rng.pick(DAILY_UPGRADES) });
+    this.mapPos = null;
+    this.startDay('day');
+    // One day with a small kit: its own target (bot-measured: a bit above random play's median).
+    this.cfg.target = DAILY_TARGET[this.dayNum] ?? this.cfg.target;
   }
 
   // ---- Season and map ------------------------------------------------------
@@ -766,7 +810,7 @@ export class Game {
     // Dr. Vertigo: the controls have turned.
     if (this.fight && this.bossRule === 'spin') dir = spun(dir, this.fight.spin);
     this.snapshot();
-    const spawns = this.mods.spawns + this.cfg.spawns - 1 + RULES.extraSpawns + this.tide;
+    const spawns = this.spawnsPerSwipe;
     const result = swipe(this.board, dir, this.rng, {
       hillChance: this.mods.hillChance,
       spawns,
@@ -865,12 +909,26 @@ export class Game {
     }
   }
 
+  /** Moves between rises of the tide (bigger parks get busier faster, so a day lasts about as long anywhere). */
+  get tideEvery(): number {
+    return Math.max(6, Math.round((RULES.rampEvery * 25) / (this.board.size * this.board.size)));
+  }
+
   /** The rising tide: extra tiles per swipe as the day gets busier. */
   get tide(): number {
     if (!RULES.rampEvery) return 0;
-    // Bigger parks get busier faster, so a day lasts about as long anywhere.
-    const every = Math.max(6, Math.round((RULES.rampEvery * 25) / (this.board.size * this.board.size)));
-    return Math.min(RULES.rampMax, Math.floor(this.actions / every));
+    return Math.min(RULES.rampMax, Math.floor(this.actions / this.tideEvery));
+  }
+
+  /** Moves until the tide rises again (null: it's as high as it goes). */
+  get tideIn(): number | null {
+    if (!RULES.rampEvery || this.tide >= RULES.rampMax) return null;
+    return this.tideEvery - (this.actions % this.tideEvery);
+  }
+
+  /** New tiles each swipe drops in right now. */
+  get spawnsPerSwipe(): number {
+    return Math.max(0, this.mods.spawns + this.cfg.spawns - 1 + RULES.extraSpawns + this.tide);
   }
 
   /** A jammed park breaks the ride down: every puke pays less. */
@@ -1321,6 +1379,13 @@ export class Game {
   continueFromResults(): void {
     if (this.phase !== 'results' || !this.result) return;
     const r = this.result;
+    if (this.daily) {
+      // The Daily Ride is one day: done. (Patterns still go in the book.)
+      for (const id of r.newPatterns) if (!this.record.patterns.includes(id)) this.record.patterns.push(id);
+      this.runScore = r.dayTotal;
+      this.phase = 'dailyDone';
+      return;
+    }
     this.runScore += r.total;
     // The season record, for unlocks.
     const rec = this.record;

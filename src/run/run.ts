@@ -170,8 +170,9 @@ export const PARKS: Record<ParkId, ParkDef> = {
     name: 'Meadow Park',
     intro: 'A quiet field, a station and a queue. Build your first coasters here.',
     rules: [
-      'Swipe to merge, tap to build, connect the pennants.',
-      'The track can cross itself: over flat track on a bridge, under a Bump or Hill through a tunnel.',
+      'Swipe to merge tiles. Tap a glowing tile next to your ride to buy it in: the loop swells out over it.',
+      'Cheap pieces first: they raise the hype, and the hype pays for the big ones. Line elements up as patterns for extra multiplier.',
+      'The park gets busier every few moves. When a swipe’s new tiles don’t fit, the park is packed and everyone rides once.',
       'Spinning cars: chain reactions of two links or more make 🌀 spinning pieces. The car whirls through them: nausea ×1.5, +2 thrill.',
     ],
     size: 5,
@@ -186,9 +187,8 @@ export const PARKS: Record<ParkId, ParkDef> = {
     name: 'Sunny Boardwalk',
     intro: 'Sea air, sticky fingers, and patches of soft sand everywhere.',
     rules: [
-      'Sand: a loose tile that ends a swipe on sand sinks one tier. A Bump sinks away completely.',
+      'Sand: a loose tile that ends a swipe on sand sinks one tier. An Airtime Hill sinks away completely.',
       'Track built over sand is perfectly safe.',
-      'Piers: you can build track out over the water. A pier run is flat, with a sea breeze: +2 thrill.',
       'Water coaster: chain reactions make 💧 water pieces, flume runs worth +1 multiplier each.',
     ],
     size: 6,

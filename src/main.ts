@@ -1,14 +1,15 @@
 import './style.css';
 import './boss.css';
+import './daily.css';
 import { music } from './core/music';
 import { sfx } from './core/sfx';
-import { Game } from './game';
+import { Game, dailyNumber } from './game';
 import { bulgeFor, type Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
 import type { ToolId } from './run/run';
 import { Hud } from './ui/hud';
 import { savePhoto } from './ui/photo';
-import { lastRecord, nameLocal, postScore, setPlayerName } from './ui/scores';
+import { lastRecord, nameLocal, playerName, postDaily, postScore, recordDaily, setPlayerName } from './ui/scores';
 import { copyShare, shareNative } from './ui/share';
 import { openScores } from './ui/scoreboard';
 import { driveToken } from './ui/map';
@@ -28,14 +29,32 @@ const canvas = document.getElementById('park') as HTMLCanvasElement;
 const renderer = new Renderer(canvas, game);
 const hud = new Hud(game);
 
+let lastTide = 0;
 function act(fn: () => void): void {
   fn();
+  dailyDone();
+  // The park gets busier: say so when the tide rises.
+  const tide = game.phase === 'build' ? game.tide : 0;
+  if (tide > lastTide && game.board.loop) toast(`The park's getting busier!`, `Every swipe now drops in ${game.spawnsPerSwipe} new tiles. Keep room free: if they don't fit, the park is packed.`);
+  lastTide = tide;
   saveRecord(game.record);
   syncMusic();
   hud.update();
   plotPanel.update();
   // The score show stays up through the results, then clears.
   if (renderer.show.active && game.phase !== 'ride' && game.phase !== 'results') renderer.show.end();
+}
+
+/** A finished Daily Ride: keep it on this device, and post the day's first run to the shared board. */
+const dailySeen = new Set<unknown>();
+function dailyDone(): void {
+  if (game.phase !== 'dailyDone' || !game.daily || !game.result || dailySeen.has(game.result)) return;
+  dailySeen.add(game.result);
+  const local = recordDaily(game.daily, game.runScore, game.result.grade.letter);
+  hud.dailyLocal = local;
+  if (local.tries === 1)
+    void postDaily(dailyNumber(game.daily), game.runScore, game.result.grade.letter, playerName()).then(() => hud.loadDailyBoard());
+  else void hud.loadDailyBoard();
 }
 
 // ---- The park plot panel (backpack grid beside the map and shop) ----
@@ -261,6 +280,7 @@ document.getElementById('attractions')!.addEventListener('mouseover', (e) => {
 document.getElementById('switchEnd')!.addEventListener('click', () => act(() => game.selectEnd()));
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
 document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));
+document.getElementById('daily')!.addEventListener('click', () => act(() => game.newDaily()));
 document.getElementById('newRunHelp')!.addEventListener('click', () => {
   (document.getElementById('helpDialog') as HTMLDialogElement).close();
   act(() => game.newRun());
@@ -312,6 +332,7 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
     else if (action === 'buy') game.buy(Number(btn.dataset.index));
     else if (action === 'leave') game.leaveShop();
     else if (action === 'newrun') game.newRun();
+    else if (action === 'daily') game.newDaily();
   });
   requestAnimationFrame(() => document.querySelector<HTMLElement>('#overlay [autofocus], #overlay button')?.focus());
 });

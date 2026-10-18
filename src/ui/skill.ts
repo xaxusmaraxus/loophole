@@ -200,10 +200,12 @@ export function openPatternBook(rec: PlayRecord, current: readonly PatternHit[] 
 
 const GRADE_WORD: Record<Letter, string> = { S: 'Superb!', A: 'Great', B: 'Good', C: 'Okay', D: 'Rough day' };
 
-export function gradeHtml(r: { grade: { letter: Letter; ratio: number; patterns: PatternId[]; good: string[]; tips: string[]; bestRoar: number }; bestGrade?: Letter; newPatterns: PatternId[] }): string {
+export function gradeHtml(r: { grade: { letter: Letter; ratio: number; patterns: PatternId[]; good: string[]; tips: string[]; bestRoar: number }; bestGrade?: Letter; newPatterns: PatternId[] }, showBest = true): string {
   const g = r.grade;
   const best = better(g.letter, r.bestGrade);
-  const bestLine = best
+  const bestLine = !showBest
+    ? ''
+    : best
     ? `<span class="gr-best new">${r.bestGrade ? `New best! (was ${r.bestGrade})` : 'New best!'}</span>`
     : `<span class="gr-best">Best: ${r.bestGrade}</span>`;
   const fresh = r.newPatterns.length

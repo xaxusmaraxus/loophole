@@ -1,0 +1,89 @@
+/* The Daily Ride: top-bar button, banner, and the end-of-day card with today's board. */
+.icon-btn.daily-btn {
+  background: linear-gradient(180deg, #ffd95e, #ffb53d);
+  color: var(--ink);
+  font-weight: 700;
+}
+.day-banner.daily {
+  background: linear-gradient(90deg, #ffe58a, #ffc96b);
+  color: var(--ink);
+}
+.daily-card .daily-board {
+  list-style: none;
+  margin: 0.4rem 0 0.8rem;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+.daily-card .daily-board li {
+  display: grid;
+  grid-template-columns: 1.8rem 1fr 1.6rem auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.6rem;
+  background: rgba(43, 33, 64, 0.06);
+}
+.daily-card .daily-board li.mine {
+  background: #fff1b8;
+  box-shadow: inset 0 0 0 2px #ffb53d;
+}
+.daily-card .daily-board .rank {
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.daily-card .daily-board .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.daily-card .daily-board .grade {
+  font-weight: 700;
+  text-align: center;
+}
+.daily-card .row-buttons {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.6rem;
+}
+.intro .daily-invite {
+  margin-top: 0.6rem;
+}
+@media (max-width: 480px) {
+  .icon-btn.daily-btn {
+    padding-inline: 0.5rem;
+  }
+}
+.icon-btn.daily-btn {
+  white-space: nowrap;
+}
+.icon-btn.daily-btn .daily-label {
+  display: none;
+}
+@media (min-width: 1500px) {
+  .icon-btn.daily-btn {
+    width: auto;
+    padding-inline: 0.7rem;
+  }
+  .icon-btn.daily-btn .daily-label {
+    display: inline;
+  }
+}
+/* Keep the target readable beside the wallet: the park pill gives way first. */
+.hud-mid.wallet .daylight {
+  min-width: 150px;
+  flex: 1 1 150px;
+}
+.hud-left #day {
+  min-width: 0;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-left {
+  min-width: 0;
+  flex-shrink: 1;
+}

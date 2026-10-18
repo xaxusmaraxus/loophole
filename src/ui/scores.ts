@@ -107,7 +107,7 @@ export async function globalScores(): Promise<BoardRow[] | null> {
   const s = await shared();
   if (!s) return null;
   const snap = await s.db.collection('scores').orderBy('best', 'desc').limit(20).get();
-  return snap.docs.map((d) => {
+  return snap.docs.filter((d) => Number(d.data()?.best) > 0).map((d) => {
     const v = d.data() ?? {};
     return {
       name: String(v.name ?? '') || 'Anonymous',
@@ -135,7 +135,8 @@ export async function postScore(e: ScoreEntry): Promise<'posted' | 'kept' | 'una
       if (cur.exists && cur.data()?.name !== name) await ref.set({ ...cur.data(), name });
       return 'kept';
     }
-    await ref.set({ name, best: e.score, park: e.park, day: e.day, pukes: e.pukes, at: e.at });
+    // Keep the Daily Ride fields that share this document.
+    await ref.set({ ...(cur.exists ? cur.data() : {}), name, best: e.score, park: e.park, day: e.day, pukes: e.pukes, at: e.at });
     return 'posted';
   } catch (err) {
     const code = (err as { code?: string }).code;
@@ -150,4 +151,73 @@ export function nameLocal(at: number, name: string): void {
   if (!e) return;
   e.name = cleanName(name);
   write(LOCAL_KEY, list);
+}
+
+// ---- The Daily Ride ------------------------------------------------------------------
+// Each player's latest daily score sits on their own scores document as one sortable
+// number: the Daily's number × DAILY_SPAN + score. Sorting by it puts today's rides
+// first (best first), so one query reads today's board.
+
+const DAILY_SPAN = 1e11;
+const dailyKeyLocal = (date: string) => `loophole.daily.${date}`;
+
+export interface DailyLocal {
+  /** The first (official) score today; later runs are practice. */
+  official: number | null;
+  best: number;
+  grade: string;
+  tries: number;
+}
+
+export function dailyLocal(date: string): DailyLocal {
+  return read<DailyLocal>(dailyKeyLocal(date), { official: null, best: 0, grade: '', tries: 0 });
+}
+
+/** Records a Daily Ride on this device; returns the updated entry. The first run of the day is the official one. */
+export function recordDaily(date: string, score: number, grade: string): DailyLocal {
+  const d = dailyLocal(date);
+  const first = d.official === null;
+  const next: DailyLocal = { official: first ? score : d.official, best: Math.max(d.best, score), grade: first ? grade : d.grade, tries: d.tries + 1 };
+  write(dailyKeyLocal(date), next);
+  return next;
+}
+
+export interface DailyRow {
+  name: string;
+  score: number;
+  grade: string;
+  mine: boolean;
+}
+
+/** Today's shared board, or null when there's none here. */
+export async function dailyScores(num: number): Promise<DailyRow[] | null> {
+  const s = await shared();
+  if (!s) return null;
+  try {
+    const snap = await s.db.collection('scores').orderBy('daily', 'desc').limit(40).get();
+    return snap.docs
+      .map((d) => ({ d, v: d.data() ?? {} }))
+      .filter(({ v }) => Math.floor(Number(v.daily) / DAILY_SPAN) === num)
+      .map(({ d, v }) => ({ name: String(v.name ?? '') || 'Anonymous', score: Number(v.daily) % DAILY_SPAN, grade: String(v.dailyGrade ?? ''), mine: d.id === s.me }));
+  } catch {
+    return null;
+  }
+}
+
+/** Posts today's official Daily Ride score (once). */
+export async function postDaily(num: number, score: number, grade: string, name: string): Promise<'posted' | 'unavailable' | 'denied'> {
+  const s = await shared();
+  if (!s || !s.me) return 'unavailable';
+  const ref = s.db.doc(`scores/${s.me}`);
+  try {
+    const cur = await ref.get();
+    const data = cur.exists ? cur.data() ?? {} : {};
+    // Only the first ride of the day counts.
+    if (Math.floor(Number(data.daily) / DAILY_SPAN) === num) return 'posted';
+    await ref.set({ best: 0, ...data, name: cleanName(name) || String(data.name ?? '') || 'Anonymous', daily: num * DAILY_SPAN + Math.min(Math.round(score), DAILY_SPAN - 1), dailyGrade: grade });
+    return 'posted';
+  } catch (err) {
+    const code = (err as { code?: string }).code;
+    return code === 'not_granted' || code === 'permission_denied' ? 'denied' : 'unavailable';
+  }
 }

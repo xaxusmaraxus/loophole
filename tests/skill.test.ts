@@ -175,3 +175,28 @@ describe('the rising tide', () => {
     expect(g.jammed).toBe(true);
   });
 });
+
+describe('the Daily Ride', () => {
+  it('is the same day for everyone on a date, and ends after one ride', async () => {
+    const { dailyNumber } = await import('../src/game');
+    const a = new Game('X');
+    const b = new Game('Y');
+    b.record.unlocked = ['launch', 'coffee'];
+    a.newDaily('2026-10-18');
+    b.newDaily('2026-10-18');
+    expect(a.phase).toBe('build');
+    expect(a.board.tiles).toEqual(b.board.tiles);
+    expect(a.plot.items.map((i) => i.id)).toEqual(b.plot.items.map((i) => i.id));
+    expect(a.tools).toEqual(b.tools);
+    expect(a.cfg.target).toBe(b.cfg.target);
+    const c = new Game('Z');
+    c.newDaily('2026-10-19');
+    expect(dailyNumber('2026-10-19') - dailyNumber('2026-10-18')).toBe(1);
+    expect(c.board.tiles).not.toEqual(a.board.tiles);
+    a.open('circuit');
+    a.rideDone();
+    a.continueFromResults();
+    expect(a.phase).toBe('dailyDone');
+    expect(a.runScore).toBe(a.result!.dayTotal);
+  });
+});
