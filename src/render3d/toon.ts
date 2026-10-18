@@ -18,6 +18,8 @@ export const SHARED = {
   uBoil: { value: 0 },
   uRimColor: { value: new Color('#fff1d6') },
   uShade: { value: 0.22 },
+  /** Scales every rim (the renderer raises it at dusk). */
+  uRimBoost: { value: 1 },
 };
 
 export interface ToonOpts {
@@ -109,7 +111,7 @@ export function toon(o: ToonOpts = {}): MeshToonMaterial {
       .replace(
         '#include <common>',
         `#include <common>
-        uniform float uGloss; uniform float uRim; uniform vec3 uRimColor; uniform float uShade; uniform float uBump; uniform float uBoil;
+        uniform float uGloss; uniform float uRim; uniform float uRimBoost; uniform vec3 uRimColor; uniform float uShade; uniform float uBump; uniform float uBoil;
         varying vec3 vClay;
         ${NOISE}
         // Thumbprints: in some cells of a 3D grid, a pit of concentric ridges.
@@ -174,7 +176,7 @@ export function toon(o: ToonOpts = {}): MeshToonMaterial {
           // Light scattering in the clay warms the shade a little.
           outgoingLight += diffuseColor.rgb * vec3( 0.07, 0.03, 0.02 );
           // A soft, fuzzy rim and a broad waxy sheen.
-          outgoingLight += uRimColor * diffuseColor.rgb * pow( 1.0 - nv, 2.5 ) * uRim * 0.5;
+          outgoingLight += uRimColor * diffuseColor.rgb * pow( 1.0 - nv, 2.5 ) * uRim * 0.5 * uRimBoost;
           #if NUM_DIR_LIGHTS > 0
             vec3 hh = normalize( directionalLights[ 0 ].direction + vdir );
             float sh = pow( max( dot( normal, hh ), 0.0 ), 14.0 );

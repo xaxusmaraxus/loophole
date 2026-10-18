@@ -77,13 +77,10 @@
   flex: 1 1 150px;
 }
 .hud-left #day {
-  min-width: 0;
-  max-width: 230px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.hud-left {
-  min-width: 0;
-  flex-shrink: 1;
+@media (max-width: 1480px) {
+  .hud-left #day .pn {
+    display: none;
+  }
 }

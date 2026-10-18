@@ -703,6 +703,25 @@ export class Renderer {
     }
     for (let x = L.xL + 0.25; x < L.xR - 0.1; x += Math.max(0.6, (L.xR - L.xL - 0.5) / Math.max(1, Math.round((L.xR - L.xL) / 0.9)))) m.post(x, 0.1, (pz0 + pz1) / 2 - 0.04, 0.018, 0.34, '#2b2140', 6);
     m.cube(xc, 0.5, (pz0 + pz1) / 2 - 0.12, cw + 0.04, 0.035, 0.04, '#b83344', 0.012);
+    // A scalloped valance along the back too, a gold ridge, and a lantern on every post.
+    for (let i = 0; i < stripes; i++) cloth.sphere(v3(L.xL + 0.05 + (i + 0.5) * sw, 0.48, (pz0 + pz1) / 2 - 0.13), sw * 0.45, stripe[(i + 1) % 2], 1, 0.5, 0.3, 8, 4);
+    parts.gloss!.pipe([v3(L.xL + 0.05, 0.535, (pz0 + pz1) / 2 - 0.1), v3(L.xR - 0.05, 0.535, (pz0 + pz1) / 2 - 0.1)], 0.012, PAL.gold, 6);
+    for (let x = L.xL + 0.25; x < L.xR - 0.1; x += Math.max(0.6, (L.xR - L.xL - 0.5) / Math.max(1, Math.round((L.xR - L.xL) / 0.9)))) {
+      parts.glow!.sphere(v3(x, 0.355 + this.terrain.lift, (pz0 + pz1) / 2 - 0.01), 0.022, '#fff1b0', 1, 1.15, 1, 8, 5, true);
+      m.cyl(M(x, 0.385, (pz0 + pz1) / 2 - 0.01), 0.026, 0.012, 0.02, '#2b2140', 8);
+    }
+    // The operator's booth at the right end of the platform: a little clay cabin with a lit window.
+    {
+      const bx = L.xR - 0.2;
+      const bz = (pz0 + pz1) / 2 - 0.02;
+      m.cube(bx, 0.19, bz, 0.2, 0.17, 0.2, PAL.white, 0.02, '#fffaf0');
+      m.cube(bx, 0.115, bz, 0.215, 0.025, 0.215, '#b83344', 0.008);
+      parts.glow!.box(M(bx, 0.21 + this.terrain.lift, bz + 0.101), 0.12, 0.07, 0.006, '#ffe7a0', 0.004);
+      m.cube(bx, 0.21, bz + 0.104, 0.13, 0.008, 0.008, '#2b2140');
+      m.cube(bx, 0.17, bz + 0.112, 0.15, 0.012, 0.03, '#c0703a', 0.004);
+      for (const sd of [-1, 1]) m.box(new Matrix4().makeRotationX(sd * 0.55).setPosition(bx, 0.31, bz + sd * 0.06), 0.25, 0.018, 0.15, stripe[0], 0.008, shade(stripe[0], 0.1));
+      parts.gloss!.sphere(v3(bx, 0.35, bz), 0.02, PAL.gold, 1, 1, 1, 8, 5, true);
+    }
     // A raised station: the whole deck stands on a base (pier stilts, a rocky crag, gold
     // scaffolding), with a wide flight of stairs down to the plaza.
     const lift = this.terrain.lift;
@@ -1214,6 +1233,14 @@ export class Renderer {
       this.sparks.add({ p: at.clone(), v: v3((Math.random() - 0.5) * 1.6, 0.4 + Math.random() * 0.9, (Math.random() - 0.5) * 1.6), g: 3, max: 0.35 + Math.random() * 0.25, color: k % 2 ? '#ffd23f' : '#ff9a3c', size: 0.02, drag: 0.5 });
   }
 
+  /** A flat ring of clay crumbs bursting out along the ground (merges, landings). */
+  ringPuff(at: Vector3, n: number, color: string, speed = 1.7): void {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      this.particles.add({ p: at.clone(), v: v3(Math.cos(a) * speed, 0.35, Math.sin(a) * speed), g: 1.2, drag: 4.5, max: 0.42, color, size: 0.03 });
+    }
+  }
+
   burst(at: Vector3, n: number, ramp: readonly string[]): void {
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2 + Math.random() * 0.4;
@@ -1561,21 +1588,24 @@ export class Renderer {
     const d = this.dusk;
     const g = gold * (1 - d);
     const mix3 = (a: string, b: string, c: string) => new Color(a).lerp(new Color(b), g).lerp(new Color(c), d);
-    this.sun.color.copy(mix3('#fff2dc', '#ffcf98', '#9a8cff'));
-    this.sun.intensity = 2.3 - g * 0.2 - d * 1.3;
+    this.sun.color.copy(mix3('#fff2dc', '#ffcf98', '#b4a8ff'));
+    // Dusk is a readable twilight, not a blackout: the moon stays a strong key light.
+    this.sun.intensity = 2.3 - g * 0.2 - d * 0.95;
     const is = this.island!;
     const c = v3((is.x0 + is.x1) / 2, 0, (is.z0 + is.z1) / 2);
     const dir = v3(-0.42 - g * 0.4, 1 - g * 0.35 - d * 0.2, 0.62 - g * 0.2).normalize();
     this.sun.position.copy(c).addScaledVector(dir, 16);
     this.sun.target.position.copy(c);
-    this.hemi.color.copy(mix3('#cfe0ff', '#ffe2cc', '#5a52a8'));
-    this.hemi.groundColor.copy(mix3('#c2a07a', '#a07060', '#302850'));
-    this.hemi.intensity = 1.9 - d * 0.5;
-    SHARED.uRimColor.value.copy(mix3('#fff1d6', '#ffd29a', '#ffa8e8'));
+    this.hemi.color.copy(mix3('#cfe0ff', '#ffe2cc', '#7a70c8'));
+    this.hemi.groundColor.copy(mix3('#c2a07a', '#a07060', '#4a3a66'));
+    this.hemi.intensity = 1.9 - d * 0.35;
+    SHARED.uRimColor.value.copy(mix3('#fff1d6', '#ffd29a', '#ffc2f0'));
+    // A brighter rim at night picks the rails and guests out of the dark.
+    SHARED.uRimBoost.value = 1 + d * 0.9;
     const lampK = Math.max(g * 0.35, d);
     for (const l of this.lampLights) l.intensity = lampK * 2.2;
     GLOW_MAT.color.setScalar(0.72 + lampK * 0.6);
-    this.post.bloom = 0.25 + lampK * 1.6;
+    this.post.bloom = 0.2 + lampK * 0.95;
     for (const w of is.waters) {
       w.uniforms.uTime.value = this.now / 1000;
       w.uniforms.uDusk.value = d;
@@ -1767,12 +1797,13 @@ export class Renderer {
     this.flumes = [];
     const look = this.island!.look;
     this.path.cells.forEach((c, i) => {
-      const parts = buildCellTrack(this.path, i, { support: look.support, tie: look.tie });
+      const parts = buildCellTrack(this.path, i, { support: look.support, tie: look.tie, rail: look.rail, spine: look.spine });
       const g = new Group();
-      for (const [k, mat] of [['gloss', MATS.rail], ['matte', MATS.steel]] as const) {
-        const geo = parts[k];
-        if (!geo || geo.empty) continue;
-        const m = new Mesh(geo.build(), mat);
+      // Rails, ties and supports are one painted-steel batch per cell (one draw call).
+      const steel = parts.gloss ?? new Geo();
+      if (parts.matte) steel.add(parts.matte);
+      if (!steel.empty) {
+        const m = new Mesh(steel.build(), MATS.rail);
         m.castShadow = true;
         m.receiveShadow = true;
         g.add(m);
@@ -1818,9 +1849,10 @@ export class Renderer {
   private drawTrackRise(): void {
     for (const [k, t0] of this.riseAt) {
       const g = this.cellGroups.get(k);
-      const t = Math.min(1, (this.now - t0) / 420);
+      const t = Math.min(1, (this.now - t0) / 560);
       if (g) g.visible = t >= 0;
       if (t < 0) continue;
+      const [x, y] = k.split(',').map(Number);
       if (!g || t >= 1) {
         if (g) {
           g.scale.set(1, 1, 1);
@@ -1829,12 +1861,32 @@ export class Renderer {
         this.riseAt.delete(k);
         continue;
       }
-      // Pops up out of the ground with a little overshoot.
-      const c = 1.7;
-      const e = 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2;
-      const [x, y] = k.split(',').map(Number);
-      g.position.set((x + 0.5) * (1 - e), 0, (y + 0.5) * (1 - e));
-      g.scale.set(e, Math.max(0.01, e), e);
+      // Swoops down into place (growing as it falls), lands with a clay squash, and settles.
+      const cx = x + 0.5;
+      const cz = y + 0.5;
+      const LAND = 0.5;
+      let sxz: number;
+      let sy: number;
+      let dy = 0;
+      if (t < LAND) {
+        const u = t / LAND;
+        dy = 1.3 * (1 - u * u);
+        sxz = 0.55 + 0.45 * u;
+        sy = sxz * (1 + 0.25 * (1 - u));
+      } else {
+        const u = (t - LAND) / (1 - LAND);
+        if (!g.userData.landed) {
+          g.userData.landed = true;
+          this.dust(v3(cx, this.groundAt(cx, cz) + 0.06, cz), 9, PAL.plaza[1]);
+          this.sparkle(v3(cx, this.groundAt(cx, cz) + 0.35, cz), 5, PAL.gold);
+        }
+        const wob = Math.sin(u * Math.PI * 2.2) * (1 - u) ** 1.5;
+        sy = 1 - 0.2 * wob;
+        sxz = 1 + 0.1 * wob;
+      }
+      g.userData.landed = t >= LAND;
+      g.position.set(cx * (1 - sxz), dy, cz * (1 - sxz));
+      g.scale.set(sxz, Math.max(0.01, sy), sxz);
     }
   }
 
@@ -1846,9 +1898,11 @@ export class Renderer {
     if (this.now < this.wobbleUntil) squash += Math.sin(this.now / 35 + cellI * 1.7) * 0.1 * Math.min(1, (this.wobbleUntil - this.now) / 400);
     const fog = this.fogged.has(cellI);
     m.geometry = fog ? mysteryGeo() : crateGeo(tier);
-    const pop = 1 + flash * 0.22;
+    // A merge pops the crate like jelly: up tall first, then a fat squash as it settles.
+    const jel = Math.sin(flash * Math.PI * 1.5);
+    const pop = 1 + flash * 0.16;
     m.position.set(x + 0.5, GRASS_Y + this.terrain.height(x + 0.5, z + 0.5) + lift, z + 0.5);
-    m.scale.set(pop * (1 + squash), pop * (1 - squash * 1.5), pop * (1 + squash));
+    m.scale.set(pop * (1 + squash - jel * 0.07), pop * (1 - squash * 1.5 + jel * 0.2), pop * (1 + squash - jel * 0.07));
     const mat = m.material as ReturnType<typeof toon>;
     mat.emissive.setScalar(flash * 0.9);
     // The fog keeps a park piece's secret.
@@ -1972,6 +2026,7 @@ export class Renderer {
         m.merges.forEach((mg, i) => {
           this.flashes.set(idx(b, mg.x, mg.y), this.now + 160);
           this.burst(this.cell(mg).setY(0.3), 10, TIER_RAMPS[mg.tier]);
+          this.ringPuff(this.cell(mg).setY(0.08), 14, TIER_RAMPS[mg.tier][0]);
           sfx.merge(i + 1);
         });
         if (m.merges.length) this.bumpCombo(m.merges.length);
@@ -1982,6 +2037,7 @@ export class Renderer {
         for (const w of wave) {
           this.flashes.set(idx(b, w.to.x, w.to.y), this.now + 200);
           this.burst(this.cell(w.to).setY(0.35), 14 + link * 6, TIER_RAMPS[w.tier]);
+          this.ringPuff(this.cell(w.to).setY(0.08), 16, TIER_RAMPS[w.tier][0], 1.9 + link * 0.2);
           if (w.fresh && w.flavor) this.parkPiecePop(w.flavor, w.to);
         }
         this.word(`CHAIN ${link + 1}`, this.cell(wave[0].to).setY(0.9), PAL.gold, 1 + link * 0.12);
@@ -2556,11 +2612,11 @@ export class Renderer {
   private gridlockShow(boxed = false): void {
     const n = this.n;
     const top = v3(n / 2, 1.6, n / 2 - 0.2);
-    const el = this.word(boxed ? 'BOXED IN!' : 'GRIDLOCK!', top, PAL.gold, 2.3);
+    const el = this.word(boxed ? 'BOXED IN!' : this.board.loop ? 'PACKED!' : 'GRIDLOCK!', top, PAL.gold, 2.3);
     el.style.webkitTextStroke = '3px var(--ink)';
     el.style.textShadow = '0 5px 0 var(--ink)';
     this.after(420, () => {
-      const sub = this.word(this.board.loop ? 'Closing the park: last ride!' : this.board.opened === 'circuit' ? 'The ride opens!' : 'Opening as a shuttle', top.clone().setY(1.15), PAL.white, 0.9);
+      const sub = this.word(this.board.loop ? 'The park is full: everyone rides!' : this.board.opened === 'circuit' ? 'The ride opens!' : 'Opening as a shuttle', top.clone().setY(1.15), PAL.white, 0.9);
       sub.style.fontFamily = 'var(--font-body)';
     });
     sfx.horn();
@@ -2850,7 +2906,7 @@ export class Renderer {
     let head = f.p.clone().addScaledVector(f.up, 0.3);
     let mouth = head.clone();
     if (rider) {
-      const seat = new Matrix4().copy(m).multiply(M(0, 0.075, -0.025)).multiply(new Matrix4().makeScale(0.76, 0.76, 0.76));
+      const seat = new Matrix4().copy(m).multiply(M(0, 0.092, -0.035)).multiply(new Matrix4().makeScale(0.76, 0.76, 0.76));
       this.person(rider.look, null, { seated: true, matrix: seat, face: rider.face, arms: rider.arms });
       const g = personGeo(rider.look, rider.face, true);
       head = v3(0, (g.headY - 0.03) * g.scale, 0.09 * g.scale).applyMatrix4(seat);

@@ -216,27 +216,51 @@ export class Geo {
       }
   }
 
-  /** Chunky rock or foliage lump: a jittered icosahedron. */
+  /**
+   * A soft clay lump (rocks, foliage): a jittered icosahedron subdivided once, so
+   * it reads as a rounded, hand-pressed ball rather than a faceted gem. The
+   * jitter is keyed on direction, so shared vertices stay welded.
+   */
   blob(c: Vector3, r: number, color: Col, seed: number, jitter = 0.22, sx = 1, sy = 1, sz = 1, topLight = 0.08): void {
     const t = (1 + Math.sqrt(5)) / 2;
     const verts = [
       [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t],
       [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1],
-    ];
+    ].map(([x, y, z]) => v3(x, y, z).normalize());
     const faces = [
       [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
       [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
     ];
     const rnd = rng(seed);
-    const pts = verts.map(([x, y, z]) => {
-      const n = v3(x, y, z).normalize();
-      const k = r * (1 + (rnd() * 2 - 1) * jitter);
+    const corner = verts.map(() => rnd() * 2 - 1);
+    // Unit direction -> displaced point; corners take the full jitter, midpoints a softer share.
+    const place = (n: Vector3, j: number) => {
+      const k = r * (1 + j * jitter);
       return v3(c.x + n.x * k * sx, c.y + n.y * k * sy, c.z + n.z * k * sz);
-    });
+    };
+    const P = verts.map((n, i) => place(n, corner[i]));
+    const mids = new Map<string, Vector3>();
+    const mid = (a: number, b: number) => {
+      const key = a < b ? `${a}_${b}` : `${b}_${a}`;
+      let m = mids.get(key);
+      if (!m) {
+        const n = verts[a].clone().add(verts[b]).normalize();
+        m = place(n, (corner[a] + corner[b]) * 0.42);
+        mids.set(key, m);
+      }
+      return m;
+    };
     const lit = shade(color, topLight);
+    const yTop = c.y + r * sy * 0.35;
+    const face = (a: Vector3, b: Vector3, d: Vector3) => this.tri(a, b, d, (a.y + b.y + d.y) / 3 > yTop ? lit : color, c);
     for (const [a, b, d] of faces) {
-      const cy = (pts[a].y + pts[b].y + pts[d].y) / 3;
-      this.tri(pts[a], pts[b], pts[d], cy > c.y + r * sy * 0.35 ? lit : color, c);
+      const ab = mid(a, b);
+      const bd = mid(b, d);
+      const da = mid(d, a);
+      face(P[a], ab, da);
+      face(ab, P[b], bd);
+      face(da, bd, P[d]);
+      face(ab, bd, da);
     }
   }
 
@@ -331,9 +355,12 @@ export class Geo {
 
   /** Merge another batch in. */
   add(g: Geo): void {
-    this.pos.push(...g.pos);
-    this.nor.push(...g.nor);
-    this.colr.push(...g.colr);
+    // (A loop, not push(...spread): big batches overflow the argument limit.)
+    for (let i = 0; i < g.pos.length; i++) {
+      this.pos.push(g.pos[i]);
+      this.nor.push(g.nor[i]);
+      this.colr.push(g.colr[i]);
+    }
   }
 
   /**

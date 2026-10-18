@@ -112,6 +112,28 @@ interface ES {
 
 type Elem = (t: number) => ES;
 
+/** Spacing of the dense spline samples the rails, ties and train all run on. */
+const DENSE_STEP = 0.024;
+/** Banking: lean per unit of horizontal curvature, and the most a plain turn leans (tan of the angle). */
+const BANK_K = 0.18;
+const BANK_MAX = 0.62;
+
+/** Centripetal Catmull-Rom between p1 and p2 (no overshoot or cusps on uneven knots). */
+function catmull(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, u: number): Vector3 {
+  const kn = (a: Vector3, b: Vector3) => Math.max(1e-4, Math.sqrt(a.distanceTo(b)));
+  const t1 = kn(p0, p1);
+  const t2 = t1 + kn(p1, p2);
+  const t3 = t2 + kn(p2, p3);
+  const t = t1 + (t2 - t1) * u;
+  const L = (a: Vector3, b: Vector3, ta: number, tb: number) => a.clone().multiplyScalar((tb - t) / (tb - ta)).addScaledVector(b, (t - ta) / (tb - ta));
+  const A1 = L(p0, p1, 0, t1);
+  const A2 = L(p1, p2, t1, t2);
+  const A3 = L(p2, p3, t2, t3);
+  const B1 = L(A1, A2, 0, t2);
+  const B2 = L(A2, A3, t1, t3);
+  return L(B1, B2, t1, t2);
+}
+
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -438,43 +460,89 @@ export class TrackPath {
     type Raw = { p: Vector3; up: Vector3 | null; lift: boolean; elem: boolean; ang: number; bank: Vector3 | null; park?: boolean };
     const raws: Raw[][] = [];
     for (let i = 0; i < n; i++) raws.push(this.cellSamples(i));
-    // Frames over the whole chain, so tangents agree at the joints.
-    const flat: { r: Raw; cell: number; k: number }[] = [];
-    raws.forEach((rs, i) => rs.forEach((r, k) => (i > 0 && k === 0 ? null : flat.push({ r, cell: i, k }))));
+    // The whole chain as one list of knots (cells share their joint points).
+    const flat: { r: Raw; cell: number }[] = [];
+    raws.forEach((rs, i) => rs.forEach((r, k) => (i > 0 && k === 0 ? null : flat.push({ r, cell: i }))));
     if (this.closed) flat.pop();
+    const closed = this.closed;
     const m = flat.length;
-    const tangent = (j: number) => {
-      const a = this.closed ? flat[(j - 1 + m) % m].r.p : flat[Math.max(0, j - 1)].r.p;
-      const b = this.closed ? flat[(j + 1) % m].r.p : flat[Math.min(m - 1, j + 1)].r.p;
-      return b.clone().sub(a).normalize();
-    };
+    const knot = (j: number) => (closed ? flat[((j % m) + m) % m] : flat[Math.max(0, Math.min(m - 1, j))]);
+    // 1. One continuous centripetal Catmull-Rom spline through every knot, sampled
+    //    densely: no polygon corners, no kinks where one cell's samples meet the next's.
+    type Dense = { p: Vector3; upP: Vector3 | null; lift: boolean; elem: boolean; ang: number; cell: number; park: boolean };
+    const dense: Dense[] = [];
+    const segs = closed ? m : m - 1;
+    for (let j = 0; j < segs; j++) {
+      const A = knot(j);
+      const B = knot(j + 1);
+      const P0 = knot(j - 1).r.p;
+      const P1 = A.r.p;
+      const P2 = B.r.p;
+      const P3 = knot(j + 2).r.p;
+      const steps = Math.max(1, Math.ceil(P1.distanceTo(P2) / DENSE_STEP));
+      for (let k = 0; k < steps; k++) {
+        const u = k / steps;
+        const p = k === 0 ? P1.clone() : catmull(P0, P1, P2, P3, u);
+        const near = u < 0.5 ? A.r : B.r;
+        const upP = A.r.up && B.r.up ? A.r.up.clone().lerp(B.r.up, u).normalize() : near.up ? near.up.clone() : null;
+        const ang = A.r.ang >= 0 && B.r.ang >= 0 ? A.r.ang + (B.r.ang - A.r.ang) * u : near.ang;
+        // A segment belongs to the cell its far knot is in (the joint knot stays with the cell before).
+        // (The closing segment of a loop belongs to the last cell: it runs into the first cell's start.)
+        const cell = k === 0 || (closed && j === m - 1) ? A.cell : B.cell;
+        dense.push({ p, upP, lift: near.lift, elem: near.elem, ang, cell, park: k === 0 && !!A.r.park });
+      }
+    }
+    if (!closed) {
+      const L = knot(m - 1);
+      dense.push({ p: L.r.p.clone(), upP: L.r.up?.clone() ?? null, lift: L.r.lift, elem: L.r.elem, ang: L.r.ang, cell: L.cell, park: !!L.r.park });
+    }
+    const D = dense.length;
+    const at = (j: number) => (closed ? ((j % D) + D) % D : Math.max(0, Math.min(D - 1, j)));
+    // 2. Ease the height through plain track (lift starts and stops, the finale dive):
+    //    a gentle Gaussian on y, leaving the shaped elements alone.
+    const free = dense.map((d) => !d.upP && !d.lift);
+    for (let pass = 0; pass < 10; pass++) {
+      const ys = dense.map((d) => d.p.y);
+      for (let j = 0; j < D; j++) {
+        if (!free[j] || (!closed && (j === 0 || j === D - 1))) continue;
+        dense[j].p.y = ys[at(j - 1)] * 0.25 + ys[j] * 0.5 + ys[at(j + 1)] * 0.25;
+      }
+    }
+    // 3. Tangents, and banking from the real curvature: the tighter the turn, the
+    //    harder the train leans into it (eased in and out along the track).
     const Y = new Vector3(0, 1, 0);
-    const frames = flat.map(({ r }, j) => {
-      const t = tangent(j);
-      const hint = r.up ?? (r.bank ? Y.clone().add(r.bank).normalize() : Y.clone());
-      let right = hint.clone().cross(t);
-      if (right.lengthSq() < 1e-8) right = new Vector3(1, 0, 0).cross(t);
-      right.normalize();
-      const up = t.clone().cross(right).normalize();
-      return { t, up, right };
+    const tan = dense.map((_, j) => dense[at(j + 1)].p.clone().sub(dense[at(j - 1)].p).normalize());
+    let bank = dense.map((d, j) => {
+      if (d.upP) return new Vector3();
+      const a = tan[at(j - 1)];
+      const b = tan[at(j + 1)];
+      const ds = dense[at(j + 1)].p.distanceTo(dense[at(j - 1)].p) || 1;
+      // Horizontal curvature only: climbs and dips don't bank.
+      const k = b.clone().sub(a).divideScalar(ds).setY(0);
+      const flatT = tan[j].clone().setY(0);
+      if (flatT.lengthSq() < 0.05) return new Vector3();
+      return k.multiplyScalar(BANK_K).clampLength(0, BANK_MAX);
     });
-    // One smoothing pass on up vectors takes the edge off element joins.
-    const ups = frames.map((f, j) => {
-      const a = frames[this.closed ? (j - 1 + m) % m : Math.max(0, j - 1)].up;
-      const b = frames[this.closed ? (j + 1) % m : Math.min(m - 1, j + 1)].up;
-      return f.up.clone().multiplyScalar(2).add(a).add(b).normalize();
-    });
+    for (let pass = 0; pass < 36; pass++) bank = bank.map((b, j) => b.clone().multiplyScalar(0.5).addScaledVector(bank[at(j - 1)], 0.25).addScaledVector(bank[at(j + 1)], 0.25));
+    let hint = dense.map((d, j) => d.upP?.clone() ?? Y.clone().add(bank[j]).normalize());
+    // A light blur takes the edge off where shaped elements meet plain track.
+    for (let pass = 0; pass < 6; pass++)
+      hint = hint.map((h, j) => h.clone().multiplyScalar(2).add(hint[at(j - 1)]).add(hint[at(j + 1)]).normalize());
     let s = 0;
-    this.pts = flat.map(({ r, cell }, j) => {
-      if (j > 0) s += r.p.distanceTo(flat[j - 1].r.p);
-      const t = frames[j].t;
-      const right = ups[j].clone().cross(t).normalize();
+    let prevRight = new Vector3(1, 0, 0);
+    this.pts = dense.map((d, j) => {
+      if (j > 0) s += d.p.distanceTo(dense[j - 1].p);
+      const t = tan[j];
+      let right = hint[j].clone().cross(t);
+      if (right.lengthSq() < 1e-6) right = prevRight.clone();
+      right.normalize();
+      prevRight = right;
       const up = t.clone().cross(right).normalize();
-      return { p: r.p, t, up, right, s, cell, lift: r.lift, elem: r.elem, ang: r.ang };
+      return { p: d.p, t, up, right: up.clone().cross(t).normalize(), s, cell: d.cell, lift: d.lift, elem: d.elem, ang: d.ang };
     });
-    const pk = flat.findIndex((f) => f.r.park);
+    const pk = dense.findIndex((d) => d.park);
     this.parkAt = pk >= 0 ? this.pts[pk].s : 0;
-    this.length = s + (this.closed ? this.pts[m - 1].p.distanceTo(this.pts[0].p) : 0);
+    this.length = s + (closed ? this.pts[D - 1].p.distanceTo(this.pts[0].p) : 0);
     // Per-cell sample lists, sharing joint points with their neighbors.
     this.seg = [];
     this.ranges = [];

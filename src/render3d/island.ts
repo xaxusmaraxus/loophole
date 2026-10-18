@@ -17,6 +17,9 @@ export interface Look3D {
   horizon: string;
   support: string;
   tie: string;
+  /** The park's coaster paint: one rail and spine colour for the whole ride. */
+  rail: string;
+  spine: string;
   flora: Flora;
   flowers: string[];
 }
@@ -29,6 +32,8 @@ export const LOOKS: Record<ParkId, Look3D> = {
     horizon: '#2a5a9a',
     support: '#3aa6a0',
     tie: '#3a3550',
+    rail: '#ffc93a',
+    spine: '#f0603c',
     flora: 'meadow',
     flowers: ['#ff8fb8', '#ffd23f', '#fbf6ec', '#ff9a3c'],
   },
@@ -39,6 +44,8 @@ export const LOOKS: Record<ParkId, Look3D> = {
     horizon: '#2a74b0',
     support: '#f3ead5',
     tie: '#8a5a36',
+    rail: '#4fd3e6',
+    spine: '#2a7fc0',
     flora: 'boardwalk',
     flowers: ['#ff5d8a', '#ffd23f', '#fbf6ec'],
   },
@@ -49,6 +56,8 @@ export const LOOKS: Record<ParkId, Look3D> = {
     horizon: '#1e2148',
     support: '#6b6480',
     tie: '#2b2140',
+    rail: '#b48cff',
+    spine: '#5a3f9a',
     flora: 'hollow',
     flowers: ['#b98cff', '#8cf0c8', '#e4e4ec'],
   },
@@ -57,8 +66,10 @@ export const LOOKS: Record<ParkId, Look3D> = {
     lip: '#7cc453',
     sea: ['#7ae8f0', '#38b0dc', '#1c5fa8'],
     horizon: '#2b5aa0',
-    support: '#e8484f',
+    support: '#fbf6ec',
     tie: '#3a3550',
+    rail: '#ff7eb6',
+    spine: '#ffc93a',
     flora: 'finale',
     flowers: ['#ff8fb8', '#ffd23f', '#9d6ef0', '#45a8e0'],
   },

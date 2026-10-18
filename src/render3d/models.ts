@@ -727,6 +727,13 @@ export interface PersonGeo {
  */
 export type Face = 'smile' | 'grin' | 'cocky' | 'nervous' | 'meh' | 'joy' | 'scream' | 'terror' | 'sick' | 'puke';
 
+/** A stable 0..1 number per look, for render-only variety. */
+function lookHash(l: Look): number {
+  let h = 2166136261;
+  for (const ch of lookKey(l)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return ((h >>> 0) % 1000) / 1000;
+}
+
 function lookKey(l: Look): string {
   return [l.skin, l.hair, l.hairStyle, l.shirt, l.pants, l.accessory, l.small ? 1 : 0, l.big ? 1 : 0].join('.');
 }
@@ -969,6 +976,30 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
     for (const sx of [-1, 1])
       sausage(g, curve(v3(sx * 0.006, hy - 0.03, fz + 0.012), v3(sx * 0.03, hy - 0.04, fz + 0.004), v3(sx * 0.05, hy - 0.022, fz - 0.01)), 0.009, HAIRS[look.hair]);
   }
+  // A little extra personality, picked from the look itself (so a guest always wears the same):
+  // a bow, a bucket hat, mouse ears for the kids, freckles.
+  const vibe = lookHash(look);
+  if (!look.big && !ghost) {
+    if ((look.hairStyle === 'long' || look.hairStyle === 'bun') && vibe < 0.45) {
+      const bc = vibe < 0.22 ? PAL.heart : SHIRTS[(look.shirt + 2) % SHIRTS.length];
+      const at = v3(headR * 0.62, hy + headR * 0.78, -0.01);
+      for (const sx of [-1, 1]) g.sphere(at.clone().add(v3(sx * 0.026, 0, 0)), 0.024, bc, 1.2, 0.8, 0.6, 8, 5, true);
+      g.sphere(at, 0.012, shade(bc, -0.15), 1, 1, 1, 6, 4, true);
+    } else if (look.hairStyle === 'short' && vibe > 0.72) {
+      const hc = ['#f2e2b6', '#7fc8f0', '#f0a35a', '#9ad27a'][Math.floor(vibe * 37) % 4];
+      g.cyl(M(0, hy + headR * 0.62, -0.006), headR * 1.38, headR * 1.38, 0.014, shade(hc, -0.08), 18, hc, true);
+      g.sphere(v3(0, hy + headR * 0.66, -0.008), headR * 0.92, hc, 1.06, 0.62, 1.02, 14, 7, true);
+      g.cyl(M(0, hy + headR * 0.72, -0.006), headR * 0.96, headR * 0.96, 0.02, PAL.red, 16, PAL.red, true);
+    } else if (kid && vibe < 0.4 && look.hairStyle !== 'cap') {
+      for (const sx of [-1, 1]) {
+        g.cyl(new Matrix4().makeRotationX(Math.PI / 2).multiply(RZ(sx * 0.35)).setPosition(sx * headR * 0.66, hy + headR * 0.98, -0.01), 0.048, 0.048, 0.016, PAL.ink, 14, PAL.ink, true);
+      }
+      g.pipe(arc(8, (u) => v3(Math.cos(Math.PI * u) * headR * 0.98, hy + Math.sin(Math.PI * u) * headR * 1.02, -0.005)), 0.007, PAL.ink, 5);
+    }
+    if (vibe > 0.45 && vibe < 0.62 && look.skin < 3)
+      for (const sx of [-1, 1])
+        for (let k = 0; k < 3; k++) g.sphere(v3(sx * (headR * 0.5 + k * 0.012), hy - 0.012 - (k % 2) * 0.008, fz * 0.9 + 0.006), 0.0045, shade(skin, -0.28), 1, 1, 0.5, 5, 3, true);
+  }
   const tiltBack = seated ? 0.15 : 0.42;
   const tilt = new Matrix4().makeTranslation(0, hy, 0).multiply(new Matrix4().makeRotationX(-tiltBack)).multiply(new Matrix4().makeTranslation(0, -hy, 0));
   g.transform(tilt, headFrom);
@@ -986,6 +1017,13 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
     g.beam(v3(0.13, y0 + 0.04, 0.03), v3(0.18, y0 + 0.5, 0.0), 0.006, '#e4e4ec');
     g.sphere(v3(0.18, y0 + 0.58, 0), 0.08, PAL.red, 0.95, 1.1, 0.95, 12, 8, true);
     g.sphere(v3(0.155, y0 + 0.61, 0.06), 0.018, '#ffd0c8', 1, 1, 0.5, 6, 4, true);
+  }
+  // Some guests carry a little backpack.
+  if (!ghost && !seated && !look.big && vibe > 0.62 && vibe < 0.8) {
+    const bp = SHIRTS[(look.shirt + 4) % SHIRTS.length];
+    g.box(M(0, y0 + torsoH * 0.55, -torsoW * 0.46 * belly), torsoW * 0.62, torsoH * 0.62, 0.05, bp, 0.022, shade(bp, 0.12));
+    g.box(M(0, y0 + torsoH * 0.42, -torsoW * 0.46 * belly - 0.028), torsoW * 0.42, torsoH * 0.26, 0.02, shade(bp, -0.12), 0.008);
+    for (const sx of [-1, 1]) g.beam(v3(sx * torsoW * 0.22, y0 + torsoH * 0.92, -0.02), v3(sx * torsoW * 0.26, y0 + torsoH * 0.3, torsoW * 0.32), 0.012, shade(bp, -0.2));
   }
   // Arm: shoulder at the origin, hanging down -Y.
   const arm = new Geo();
@@ -1023,34 +1061,77 @@ function buildPerson(look: Look, face: Face, seated: boolean): PersonGeo {
 
 export type CarKind = 'lead' | 'mid' | 'tail';
 
-/** A two-seat car on the rails; origin on the track centerline, +Z forward. */
+/**
+ * A chunky clay coaster car; origin just above the track centerline, +Z forward.
+ * Road wheels sit on the rails (at x = ±0.063 in the car's frame, after its
+ * scale), with upstop wheels hugging them from below. The lead car has a face.
+ */
 export function carGeo(kind: CarKind): BufferGeometry {
   return cached(`car-${kind}`, () => {
     const g = new Geo();
-    const red = PAL.car[1];
-    const dark = PAL.car[3];
+    const [light, red, deep, dark] = PAL.car;
     const gold = PAL.gold;
-    const L = 0.25;
-    g.box(M(0, 0.07, 0), 0.2, 0.07, L, red, 0.03, PAL.car[0]);
-    // Gold stripe down each side.
-    for (const sx of [-1, 1]) g.box(M(sx * 0.101, 0.07, 0), 0.008, 0.02, L - 0.05, gold, 0.004);
-    // Seat back and dash.
-    g.box(M(0, 0.13, -0.095), 0.19, 0.1, 0.05, PAL.car[2], 0.02, PAL.car[1]);
-    g.box(M(0, 0.12, 0.1), 0.19, 0.06, 0.045, red, 0.018);
-    // Lap bar.
-    g.pipe([v3(-0.085, 0.1, 0.035), v3(-0.085, 0.165, 0.035), v3(0.085, 0.165, 0.035), v3(0.085, 0.1, 0.035)], 0.011, '#e7e9f2', 6);
-    // Wheels and bogie.
-    g.box(M(0, 0.02, 0), 0.08, 0.03, L * 0.8, '#3a3550');
-    for (const sx of [-1, 1])
-      for (const sz of [-1, 1]) g.cyl(new Matrix4().makeRotationZ(Math.PI / 2).setPosition(sx * 0.05, 0.012, sz * 0.075), 0.026, 0.026, 0.03, '#2b2140', 8, '#8c96b8');
+    const iron = '#2b2140';
+    const steel = '#9aa0b8';
+    const L = 0.27;
+    const RX_ = 0.063;
+    const railY = -0.023;
+    // Chassis and wheel assemblies: a road wheel on top of each rail, an upstop under it.
+    g.box(M(0, 0.03, 0), 0.11, 0.03, L * 0.82, iron, 0.008);
+    for (const sz of [-1, 1]) {
+      const z = sz * L * 0.3;
+      g.box(M(0, 0.03, z), 0.17, 0.018, 0.04, '#4a4560', 0.006);
+      for (const sx of [-1, 1]) {
+        g.box(M(sx * (RX_ + 0.032), -0.006, z), 0.012, 0.07, 0.04, '#4a4560', 0.004);
+        g.cyl(new Matrix4().makeRotationZ(Math.PI / 2).setPosition(sx * RX_, railY + 0.041, z), 0.02, 0.02, 0.022, '#3a3550', 10, steel, true);
+        g.cyl(new Matrix4().makeRotationZ(Math.PI / 2).setPosition(sx * RX_, railY - 0.036, z), 0.013, 0.013, 0.018, '#3a3550', 8, steel);
+        g.cyl(new Matrix4().setPosition(sx * (RX_ + 0.03), railY, z), 0.011, 0.011, 0.016, '#3a3550', 8, steel);
+      }
+    }
+    // The tub: a soft, rounded clay body with a lighter rim and a gold stripe.
+    g.box(M(0, 0.088, 0), 0.23, 0.09, L, red, 0.042, light);
+    g.box(M(0, 0.136, 0.005), 0.2, 0.014, L - 0.04, shade(light, 0.1), 0.007);
+    for (const sx of [-1, 1]) {
+      g.box(M(sx * 0.116, 0.084, 0), 0.008, 0.022, L - 0.07, gold, 0.004);
+      // A little white roundel on each flank.
+      g.cyl(new Matrix4().makeRotationZ(Math.PI / 2).setPosition(sx * 0.117, 0.088, -0.06), 0.022, 0.022, 0.006, PAL.white, 12, PAL.white);
+      g.sphere(v3(sx * 0.121, 0.088, -0.06), 0.009, gold, 0.4, 1, 1, 6, 4, true);
+    }
+    // Seat: a padded bucket with a headrest.
+    g.box(M(0, 0.1, -0.02), 0.17, 0.03, 0.14, dark, 0.012);
+    g.box(new Matrix4().makeRotationX(-0.18).setPosition(0, 0.16, -0.1), 0.18, 0.13, 0.045, deep, 0.02, red);
+    g.sphere(v3(0, 0.235, -0.112), 0.04, deep, 1.5, 0.75, 0.6, 12, 6, true);
+    // Lap bar: a padded yellow U over the rider's lap.
+    const bar = [v3(-0.088, 0.13, 0.06), v3(-0.088, 0.168, 0.05), v3(-0.07, 0.178, 0.045), v3(0.07, 0.178, 0.045), v3(0.088, 0.168, 0.05), v3(0.088, 0.13, 0.06)];
+    g.pipe(bar, 0.012, gold, 8);
+    g.sphere(v3(0, 0.178, 0.045), 0.02, '#ffe38a', 3.2, 0.8, 0.9, 12, 6, true);
+    // Dash in front of the seat.
+    g.box(M(0, 0.135, 0.105), 0.2, 0.05, 0.045, red, 0.02, light);
+    // Coupler to the car behind.
+    if (kind !== 'tail') g.beam(v3(0, 0.035, -L / 2 + 0.01), v3(0, 0.035, -L / 2 - 0.045), 0.022, iron);
     if (kind === 'lead') {
-      // Nose cone with a headlight and a number plate.
-      g.sphere(v3(0, 0.08, L / 2 + 0.02), 0.1, red, 1, 0.55, 0.7, 12, 7, true);
-      g.sphere(v3(0, 0.1, L / 2 + 0.085), 0.026, '#fff6c8', 1, 1, 0.6, 8, 5, true);
-      g.box(M(0, 0.045, L / 2 + 0.07), 0.07, 0.03, 0.02, gold, 0.006);
+      // A big round nose with a face: googly eyes (the headlamps), rosy cheeks and a grin.
+      g.sphere(v3(0, 0.085, L / 2 + 0.02), 0.115, red, 1.02, 0.62, 0.72, 16, 9, true);
+      g.sphere(v3(0, 0.13, L / 2 + 0.02), 0.08, light, 1.2, 0.35, 0.6, 12, 6, true);
+      for (const sx of [-1, 1]) {
+        const e = v3(sx * 0.046, 0.118, L / 2 + 0.085);
+        g.sphere(e, 0.028, PAL.white, 1, 1.1, 0.7, 12, 8, true);
+        g.sphere(e.clone().add(v3(sx * 0.003, 0.004, 0.019)), 0.013, PAL.ink, 1, 1.1, 0.5, 10, 6, true);
+        g.sphere(e.clone().add(v3(sx * 0.003 + 0.005, 0.011, 0.025)), 0.0045, '#ffffff', 1, 1, 0.5, 6, 4, true);
+        g.sphere(v3(sx * 0.078, 0.078, L / 2 + 0.075), 0.017, '#ff8fa3', 1, 0.7, 0.45, 8, 5, true);
+      }
+      const smile = arc(8, (t) => v3(-0.04 + t * 0.08, 0.072 - Math.sin(Math.PI * t) * 0.02, L / 2 + 0.1 - Math.sin(Math.PI * t) * 0.006));
+      g.pipe(smile, 0.007, '#4a1426', 6);
+      g.box(M(0, 0.03, L / 2 + 0.07), 0.14, 0.022, 0.05, dark, 0.01);
+      g.box(M(0, 0.033, L / 2 + 0.098), 0.06, 0.02, 0.008, gold, 0.004);
     } else if (kind === 'tail') {
-      g.box(new Matrix4().makeRotationX(-0.35).setPosition(0, 0.2, -0.12), 0.02, 0.11, 0.07, gold, 0.008);
-      g.sphere(v3(0, 0.08, -L / 2 - 0.01), 0.08, red, 1, 0.5, 0.35, 10, 6, true);
+      // A rounded rump, a bumper and a little gold fin.
+      g.sphere(v3(0, 0.085, -L / 2 - 0.005), 0.1, red, 1.1, 0.55, 0.42, 14, 7, true);
+      g.box(M(0, 0.035, -L / 2 - 0.035), 0.16, 0.025, 0.03, dark, 0.012);
+      g.box(new Matrix4().makeRotationX(-0.35).setPosition(0, 0.25, -0.14), 0.018, 0.1, 0.07, gold, 0.008);
+      for (const sx of [-1, 1]) g.sphere(v3(sx * 0.07, 0.09, -L / 2 - 0.04), 0.014, '#ff5d5d', 1, 1, 0.6, 8, 5, true);
+    } else {
+      g.sphere(v3(0, 0.085, L / 2 - 0.01), 0.09, red, 1.15, 0.5, 0.3, 12, 6, true);
     }
     return g.build();
   });
@@ -1106,7 +1187,7 @@ export function tree(p: Parts, x: number, z: number, seed: number, flora: Flora,
       matte.cyl(M(x, 0.12 * size, z), 0.05, 0.04, 0.24 * size, '#4a3626', 6);
       for (let k = 0; k < 4; k++) {
         const y = (0.22 + k * 0.2) * size;
-        leaf.cyl(M(x, y + 0.1 * size, z), (0.3 - k * 0.06) * size, 0.02, 0.28 * size, k % 2 ? '#3d5a4c' : '#34503f', 7);
+        leaf.cyl(M(x, y + 0.1 * size, z), (0.3 - k * 0.06) * size, 0.02, 0.28 * size, k % 2 ? '#3d5a4c' : '#34503f', 11, undefined, true);
       }
       return;
     }
@@ -1125,13 +1206,15 @@ export function tree(p: Parts, x: number, z: number, seed: number, flora: Flora,
     matte.cyl(M(x, 0.08 * size, z), 0.045, 0.04, 0.16 * size, '#7a4e2f', 6);
     for (let k = 0; k < 3; k++) {
       const y = (0.18 + k * 0.2) * size;
-      leaf.cyl(M(x, y + 0.12 * size, z), (0.3 - k * 0.07) * size, 0.03, 0.3 * size, k % 2 ? '#3f8a4a' : '#2f6f45', 8);
+      leaf.cyl(M(x, y + 0.12 * size, z), (0.3 - k * 0.07) * size, 0.03, 0.3 * size, k % 2 ? '#3f8a4a' : '#2f6f45', 12, undefined, true);
+      // A soft clay tip on the top tier.
+      if (k === 2) leaf.sphere(v3(x, y + 0.27 * size, z), 0.035 * size, '#3f8a4a', 1, 1, 1, 8, 5, true);
     }
     return;
   }
   const colors = flora === 'finale' ? BLOSSOM : r() < 0.55 ? AUTUMN : GREEN;
   const h = (0.3 + r() * 0.12) * size;
-  matte.cyl(M(x, h / 2, z), 0.05 * size, 0.035 * size, h, '#7a4e2f', 6);
+  matte.cyl(M(x, h / 2, z), 0.05 * size, 0.035 * size, h, '#7a4e2f', 9, undefined, true);
   matte.beam(v3(x, h * 0.6, z), v3(x + 0.12 * size, h + 0.1 * size, z + 0.03), 0.03 * size, '#7a4e2f');
   const c0 = colors[Math.floor(r() * colors.length)];
   const blobs = 3 + Math.floor(r() * 2);
@@ -1209,11 +1292,20 @@ export function stand(p: Parts, x: number, z: number): void {
 export function lamp(p: Parts, x: number, z: number): Vector3 {
   const m = (p.matte ??= new Geo());
   const glow = (p.glow ??= new Geo());
-  m.post(x, 0, z, 0.05, 0.05, '#2b2140', 8);
-  m.post(x, 0.05, z, 0.02, 0.62, '#3a3550', 6);
-  m.cyl(M(x, 0.73, z), 0.07, 0.03, 0.05, '#2b2140', 8);
-  glow.sphere(v3(x, 0.68, z), 0.055, '#fff1b0', 1, 1.1, 1, 10, 7, true);
-  m.cyl(M(x, 0.62, z), 0.03, 0.06, 0.03, '#2b2140', 8);
+  const iron = '#2b2140';
+  // A stepped foot, a pole with collars, and a lantern: a glowing globe in a little cage under a dome.
+  m.post(x, 0, z, 0.06, 0.035, iron, 10, 0.05);
+  m.post(x, 0.035, z, 0.04, 0.03, '#3a3550', 10, 0.028);
+  m.post(x, 0.06, z, 0.018, 0.56, '#3a3550', 8, 0.015);
+  for (const y of [0.2, 0.45]) m.post(x, y, z, 0.026, 0.02, iron, 10);
+  m.cyl(M(x, 0.625, z), 0.03, 0.05, 0.03, iron, 10);
+  glow.sphere(v3(x, 0.68, z), 0.05, '#fff1b0', 1, 1.15, 1, 12, 8, true);
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+    m.beam(v3(x + Math.cos(a) * 0.05, 0.635, z + Math.sin(a) * 0.05), v3(x + Math.cos(a) * 0.058, 0.73, z + Math.sin(a) * 0.058), 0.008, iron);
+  }
+  m.cyl(M(x, 0.75, z), 0.085, 0.02, 0.05, iron, 12, undefined, true);
+  m.sphere(v3(x, 0.785, z), 0.016, PAL.gold, 1, 1, 1, 8, 5, true);
   return v3(x, 0.68, z);
 }
 
