@@ -194,11 +194,11 @@ export const BOSSES: Record<BossId, BossDef> = {
   barry: {
     name: 'Big Barry',
     quip: 'Has never puked. Not once. Not even at the chili festival.',
-    stomach: 8,
+    stomach: 6,
     composure: 2,
     rule: 'seconds',
     ruleName: 'Second Helpings',
-    ruleDesc: 'Barry snacks while you play: his stomach grows by 1 every 4 moves (up to +6). Break him early!',
+    ruleDesc: 'Barry snacks while you play: his stomach grows by 1 every 4 moves (up to +6). Close the park early to catch him hungry!',
     trait: 'Huge. Everything hits him, just not very hard.',
     worth: 8,
     look: { shirt: 0, pants: 2, hairStyle: 'short', hair: 0, accessory: 'corndog' },
@@ -206,7 +206,7 @@ export const BOSSES: Record<BossId, BossDef> = {
   granny: {
     name: 'Granny Grit',
     quip: 'Rode the first wooden coaster in 1952. Was bored.',
-    stomach: 5,
+    stomach: 4,
     composure: 2,
     rule: 'seenitall',
     ruleName: 'Seen It All',

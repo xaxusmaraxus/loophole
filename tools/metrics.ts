@@ -6,7 +6,7 @@ Object.assign(RULES, JSON.parse(process.env.RULES ?? '{}'));
 const TARGET_MULT = Number(process.env.TARGET_MULT ?? 1);
 import { type Policy, apply, greedyBot, randomBot, smartBot, tunedBot } from './bots';
 
-interface DayLog { total: number; target: number; day: number; boss: boolean; moves: number; grows: number; firstGrow: number; maxGap: number; ratio: number; passed: boolean; bossFail: boolean; grade: string; patterns: number; roar: number; len: number; gridlock: boolean; choices: number }
+interface DayLog { bossId: string; total: number; target: number; day: number; boss: boolean; moves: number; grows: number; firstGrow: number; maxGap: number; ratio: number; passed: boolean; bossFail: boolean; grade: string; patterns: number; roar: number; len: number; gridlock: boolean; choices: number }
 
 function playSeason(seed: string, policy: Policy, rndSeed: number): { days: DayLog[]; won: boolean; reached: number } {
   let s = rndSeed;
@@ -35,7 +35,7 @@ function playSeason(seed: string, policy: Policy, rndSeed: number): { days: DayL
       if (g.phase === 'build') g.open('circuit');
       if (g.phase === 'ride') g.rideDone();
       const r = g.result!;
-      days.push({ total: r.dayTotal, target: r.target, day: g.dayNum, boss: !!g.cfg.boss, moves: g.actions, grows, firstGrow, maxGap: Math.max(maxGap, g.actions - lastGrow), ratio: r.dayTotal / Math.max(1, r.target), passed: r.passed, bossFail: !!g.cfg.boss && !r.bossPuked, grade: r.grade.letter, patterns: r.grade.patterns.length, roar: r.grade.bestRoar, len: g.board.ends[0].length, gridlock, choices: choiceSum / Math.max(1, steps) });
+      days.push({ bossId: g.cfg.boss ?? '', total: r.dayTotal, target: r.target, day: g.dayNum, boss: !!g.cfg.boss, moves: g.actions, grows, firstGrow, maxGap: Math.max(maxGap, g.actions - lastGrow), ratio: r.dayTotal / Math.max(1, r.target), passed: r.passed, bossFail: !!g.cfg.boss && !r.bossPuked, grade: r.grade.letter, patterns: r.grade.patterns.length, roar: r.grade.bestRoar, len: g.board.ends[0].length, gridlock, choices: choiceSum / Math.max(1, steps) });
       g.continueFromResults();
       if (g.phase === 'won' || g.phase === 'over') break;
     } else break;
@@ -69,5 +69,8 @@ for (const n of names) {
   const per: string[] = [];
   for (let d = 1; d <= 10; d++) { const ds = days.filter((x) => x.day === d && !x.boss); if (ds.length) per.push(`d${d}:${Math.round(q(ds.map((x) => x.total), 0.5) / 1000)}k/${Math.round(ds[0].target / 1000)}k m${q(ds.map((x) => x.moves), 0.5)}`); }
   console.log('  per day (median total / target, moves): ' + per.join('  '));
+  const bosses: Record<string, [number, number]> = {};
+  for (const d of bossD) { const b = (bosses[d.bossId] ??= [0, 0]); b[0]++; if (!d.bossFail) b[1]++; }
+  console.log('  bosses broken/met: ' + Object.entries(bosses).map(([k, [n, ok]]) => `${k} ${ok}/${n}`).join('  '));
   console.log(`  ride len med ${q(days.map((d) => d.len), 0.5)}  patterns med ${q(days.map((d) => d.patterns), 0.5)}  best roar med ${q(days.map((d) => d.roar), 0.5)}  choices/move ${f(days.reduce((a, d) => a + d.choices, 0) / days.length, 2)}  grades ${JSON.stringify(grades)}`);
 }
