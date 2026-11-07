@@ -155,7 +155,7 @@ export function patternCallout(id: PatternId, at: { x: number; y: number }, fres
   const kill = () => el.remove();
   // Gone when its animation ends (a fallback timer in case animations don't run).
   el.addEventListener('animationend', (e) => e.target === el && kill());
-  setTimeout(kill, fresh ? 8000 : 6000);
+  setTimeout(kill, fresh ? 3200 : 2400);
   if (fresh) el.addEventListener('click', kill);
 }
 

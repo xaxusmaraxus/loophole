@@ -231,3 +231,28 @@
 .hand .hand-label::before {
   content: '📖 ';
 }
+
+/* A first-ever pattern celebrates without blocking play. */
+.pattern-call.fresh {
+  pointer-events: none;
+}
+@media (max-width: 620px) {
+  .pattern-call.fresh {
+    top: 30%;
+  }
+  .pattern-call.fresh .pc-desc,
+  .pattern-call.fresh .pc-rays {
+    display: none;
+  }
+  .pattern-call.fresh .pc-box {
+    padding: 8px 16px;
+  }
+  /* Room for the park: the strip shows patterns, help holds the rest. */
+  .hand,
+  #music,
+  #sound,
+  #fullscreen,
+  #unlocks {
+    display: none !important;
+  }
+}

@@ -5,14 +5,14 @@ import './ride.css';
 import './strip.css';
 import { music } from './core/music';
 import { sfx } from './core/sfx';
-import { Game, dailyNumber } from './game';
+import { Game, dailyKey, dailyNumber } from './game';
 import { renderStrip } from './ui/strip';
 import { bulgeFor, type Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
 import type { ToolId } from './run/run';
 import { Hud } from './ui/hud';
 import { savePhoto } from './ui/photo';
-import { lastRecord, nameLocal, playerName, postDaily, postScore, recordDaily, setPlayerName } from './ui/scores';
+import { dailyLocal, lastRecord, nameLocal, playerName, postDaily, postScore, recordDaily, setPlayerName } from './ui/scores';
 import { copyShare, shareNative } from './ui/share';
 import { openScores } from './ui/scoreboard';
 import { driveToken } from './ui/map';
@@ -321,6 +321,35 @@ document.getElementById('switchEnd')!.addEventListener('click', () => act(() => 
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
 document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));
 document.getElementById('daily')!.addEventListener('click', () => act(() => game.newDaily()));
+
+// ---- Title screen: shown on load, over the first park ----
+{
+  const title = document.getElementById('titleScreen')!;
+  const today = dailyKey();
+  const local = dailyLocal(today);
+  document.getElementById('titleDailyLabel')!.textContent = local.official !== null ? `Daily Ride #${dailyNumber(today)} · yours: ${local.official.toLocaleString()}` : `Daily Ride #${dailyNumber(today)}`;
+  const rec = game.record;
+  const bits = [
+    game.best ? `Best season: <b>${game.best.toLocaleString()}</b>` : '',
+    rec.patterns.length ? `Patterns found: <b>${rec.patterns.length}/11</b>` : '',
+    rec.bosses.length ? `Bosses broken: <b>${rec.bosses.length}</b>` : '',
+  ].filter(Boolean);
+  document.getElementById('titleStats')!.innerHTML = bits.join(' · ');
+  title.hidden = false;
+  const close = () => {
+    title.classList.add('out');
+    window.setTimeout(() => (title.hidden = true), 350);
+  };
+  document.getElementById('titlePlay')!.addEventListener('click', () => {
+    startMusic();
+    close();
+  });
+  document.getElementById('titleDaily')!.addEventListener('click', () => {
+    startMusic();
+    close();
+    act(() => game.newDaily());
+  });
+}
 document.getElementById('newRunHelp')!.addEventListener('click', () => {
   (document.getElementById('helpDialog') as HTMLDialogElement).close();
   act(() => game.newRun());
