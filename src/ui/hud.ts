@@ -12,6 +12,7 @@ import { photoStore } from './photo';
 import { type DailyLocal, type DailyRow, dailyScores, lastRecord, playerName, recordLocal } from './scores';
 import { setShareText, shareLinks } from './share';
 import { gradeHtml, renderHand, renderRoar } from './skill';
+import { renderStrip } from './strip';
 import { LETTERS } from '../run/grade';
 import { ATTRACTIONS, type Effect, THEMES } from '../run/attractions';
 import { EGGS, type EggItem, FINALE_DAY, NODE_INFO, type Reward, SEASON_ORDER, type ShopItem, TOOLS, type ToolId, UPGRADES, type UpgradeId, sellValue } from '../run/run';
@@ -81,10 +82,54 @@ export class Hud {
 
   /** Today's Daily Ride on this device, and the shared board (null: not loaded or none here). */
   dailyLocal: DailyLocal | null = null;
+  /** The tile under the mouse, for the ride strip's "if you buy it" preview. */
+  stripHover: { x: number; y: number } | null = null;
   private dailyBoard: DailyRow[] | null = null;
   private dailyBoardFor = '';
 
   constructor(private game: Game) {}
+
+  /**
+   * First-day coaching: one step at a time, the hint line says what to do and a
+   * ring pulses on the thing it's about. Steps follow the day's state, so a
+   * player who already knows just plays through them.
+   */
+  private coach(on: boolean): void {
+    const g = this.game;
+    const targets = { strip: $('strip'), room: document.querySelector<HTMLElement>('.daylight'), open: $('open'), wallet: document.querySelector<HTMLElement>('.w-money') };
+    let step: keyof typeof targets | 'swipe' | 'buy' | null = null;
+    let text = '';
+    const per = g.spawnsPerSwipe;
+    const affordable = g.growCells.some((c) => (g.growCost(c.x, c.y) ?? Infinity) <= g.banked);
+    const len = g.board.ends[0].length;
+    if (on) {
+      if (g.room <= per + 1 && len > 2) {
+        step = 'open';
+        text = `<strong>Almost packed!</strong> ${g.room} free cell${g.room === 1 ? '' : 's'}, ${per} new tile${per === 1 ? '' : 's'} a swipe. Merge to make room, or close the park now: everyone in line rides once.`;
+      } else if (g.tide > 0 && g.actions < g.tideEvery + 4) {
+        step = 'room';
+        text = `<strong>The park's getting busier:</strong> every swipe now drops in ${per} tiles. Watch your free cells: when a swipe's tiles don't fit, the park is packed and the ride runs.`;
+      } else if (g.actions === 0) {
+        step = 'swipe';
+        text = '<strong>Swipe</strong> (or use the arrow keys) to slide the tiles. Two of a kind merge into the next coaster piece: Airtime Hill → Lift Hill → Helix → Loop…';
+      } else if (len <= 2 && affordable) {
+        step = 'buy';
+        text = '<strong>Tap a glowing tile</strong> next to your ride to buy it in. The loop swells out over it. Cheap pieces first: they raise the hype that pays for big ones.';
+      } else if (len > 2 && len <= 8) {
+        step = 'strip';
+        text = '<strong>This is your ride, in order ↓</strong> The train meets these pieces left to right. Line them up as <strong>patterns</strong> (a Pair, a Straight 1-2-3) for extra multiplier. ' + (matchMedia('(pointer: coarse)').matches ? 'Press and hold a tile to see where it would go.' : 'Hover a tile to see where it would go.');
+      } else if (len <= 2) {
+        step = 'wallet';
+        text = '<strong>Every move, guests buy tickets.</strong> A wilder ride draws more of them. Keep merging until you can afford a tile next to the ride.';
+      }
+    }
+    for (const [k, el] of Object.entries(targets)) el?.classList.toggle('coach-ring', step === k);
+    if (step) {
+      const hint = $('station');
+      hint.innerHTML = text;
+      hint.classList.add('coach');
+    } else $('station').classList.remove('coach');
+  }
 
   /** Loads today's shared Daily board into the card. */
   async loadDailyBoard(): Promise<void> {
@@ -167,6 +212,7 @@ export class Hud {
     // The skill layer: your hand of ride patterns, and the crowd's roar.
     renderHand(g);
     renderRoar(g);
+    renderStrip(g, this.stripHover);
     this.renderTools();
 
     // What to do next, and the open button.
@@ -208,6 +254,7 @@ export class Hud {
     const outOfMoves = building && g.board.loop && !canSwipe(g.board) && !g.growCells.some((c) => (g.growCost(c.x, c.y) ?? Infinity) <= g.banked);
     hint.classList.toggle('ready', building && ((!g.board.loop && canConnect(g.board)) || outOfMoves));
     hint.classList.toggle('tight', building && !aim && g.room <= low);
+    this.coach(building && !aim && !!g.board.loop && !g.daily && g.dayNum === 1 && g.record.seasons < 3);
     const open = $<HTMLButtonElement>('open');
     open.disabled = !kind;
     open.classList.toggle('circuit', kind === 'circuit');

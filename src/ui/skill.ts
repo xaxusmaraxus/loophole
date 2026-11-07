@@ -93,8 +93,8 @@ export function renderHand(game: Game, fresh?: PatternId): void {
   const groups = handGroups(hits);
   const total = hits.reduce((a, h) => a + PATTERNS[h.id].mult, 0);
   const html = groups.length
-    ? `<span class="hand-label">Hand <b>+${total}</b></span><span class="hand-chips">${groups.map((g) => patternChip(g.id, g.n, g.id === fresh ? ' pop' : '')).join('')}</span>`
-    : '<span class="hand-label">Hand</span><span class="hand-empty">None yet: line up a pair</span>';
+    ? `<span class="hand-label">Patterns <b>+${total}</b></span><span class="hand-chips">${groups.map((g) => patternChip(g.id, g.n, g.id === fresh ? ' pop' : '')).join('')}</span>`
+    : '<span class="hand-label">Patterns <b>+0</b></span><span class="hand-empty">None yet: line up a pair</span>';
   if (html === lastHand && !fresh) return;
   lastHand = html;
   el.innerHTML = html;

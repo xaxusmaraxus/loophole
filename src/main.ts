@@ -1,9 +1,12 @@
 import './style.css';
 import './boss.css';
 import './daily.css';
+import './ride.css';
+import './strip.css';
 import { music } from './core/music';
 import { sfx } from './core/sfx';
 import { Game, dailyNumber } from './game';
+import { renderStrip } from './ui/strip';
 import { bulgeFor, type Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
 import type { ToolId } from './run/run';
@@ -30,6 +33,8 @@ const renderer = new Renderer(canvas, game);
 const hud = new Hud(game);
 
 let lastTide = 0;
+let holdTimer = 0;
+let held = false;
 function act(fn: () => void): void {
   fn();
   dailyDone();
@@ -184,6 +189,18 @@ wrap.addEventListener('pointerdown', (e) => {
     return;
   }
   start = { x: e.clientX, y: e.clientY };
+  // Touch: press and hold a tile you could buy to preview it in the ride strip (a quick tap still buys).
+  clearTimeout(holdTimer);
+  held = false;
+  if (e.pointerType !== 'mouse' && game.phase === 'build' && game.board.loop && !game.aiming) {
+    const cell = renderer.cellAt(e.clientX, e.clientY);
+    if (cell && game.growCells.some((c) => c.x === cell.x && c.y === cell.y))
+      holdTimer = window.setTimeout(() => {
+        held = true;
+        hud.stripHover = cell;
+        renderStrip(game, cell);
+      }, 380);
+  }
   // Keep the drag ours even if it wanders off the park.
   try {
     wrap.setPointerCapture(e.pointerId);
@@ -193,10 +210,21 @@ wrap.addEventListener('pointerdown', (e) => {
 });
 wrap.addEventListener('pointermove', (e) => {
   if (!start) return;
-  renderer.setPreview(dragDir(e.clientX - start.x, e.clientY - start.y));
+  const d = dragDir(e.clientX - start.x, e.clientY - start.y);
+  if (d) clearTimeout(holdTimer);
+  renderer.setPreview(d);
 });
 wrap.addEventListener('pointerup', (e) => {
   renderer.setPreview(null);
+  clearTimeout(holdTimer);
+  if (held) {
+    // A held preview just ends: lift without buying.
+    held = false;
+    start = null;
+    hud.stripHover = null;
+    renderStrip(game, null);
+    return;
+  }
   if (!start) return;
   const dir = dragDir(e.clientX - start.x, e.clientY - start.y);
   start = null;
@@ -211,6 +239,8 @@ wrap.addEventListener('pointerup', (e) => {
   act(() => game.swipe(dir));
 });
 wrap.addEventListener('pointercancel', () => {
+  clearTimeout(holdTimer);
+  held = false;
   start = null;
   renderer.setPreview(null);
 });
@@ -252,9 +282,19 @@ wrap.addEventListener('pointermove', (e) => {
   if (showGuest(e.clientX, e.clientY)) return;
   // Tiles that grow the loop are clickable.
   const cell = game.phase === 'build' && game.board.loop && !game.aiming ? renderer.cellAt(e.clientX, e.clientY) : null;
-  wrap.style.cursor = cell && game.growCells.some((c) => c.x === cell.x && c.y === cell.y) ? 'pointer' : '';
+  const grows = !!cell && game.growCells.some((c) => c.x === cell.x && c.y === cell.y);
+  wrap.style.cursor = grows ? 'pointer' : '';
+  const hov = grows ? cell : null;
+  if (hov?.x !== hud.stripHover?.x || hov?.y !== hud.stripHover?.y) {
+    hud.stripHover = hov;
+    renderStrip(game, hov);
+  }
 });
 wrap.addEventListener('pointerleave', () => {
+  if (hud.stripHover) {
+    hud.stripHover = null;
+    renderStrip(game, null);
+  }
   guestCard.hidden = true;
   guestShown = -1;
   renderer.hoverId = null;

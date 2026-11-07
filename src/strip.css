@@ -1,0 +1,233 @@
+/* The ride strip: the coaster as a row of cards in ride order, patterns bracketed under them. */
+.ridebar {
+  flex: 1 1 auto;
+}
+.strip {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.strip[hidden] {
+  display: none;
+}
+.st-label {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--paper-edge);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.st-label small {
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.75;
+  margin-left: 4px;
+}
+.st-label.pv {
+  color: #ffe58a;
+}
+.st-label.pv b {
+  color: #9dff7a;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.st-label.pv s {
+  color: #ff9a9a;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.st-row {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+  padding-bottom: 2px;
+}
+.st-grid {
+  display: grid;
+  grid-auto-columns: max-content;
+  grid-template-rows: auto;
+  grid-auto-rows: 15px;
+  column-gap: 3px;
+  row-gap: 2px;
+  align-items: center;
+  width: max-content;
+  padding-top: 7px;
+}
+.sc {
+  grid-row: 1;
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 36px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, var(--c1, #eee), var(--c2, #bbb));
+  box-shadow: inset 0 -3px 0 var(--c3, #555), 0 1px 0 rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+  line-height: 1;
+  user-select: none;
+}
+.sc-ic {
+  font-size: 15px;
+}
+.sc-n {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.sc.lift {
+  background: repeating-linear-gradient(135deg, var(--c1) 0 5px, var(--c2) 5px 10px);
+}
+.sc.station {
+  min-width: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+  font-size: 14px;
+}
+.sc.flat {
+  min-width: 8px;
+  width: 8px;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.sc.flat i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+}
+.sc-mult,
+.sc-fin {
+  position: absolute;
+  top: -7px;
+  right: -6px;
+  padding: 1px 4px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 800;
+  color: #fff;
+  background: #ff5e8a;
+  box-shadow: 0 0 0 1.5px var(--ink);
+}
+.sc-fin {
+  background: #7d6bff;
+}
+.sc.fresh {
+  outline: 2px dashed #ffe58a;
+  outline-offset: 1px;
+  animation: sc-fresh 0.9s ease-in-out infinite alternate;
+}
+.sc.flat.fresh i {
+  background: #ffe58a;
+}
+@keyframes sc-fresh {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-3px);
+  }
+}
+.sb {
+  position: relative;
+  height: 13px;
+  border-radius: 0 0 7px 7px;
+  border: 2px solid var(--pc);
+  border-top: none;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  min-width: 0;
+}
+.sb span {
+  transform: translateY(6px);
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--pc);
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+  line-height: 12px;
+}
+.sb.new {
+  animation: sb-new 0.7s ease-in-out infinite alternate;
+}
+.sb.new span::before {
+  content: '★ ';
+}
+@keyframes sb-new {
+  from {
+    filter: brightness(1);
+  }
+  to {
+    filter: brightness(1.45) drop-shadow(0 0 4px var(--pc));
+  }
+}
+.strip.preview .st-row {
+  background: rgba(255, 229, 138, 0.08);
+  border-radius: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sc.fresh,
+  .sb.new {
+    animation: none;
+  }
+}
+@media (max-width: 620px) {
+  .strip {
+    flex-basis: 100%;
+    order: 5;
+  }
+  .sc {
+    min-width: 28px;
+    height: 32px;
+  }
+  .sc-ic {
+    font-size: 13px;
+  }
+}
+
+/* First-day coaching: a ring pulses on what the hint line is talking about. */
+.coach-ring {
+  position: relative;
+  border-radius: 14px;
+  animation: coach-ring 1.2s ease-in-out infinite;
+}
+@keyframes coach-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgba(255, 229, 138, 0.9), 0 0 0 0 rgba(255, 229, 138, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 2px rgba(255, 229, 138, 0.9), 0 0 0 10px rgba(255, 229, 138, 0);
+  }
+}
+#station.coach {
+  outline: 2px solid rgba(255, 229, 138, 0.7);
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-ring {
+    animation: none;
+    box-shadow: 0 0 0 2px rgba(255, 229, 138, 0.9);
+  }
+}
+
+/* The strip shows the patterns now: the hand shrinks to a pattern-book button with its total. */
+.hand .hand-chips,
+.hand .hand-empty {
+  display: none;
+}
+.hand .hand-label::before {
+  content: '📖 ';
+}
