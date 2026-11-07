@@ -50,7 +50,7 @@ import {
   trackAt,
 } from '../puzzle/board';
 import { type Mouth, makeBead, makeChevron, makeMouth, makeOutline } from '../render3d/mouths';
-import { RideAnim, parkS } from '../ride/ride';
+import { COUNT_MS, RideAnim, type RideStage, parkS } from '../ride/ride';
 import type { Rider } from '../riders/riders';
 import { Geo, rng, shade, v3 } from '../render3d/geo';
 import { GLOW_MAT, GRASS_Y, type Island, WATER_Y, buildIsland } from '../render3d/island';
@@ -143,6 +143,8 @@ export interface Walker {
   fly?: number;
   /** Gone into the porta-potty. */
   gone?: boolean;
+  /** On the way to their seat (a skip clears them). */
+  boarding?: boolean;
 }
 
 /** A slow-motion camera shot on something (a rider, the lead car). */
@@ -228,6 +230,8 @@ export class Renderer {
   private lampLights: PointLight[] = [];
   /** The on-ride camera's flash: always in the scene (so no shader recompiles), lit only for the photo. */
   private rush = 0;
+  /** The closing ride's camera: its own eye and aim (smoothed), and how far it has taken over from the park view. */
+  private rideCam = { eye: new Vector3(), look: new Vector3(), fov: FOV, w: 0, init: false, side: 1, offY: 0 };
   /** What you've bought, standing in the park: attraction landmarks, upgrade props, tour buses. */
   private structures = new Group();
   private structKey = '';
@@ -326,6 +330,7 @@ export class Renderer {
   private beat = 0;
   private photoReq: { due: number; pose: () => { eye: Vector3; look: Vector3; up: Vector3; splat?: boolean } } | null = null;
   private polaroid: HTMLDivElement | null = null;
+  private polaroidWaiting: string | null = null;
   private bars: HTMLDivElement[] = [];
   /** Riders lined up after the ride, by car index. */
   private lineup: Walker[] = [];
@@ -353,15 +358,25 @@ export class Renderer {
   private patternGlows: { cells: Pt[]; color: string; born: number; fresh: boolean }[] = [];
   /** Price tags stay hidden until then (a pattern callout is up). */
   private tagsQuietUntil = 0;
+  /**
+   * The one feedback channel while you build: per move, at most one callout (the
+   * most important thing that happened), in one place clear of the board's tiles.
+   * Everything smaller is told by the HUD's numbers ticking.
+   */
+  private call = { el: null as HTMLDivElement | null, prio: 0, key: '', born: -1e9, until: 0, rank: -1, sum: 0 };
+  /** No callouts until then (the PACKED banner holds the stage). */
+  private calmUntil = 0;
+  /** The rate the last purchase added (told with the piece it bought). */
+  private buyGain = { amount: 0, at: -1e9 };
   /** The crowd's last cheer (the line jumps). */
   private cheerAt = -1e9;
   /** A pattern formed (for the HUD's hand) and the roar changed (for its meter). */
   onPattern: (id: PatternId, fresh: boolean) => void = () => {};
   onRoar: (roar: number, lost: number) => void = () => {};
-  /** The "+N" floating up off the lead car (fast moves add up into one). */
-  private earnWord: { w: Word; total: number } | null = null;
   /** Test hook (?fixeddt=ms): advance a fixed step per frame, however slow the frames are. */
   private fixed = Number(new URLSearchParams(location.search).get('fixeddt') ?? 0);
+  /** Test hook (with ?fixeddt): hold the clock still (frames still render), to photograph a moment. */
+  hold = false;
   private vnow = 0;
 
   constructor(
@@ -573,8 +588,21 @@ export class Renderer {
 
   /** Click or space during the ride: resolve the rest of the scoring at once. */
   skipRide(): void {
-    this.ride?.skip(this.gameNow);
+    if (!this.ride) return;
+    this.ride.skip(this.gameNow);
+    this.walkers = this.walkers.filter((w) => !w.boarding);
     this.shot = null;
+    this.caption.classList.remove('on');
+  }
+
+  /** Where the closing ride is (test hook and HUD): null when no ride runs. */
+  get rideStage(): RideStage | null {
+    return this.ride ? this.ride.stage(this.gameNow) : null;
+  }
+
+  /** Test hook: what the ride camera is doing. */
+  get rideDebug(): { stage: RideStage | null; swoop: number; cine: number; camW: number; lastPuke: number; now: number } {
+    return { stage: this.rideStage, swoop: this.ride?.swoopK ?? 0, cine: this.cine, camW: this.rideCam.w, lastPuke: this.ride?.lastPukeAt ?? -1, now: this.gameNow };
   }
 
   // ---- Setup ---------------------------------------------------------------------
@@ -635,6 +663,7 @@ export class Renderer {
     this.streams = [];
     this.polaroid?.remove();
     this.polaroid = null;
+    this.polaroidWaiting = null;
     this.photoReq = null;
     this.shot = null;
     this.cine = 0;
@@ -643,7 +672,6 @@ export class Renderer {
     this.puddleDirty = true;
     for (const w of this.words) w.el.remove();
     this.words = [];
-    this.earnWord = null;
     this.riderPos.clear();
     this.game.queue.forEach((r, i) => {
       const s = this.slot(i);
@@ -1008,7 +1036,7 @@ export class Renderer {
           const i = this.game.queue.indexOf(e.rider);
           const s = this.slot(i);
           this.riderPos.set(e.rider.id, { x: s.x + this.queueDir() * 1.6, z: s.z, moving: true, ph: 0 });
-          if (e.reason !== 'walkin') this.word(e.reason === 'chain' ? 'WOW' : 'OOH', s.clone().setY(0.7), PAL.gold);
+          // (Arrivals show as the line growing and the HUD's guest count; no shout.)
           break;
         }
         case 'lap':
@@ -1099,13 +1127,17 @@ export class Renderer {
       const color = PATTERN_COLOR[id];
       this.patternGlows.push({ cells, color, born: this.now, fresh });
       cells.forEach((c, k) => this.after(k * 80, () => this.sparkle(this.cell(c).setY(0.55), fresh ? 16 : 9, color)));
-      // The callout sits just above the pattern's highest point on screen, clear of the purchase words.
-      const pts = cells.map((c) => this.project(this.cell(c).setY(this.cell(c).y + 1.2)));
-      const x = pts.reduce((a, q) => a + q.x, 0) / Math.max(1, pts.length);
-      const y = Math.min(...pts.map((q) => q.y)) - 56;
-      patternCallout(id, { x, y }, fresh);
-      // Price tags step aside while it shows.
-      this.tagsQuietUntil = this.now + (fresh ? 1800 : 1300);
+      // A pattern is the top news of a move: it takes the callout slot (above the board, off the tiles).
+      if (this.now < this.calmUntil) return;
+      const slot = this.calloutSlot();
+      const box = this.canvas.getBoundingClientRect();
+      patternCallout(id, { x: box.left + slot.x, y: box.top + slot.y + 28 }, fresh);
+      // (It anchors by its bottom edge; keep it in the slot even near the top of the screen.)
+      const pc = fresh ? null : [...document.querySelectorAll<HTMLElement>('.pattern-call:not(.fresh)')].pop();
+      if (pc) pc.style.top = `${box.top + slot.y + 28}px`;
+      this.claimCallout(5, fresh ? 2400 : 1300);
+      // Price tags step aside only for the big first-time banner.
+      if (fresh) this.tagsQuietUntil = this.now + 1800;
       this.kick(fresh ? 2.6 : 1.2, fresh ? 340 : 170);
       if (fresh) {
         sfx.newPattern();
@@ -1119,21 +1151,16 @@ export class Renderer {
   private roarFx(roar: number, lost: number): void {
     this.onRoar(roar, lost);
     if (this.game.phase !== 'build') return;
-    const line = this.slot(Math.min(3, Math.max(0, this.game.queue.length - 1))).setY(1.0);
     if (roar > 0) {
       this.cheerAt = this.now + SLIDE_MS;
       this.after(SLIDE_MS + 60, () => sfx.cheer(roar));
-      if (roar === 3 || roar === 5 || roar === 10)
-        this.after(SLIDE_MS + 120, () => {
-          const el = this.word(roar >= 10 ? 'MAX ROAR! ×2' : `ROAR ×${(1 + roar * 0.1).toFixed(1)}`, line, roar >= 10 ? PAL.gold : '#ff9f43', roar >= 10 ? 1.3 : 1, 1300, true);
-          el.classList.add('w3d-roar');
-        });
+      // The roar meter in the HUD carries it; only the max gets a callout.
+      if (roar === 10) this.after(SLIDE_MS + 120, () => this.callout(3, 'roar', 'MAX ROAR!', { sub: 'hype ×2', color: PAL.gold }));
     } else if (lost >= 3) {
+      // The HUD's meter deflates; here just the sound and a little shudder.
       this.after(SLIDE_MS, () => {
         sfx.deflate(lost);
-        this.kick(1.6, 280);
-        const el = this.word(`aww… roar lost (${lost})`, line, '#b9b3d6', 0.8, 1500, true);
-        el.classList.add('w3d-aww');
+        this.kick(1.2, 220);
       });
     }
   }
@@ -1178,8 +1205,10 @@ export class Renderer {
     // Each rider walks to their own car's side of the platform and hops in; the train
     // only leaves once the last one is seated.
     const park = this.path.parkAt;
-    const boardAt = result.tickets.map(() => this.gameNow + 300);
-    const WALK = 1.6;
+    const boardAt = result.tickets.map(() => this.gameNow + 250);
+    // Snappy: everyone scurries to their seat and hops in within about a second and a half.
+    const BOARD_MS = 1400;
+    const step = Math.min(70, 600 / Math.max(1, this.game.queue.length));
     this.game.queue.forEach((r, i) => {
       const p = this.riderPos.get(r.id);
       if (!p) return;
@@ -1187,17 +1216,24 @@ export class Renderer {
       const at = seat >= 0 ? this.path.sample(park - seat * CAR_GAP).p : sc;
       const tx = at.x;
       const tz = seat >= 0 ? at.z - 0.2 : sc.z;
-      const delay = i * 90;
-      this.walkers.push({ look: r.look, x: p.x, z: p.z, tx, tz, speed: WALK, delay });
-      if (seat >= 0) boardAt[seat] = this.gameNow + delay + (Math.hypot(tx - p.x, tz - p.z) / WALK) * 1000 + 40;
+      const delay = i * step;
+      const dist = Math.hypot(tx - p.x, tz - p.z);
+      const speed = Math.max(2.2, dist / Math.max(0.3, (BOARD_MS - delay) / 1000));
+      this.walkers.push({ look: r.look, x: p.x, z: p.z, tx, tz, speed, delay, boarding: true });
+      if (seat >= 0) boardAt[seat] = this.gameNow + delay + (dist / speed) * 1000 + 30;
     });
     this.riderPos.clear();
     photoStore.url = null;
     photoStore.card = null;
     this.polaroid?.remove();
     this.polaroid = null;
-    const go = Math.max(this.gameNow + 600, ...boardAt) + 450;
+    this.polaroidWaiting = null;
+    const go = Math.max(this.gameNow + 500, ...boardAt) + 200 + COUNT_MS;
     this.ride = new RideAnim(this, rideOrder(this.board, result.kind), result, this.show, go, boardAt);
+    this.rideCam.init = false;
+    // The PACKED banner has had its moment: the ride has the stage now.
+    this.call.until = 0;
+    this.call.el?.classList.remove('on', 'bump');
   }
 
   // ---- Effects ---------------------------------------------------------------------
@@ -1309,6 +1345,56 @@ export class Renderer {
     }
   }
 
+  /** A rider pukes on the ride: a splat of green clay chunks bursting off them (they land in puddles). */
+  pukeBurst(at: Vector3, fwd: Vector3, k = 1): void {
+    const ramp = ['#a6e05a', '#6fae2e', '#c8e86a', '#8cc23e', '#4f8a1f'];
+    const n = Math.round(14 + k * 12);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = (0.5 + Math.random() * 0.9) * (0.8 + k * 0.25);
+      const v = fwd.clone().multiplyScalar(0.9 + Math.random() * 0.6).add(v3(Math.cos(a) * sp, 0.6 + Math.random() * 1.1, Math.sin(a) * sp));
+      this.particles.add({ p: at.clone(), v, g: 5.5, max: 1.4, color: ramp[i % ramp.length], size: 0.03 + Math.random() * 0.035 * Math.min(2, k), puke: i % 2 === 0, drag: 0.4 });
+    }
+    sfx.splat(Math.min(2, k));
+  }
+
+  private lensEl: HTMLDivElement | null = null;
+  /** A big puke right by the camera splats on the lens (returns whether it did). */
+  lensSplat(at: Vector3, boss = false): boolean {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false;
+    if (this.camera.position.distanceTo(at) > (boss ? 5.5 : 4.5)) return false;
+    const p = this.project(at);
+    if (!this.lensEl) {
+      this.lensEl = document.createElement('div');
+      this.lensEl.className = 'lens-splat';
+      this.lensEl.setAttribute('aria-hidden', 'true');
+      this.canvas.parentElement!.append(this.lensEl);
+    }
+    const el = this.lensEl;
+    const box = this.canvas.getBoundingClientRect();
+    // Off to the side of the rider, never over the middle of the action.
+    const x = p.x < box.left + box.width / 2 ? 0.68 : 0.22;
+    el.style.left = `${(x + (Math.random() - 0.5) * 0.08) * 100}%`;
+    el.style.top = `${(0.3 + Math.random() * 0.15) * 100}%`;
+    el.style.setProperty('--s', boss ? '1.5' : '1');
+    el.style.setProperty('--r', `${Math.round(Math.random() * 360)}deg`);
+    el.classList.remove('on');
+    void el.offsetWidth;
+    el.classList.add('on');
+    this.kick(boss ? 5 : 2.5, 220);
+    return true;
+  }
+
+  /** The total lands: confetti and fireworks for a win, a sad puff for a miss. */
+  slamFx(won: boolean, quick = false): void {
+    if (won) {
+      this.cheer(quick ? 1.5 : 2.4);
+    } else {
+      this.cheer(0.4);
+      sfx.dud();
+    }
+  }
+
   sparkle(at: Vector3, n: number, color: string): void {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -1376,7 +1462,9 @@ export class Renderer {
     this.particles.add({ p: at.clone(), v: v3((Math.random() - 0.5) * 1.2, 1.8, (Math.random() - 0.5) * 0.8), g: 4, max: 1.6, color, size: 0.07 });
   }
 
-  word(text: string, at: Vector3, color: string, big = 1, ms = 1100, solo = false): HTMLElement {
+  word(text: string, at: Vector3, color: string, big = 1, ms = 950, solo = false): HTMLElement {
+    // A handful at most: the oldest give way.
+    while (this.words.length >= 6) this.words.shift()!.el.remove();
     // The same shout again nearby just counts up ("OOH ×3").
     const same = solo ? null : this.words.find((w) => w.base === text && this.now - w.born < 900 && Math.hypot(w.at.x - at.x, w.at.z - at.z) < 1.6);
     if (same) {
@@ -1401,6 +1489,94 @@ export class Renderer {
     return el;
   }
 
+  /**
+   * Put up the move's callout. A lesser one while a bigger one is up is dropped;
+   * the same kind again soon after merges into it (the biggest piece's name, the rate
+   * gains added up). `rank` picks which text wins a merge.
+   */
+  callout(prio: number, key: string, text: string, o: { sub?: string; color?: string; ms?: number; rank?: number; banner?: boolean } = {}): void {
+    if (this.now < this.calmUntil && prio < 9) return;
+    const c = this.call;
+    const live = this.now < c.until;
+    if (live && prio < c.prio) return;
+    if (!c.el) {
+      c.el = document.createElement('div');
+      c.el.className = 'callout';
+      c.el.setAttribute('aria-hidden', 'true');
+      c.el.innerHTML = '<b></b><small></small>';
+      this.wordLayer.append(c.el);
+    }
+    const el = c.el;
+    const main = el.firstElementChild as HTMLElement;
+    const sub = el.lastElementChild as HTMLElement;
+    const merge = live && c.key === key;
+    const rank = o.rank ?? 0;
+    if (!merge || (text && rank >= c.rank)) {
+      if (text) main.textContent = text;
+      c.rank = rank;
+      if (o.color) el.style.setProperty('--cc', o.color);
+    }
+    if (key === 'buy' && o.sub) {
+      // Rate gains add up across a quick run of purchases.
+      const n = Number(o.sub.replace(/[^\d]/g, '')) || 0;
+      c.sum = merge ? c.sum + n : n;
+      if (merge && main.textContent) sub.textContent = `+${c.sum.toLocaleString()} / move`;
+      else sub.textContent = o.sub;
+    } else if (!merge || o.sub) sub.textContent = o.sub ?? '';
+    if (!merge && key === 'buy' && !o.sub) c.sum = 0;
+    sub.hidden = !sub.textContent;
+    c.prio = prio;
+    c.key = key;
+    const ms = o.ms ?? (prio >= 4 ? 1500 : prio >= 3 ? 1200 : 1000);
+    c.until = this.now + ms;
+    el.style.setProperty('--ms', `${ms}ms`);
+    el.classList.toggle('banner', !!o.banner);
+    el.classList.toggle('big', prio >= 3);
+    if (!merge || prio > 2) {
+      el.classList.remove('on', 'bump');
+      void el.offsetWidth;
+      el.classList.add('on');
+      c.born = this.now;
+    } else {
+      // A merge: a small bump, not a fresh pop.
+      el.classList.remove('bump');
+      void el.offsetWidth;
+      el.classList.add('bump');
+    }
+    this.placeCallout();
+  }
+
+  /** Something outside this channel (a pattern's own callout) holds the slot for a while. */
+  private claimCallout(prio: number, ms: number): void {
+    const c = this.call;
+    if (this.now < c.until && c.prio > prio) return;
+    c.prio = prio;
+    c.key = 'claim';
+    c.until = this.now + ms;
+    c.el?.classList.remove('on', 'bump');
+  }
+
+  /** The callout slot (CSS px in the canvas box): above the board's back edge, or over the station if the HUD leaves no room. */
+  private calloutSlot(): { x: number; y: number } {
+    const n = this.n;
+    const back = this.local(v3(n / 2, GRASS_Y + 0.2, -0.1));
+    const room = back.y - this.safe.y0;
+    if (room > 64) return { x: back.x, y: Math.max(this.safe.y0 + 30, back.y - 34) };
+    // No room above the board: over the station roof (the train, not the tiles).
+    const sc = this.stationCenter();
+    const st = this.local(sc.setY(sc.y + 0.9));
+    return { x: st.x, y: st.y };
+  }
+
+  private placeCallout(): void {
+    const el = this.call.el;
+    if (!el) return;
+    const banner = el.classList.contains('banner');
+    const p = banner ? this.local(v3(this.n / 2, GRASS_Y + 0.6, this.n / 2 - 0.3)) : this.calloutSlot();
+    const x = Math.max(90, Math.min(this.cssW - 90, p.x));
+    el.style.transform = `translate(${this.canvas.offsetLeft + x}px, ${this.canvas.offsetTop + p.y}px) translate(-50%, -50%)`;
+  }
+
   addWalker(w: Walker): void {
     this.walkers.push(w);
   }
@@ -1418,7 +1594,7 @@ export class Renderer {
   // ---- Frame -----------------------------------------------------------------------
 
   frame(now: number): void {
-    if (this.fixed) now = this.vnow += this.fixed;
+    if (this.fixed) now = this.vnow += this.hold ? 0 : this.fixed;
     const dt = Math.min(this.fixed ? this.fixed / 1000 : 0.05, (now - this.now) / 1000 || 0);
     this.now = now;
     // Slow motion: ease into the shot's time scale, and back out.
@@ -1471,6 +1647,7 @@ export class Renderer {
       this.ride.draw(this.gameNow);
       if (this.ride.finished(this.gameNow)) {
         this.ride = null;
+        this.show.rideOver();
         this.onRideDone();
       }
     } else if (this.board.loop && (this.game.phase === 'build' || this.ridePending)) this.drawLoopTrain(gdt);
@@ -1502,7 +1679,11 @@ export class Renderer {
       const f = this.shotAt.clone().project(this.camera);
       this.post.mat.uniforms.uFocus.value.set((f.x + 1) / 2, (f.y + 1) / 2);
       const p = this.local(this.shotAt);
-      this.caption.style.transform = `translate(${this.canvas.offsetLeft + p.x}px, ${this.canvas.offsetTop + p.y - this.cssH * 0.18}px) translate(-50%, -50%)`;
+      // On screen even when the subject is near an edge (a shout half off the top reads as a glitch).
+      const cw = Math.min(this.cssW * 0.45, (this.caption.offsetWidth || 200) / 2 + 12);
+      const cx = Math.max(cw, Math.min(this.cssW - cw, p.x));
+      const cy = Math.max(this.safe.y0 + 40, Math.min(this.cssH * 0.6, p.y - this.cssH * 0.18));
+      this.caption.style.transform = `translate(${this.canvas.offsetLeft + cx}px, ${this.canvas.offsetTop + cy}px) translate(-50%, -50%)`;
     }
     this.drawBars();
     // Stop motion: the set is photographed 12 times a second ("on twos").
@@ -1512,6 +1693,7 @@ export class Renderer {
       this.post.render(this.gl, this.scene, this.camera, now / 1000);
     }
     if (this.photoReq && now >= this.photoReq.due) this.capturePhoto();
+    if (this.polaroidWaiting && (!this.ride || this.ride.stage(this.gameNow) !== 'ride')) this.showPolaroid(this.polaroidWaiting);
     this.drawWords();
     this.drawTags();
     this.drawCombo();
@@ -1558,6 +1740,27 @@ export class Renderer {
     }
     const dir = v3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
     cam.position.copy(target).addScaledVector(dir, dist);
+    // The closing ride takes the camera: boarding close-up, chase cam, swoops round the big pieces, then a pull-back.
+    const rc = this.rideCam;
+    const pose = this.rideCamPose(dt);
+    rc.w += ((pose ? pose.w : 0) - rc.w) * Math.min(1, dt * (pose && pose.w > rc.w ? 1.8 : 1.2));
+    if (rc.w < 0.002 && !pose) rc.w = 0;
+    if (rc.w > 0) {
+      const e = rc.w * rc.w * (3 - 2 * rc.w);
+      cam.position.lerp(rc.eye, e);
+      target.lerp(rc.look, e);
+      fov += (rc.fov - fov) * e;
+      roll *= 1 - e * 0.6;
+    }
+    // Keep the picture centred in the space the HUD leaves (the score panel docks at the bottom).
+    const offY = rc.offY * (rc.w > 0 ? rc.w : 0);
+    if (Math.abs(offY) > 0.5) cam.setViewOffset(this.cssW, this.cssH, 0, offY, this.cssW, this.cssH);
+    else if (cam.view?.enabled) cam.clearViewOffset();
+    const near = 0.5 - 0.38 * Math.min(1, rc.w * 1.5);
+    if (Math.abs(cam.near - near) > 0.01) {
+      cam.near = near;
+      cam.updateProjectionMatrix();
+    }
     if (this.now < this.shake.until) {
       const m = this.shake.mag * 0.018;
       cam.position.x += (Math.random() - 0.5) * 2 * m;
@@ -1571,6 +1774,122 @@ export class Renderer {
       cam.updateProjectionMatrix();
     }
     cam.updateMatrixWorld();
+  }
+
+  /**
+   * Where the ride camera wants to be this frame (it eases there), and how much it takes over.
+   * Boarding: a low three-quarter view of the station. Riding: behind and above the lead car,
+   * level (it never rolls with the track), swinging out to the side for loops and top hats,
+   * and pushing into the riders' faces for the slow-motion moments. Back at the station:
+   * the curtain call; once the total lands it pulls back to the park.
+   */
+  private rideCamPose(dt: number): { w: number } | null {
+    const ride = this.ride;
+    const rc = this.rideCam;
+    if (!ride || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return null;
+    const info = ride.cam(this.gameNow, dt);
+    if (info.stage === 'done') return null;
+    const aspect = this.cssW / Math.max(1, this.cssH);
+    const tall = aspect < 0.9;
+    const up = v3(0, 1, 0);
+    /** Camera distance that fits a width across the screen at this fov. */
+    const fitW = (w: number, fov: number) => {
+      const half = Math.atan(Math.tan(((fov / 2) * Math.PI) / 180) * aspect);
+      return w / 2 / Math.tan(half);
+    };
+    const orbit = (at: Vector3, yaw: number, pitch: number, dist: number) => at.clone().add(v3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist));
+    let eye: Vector3;
+    let look: Vector3;
+    let fov: number;
+    let w = 1;
+    const sc = this.stationCenter();
+    if (info.stage === 'board' || info.stage === 'count') {
+      // The station, close: the riders hopping in, then the train straining at the brakes.
+      const L = stationLayout(this.board.station.x, this.n);
+      fov = tall ? 44 : 38;
+      look = sc.clone().add(v3(0, 0.2, 0.1));
+      const k = info.stage === 'count' ? 0.85 : 1;
+      const dist = Math.max(3, Math.min(this.base.dist * 0.7, fitW(L.xR - L.xL + 2 * L.R + 1.2, fov))) * k;
+      eye = orbit(look, -0.32, 0.5, dist);
+    } else if (info.stage === 'ride') {
+      fov = tall ? 60 : 52;
+      const h = info.heading;
+      const side = h.clone().cross(up).normalize();
+      // Chase: behind, above and a touch to the side of the lead car, looking past it down the track.
+      const back = tall ? 3.5 : 2.3;
+      const lift = tall ? 1.75 : 1.05;
+      const chaseLook = info.lead.clone().addScaledVector(h, tall ? 0.9 : 1.1).setY(info.lead.y * 0.6 + 0.25);
+      const chaseEye = info.lead.clone().addScaledVector(h, -back).addScaledVector(side, 0.55).add(v3(0, lift, 0));
+      chaseEye.y = Math.max(chaseEye.y, info.lead.y + 0.7);
+      // Swoop: out to the side to see the whole loop (on the side facing the park camera).
+      if (info.swoop < 0.02) rc.side = side.z >= 0 ? 1 : -1;
+      const out = side.clone().multiplyScalar(rc.side);
+      const sz = info.swoopSize;
+      const swoopLook = info.swoopAt.clone().add(v3(0, 0.05, 0));
+      // High enough to look down over the rest of a long train winding past below.
+      const swoopEye = info.swoopAt.clone().addScaledVector(out, 1.6 + sz * (tall ? 1.6 : 1.15)).addScaledVector(h, -0.7).add(v3(0, 1.0 + sz * 0.35, 0));
+      const k = info.swoop * info.swoop * (3 - 2 * info.swoop);
+      eye = chaseEye.lerp(swoopEye, k);
+      look = chaseLook.lerp(swoopLook, k);
+      fov += (tall ? -2 : -6) * k;
+      // Speed: the lens widens a touch in the dips.
+      fov += info.rush * 5;
+    } else {
+      // The curtain call: everyone lined up in front of the station, cashing in.
+      fov = tall ? 44 : 38;
+      const cols = Math.min(this.n + 0.8, Math.max(2.5, this.lineup.length * 0.34));
+      look = v3(sc.x, 0.35 + this.terrain.lift, this.board.station.y + 1.45);
+      let dist = Math.min(this.base.dist * 0.85, Math.max(3.4, fitW(cols + 1, fov)));
+      // When the whole line doesn't fit close up (a phone), pan along it with whoever is cashing in.
+      const f = ride.focusCar;
+      if (f >= 0 && this.lineup[f] && dist > 4.6) {
+        const head = this.lineupHead(f);
+        look.x += (head.x - look.x) * 0.9;
+        look.z += (head.z - look.z) * 0.5;
+        dist = Math.max(4.2, fitW(3.2, fov) * 0.85);
+      }
+      eye = orbit(look, 0.22, 0.42, dist);
+      w = dist >= this.base.dist * 0.84 ? 0.6 : 1;
+    }
+    // Slow-motion moments: in close on the subject, from the front, so we see the faces.
+    if (this.cine > 0 && this.shot) {
+      const c = this.cine * this.cine * (3 - 2 * this.cine);
+      const h = info.stage === 'ride' ? info.heading : v3(0, 0, 1);
+      const at = this.shotAt;
+      let shotEye: Vector3;
+      if (info.stage === 'ride' && info.swoop > 0.3) {
+        // On a loop or roll: from outside the loop's plane, close on the train at the crown.
+        const out = h.clone().cross(up).normalize().multiplyScalar(rc.side);
+        shotEye = at.clone().addScaledVector(out, (tall ? 2.2 : 1.6) + info.swoopSize * 0.25).addScaledVector(h, 0.5).add(v3(0, 0.15, 0));
+      } else {
+        // Level track or the curtain call: from the front and to the side, on the faces.
+        const out = h.clone().cross(up).normalize().multiplyScalar(rc.side);
+        shotEye = at.clone().addScaledVector(h, 0.9 * (tall ? 1.3 : 1)).addScaledVector(out, 0.75).add(v3(0, 0.35, 0));
+      }
+      eye.lerp(shotEye, c);
+      look.lerp(at, c);
+      fov += ((tall ? 64 : 58) - fov) * c;
+    }
+    eye.y = Math.max(eye.y, this.groundAt(eye.x, eye.z) + 0.35);
+    if (!rc.init) {
+      // Start from where the park camera is now, then glide.
+      rc.init = true;
+      rc.eye.copy(this.camera.position);
+      rc.look.copy(this.base.target);
+      rc.fov = this.camera.fov;
+    }
+    const ke = Math.min(1, dt * (this.cine > 0.5 ? 5 : info.stage === 'ride' ? 3.2 : 2.2));
+    const kl = Math.min(1, dt * (this.cine > 0.5 ? 7 : 5));
+    rc.eye.lerp(eye, ke);
+    rc.look.lerp(look, kl);
+    rc.fov += (fov - rc.fov) * Math.min(1, dt * 3);
+    // Centre the picture between the top HUD and the score panel.
+    const panel = document.querySelector('.scoreshow')?.getBoundingClientRect();
+    const box = this.canvas.getBoundingClientRect();
+    const bottom = panel && panel.height > 0 ? panel.top - box.top - 6 : this.cssH;
+    const top = this.safe.y0;
+    rc.offY = Math.max(-this.cssH * 0.25, Math.min(this.cssH * 0.25, this.cssH / 2 - (top + bottom) / 2));
+    return { w };
   }
 
   /** Late in the day the light turns golden, then dusk comes and the lamps light up. */
@@ -2040,7 +2359,7 @@ export class Renderer {
           this.ringPuff(this.cell(w.to).setY(0.08), 16, TIER_RAMPS[w.tier][0], 1.9 + link * 0.2);
           if (w.fresh && w.flavor) this.parkPiecePop(w.flavor, w.to);
         }
-        this.word(`CHAIN ${link + 1}`, this.cell(wave[0].to).setY(0.9), PAL.gold, 1 + link * 0.12);
+        if (link >= 2) this.callout(3, 'chain', `CHAIN ×${link + 1}!`, { color: PAL.gold, rank: link });
         this.kick(Math.min(3, link), 140 + link * 40);
         sfx.chain(m.merges.length + link);
         this.bumpCombo((this.combo?.value ?? m.merges.length) + wave.length);
@@ -2060,13 +2379,7 @@ export class Renderer {
     // Let the chain's own shouts land first.
     const delay = this.tileAnim ? Math.max(0, SLIDE_MS + this.tileAnim.move.chain.waves.length * WAVE_MS - (this.now - this.tileAnim.start)) + 120 : 0;
     this.after(delay, () => {
-      const top = v3(n / 2, 1.7, n / 2 - 0.3);
-      const loud = (el: HTMLElement) => {
-        el.style.webkitTextStroke = '3px var(--ink)';
-        el.style.textShadow = '0 5px 0 var(--ink)';
-      };
-      loud(this.word(`COMBO ×${merges}!`, top, PAL.gold, 2));
-      this.after(260, () => loud(this.word(`+${SPECIALS[special].name.toUpperCase()}`, top.clone().setY(1.25), special === 'launch' ? '#7ff2ff' : special === 'splash' ? '#8fdcf6' : '#ff8a7a', 1.4)));
+      this.callout(4, 'combo', `COMBO ×${merges}!`, { sub: `free ${SPECIALS[special].name}`, color: PAL.gold });
       this.burst(v3(n / 2, 0.9, n / 2), 46, [PAL.gold, PAL.white, PAL.heart, '#7ff2ff']);
       this.kick(3, 280);
       this.flash = Math.max(this.flash, 0.25);
@@ -2133,7 +2446,7 @@ export class Renderer {
         // A little flock of bats flaps off.
         for (let k = 0; k < 5; k++)
           this.particles.add({ p: c.clone().setY(0.5), v: v3((Math.random() - 0.5) * 1.6, 1 + Math.random() * 0.8, (Math.random() - 0.5) * 0.8), g: -0.4, max: 1.2, color: '#2b2140', size: 0.06, flat: true, spin: v3(0, 0, 18 + Math.random() * 8), drag: 0.4 });
-      this.word(f === 'spin' ? 'SPIN!' : f === 'water' ? 'SPLASH!' : 'BATS!', c.clone().setY(1.05), f === 'hang' ? '#c49dff' : C[0], 1.15);
+      this.callout(2, 'park', f === 'spin' ? 'SPIN!' : f === 'water' ? 'SPLASH!' : 'BATS!', { color: f === 'hang' ? '#c49dff' : C[0], sub: 'park piece' });
       if (f === 'water') sfx.splash();
       else sfx.merge(5);
     });
@@ -2195,6 +2508,11 @@ export class Renderer {
 
   private drawWords(): void {
     const off = { x: this.canvas.offsetLeft, y: this.canvas.offsetTop };
+    const call = this.call;
+    if (call.el?.classList.contains('on')) {
+      if (this.now > call.until || (this.game.phase !== 'build' && call.key !== 'packed')) call.el.classList.remove('on', 'bump');
+      else this.placeCallout();
+    }
     this.words = this.words.filter((w) => {
       const age = this.now - w.born;
       if (age > w.max) {
@@ -2561,11 +2879,7 @@ export class Renderer {
       eaten.forEach((e, i) => this.after(i * 70, () => this.gulpFx(e.cell.tier, e.cell, e.end)));
       if (eaten.length > 1) {
         this.after(240, () => {
-          const a = this.cell(eaten[0].cell);
-          const c = this.cell(eaten[1].cell);
-          const el = this.word('DOUBLE!', a.add(c).multiplyScalar(0.5).setY(1.75), PAL.gold, 1.7);
-          el.style.webkitTextStroke = '3px var(--ink)';
-          el.style.textShadow = '0 4px 0 var(--ink)';
+          this.callout(3, 'double', 'DOUBLE!', { color: PAL.gold });
           this.kick(1.6, 160);
           sfx.hype();
           sfx.chain(2);
@@ -2579,11 +2893,7 @@ export class Renderer {
     const ramp = TIER_RAMPS[Math.max(1, tier)];
     this.burst(c.clone().setY(0.3), 10 + tier * 5, [...ramp.slice(0, 3), END_COLORS[end]]);
     this.dust(c.clone().setY(0.08), 8 + tier * 2, PAL.plaza[2]);
-    const el = this.word(`+${PIECES[tier].name.toUpperCase()}!`, c.clone().setY(0.95 + tier * 0.04), ramp[0], 0.85 + tier * 0.14);
-    if (tier >= 4) {
-      el.style.webkitTextStroke = '2.5px var(--ink)';
-      el.style.textShadow = '0 4px 0 var(--ink)';
-    }
+    this.callout(2, 'piece', `+${PIECES[tier].name.toUpperCase()}!`, { color: ramp[0], rank: tier });
     this.kick(0.4 + tier * 0.3, 90 + tier * 20);
     sfx.chomp(tier);
     if (tier === LIFT) this.after(170, () => sfx.chainLift());
@@ -2611,14 +2921,19 @@ export class Renderer {
   /** Gridlock: a honk, the whole board shudders, then the ride opens by itself. */
   private gridlockShow(boxed = false): void {
     const n = this.n;
-    const top = v3(n / 2, 1.6, n / 2 - 0.2);
-    const el = this.word(boxed ? 'BOXED IN!' : this.board.loop ? 'PACKED!' : 'GRIDLOCK!', top, PAL.gold, 2.3);
-    el.style.webkitTextStroke = '3px var(--ink)';
-    el.style.textShadow = '0 5px 0 var(--ink)';
-    this.after(420, () => {
-      const sub = this.word(this.board.loop ? 'The park is full: everyone rides!' : this.board.opened === 'circuit' ? 'The ride opens!' : 'Opening as a shuttle', top.clone().setY(1.15), PAL.white, 0.9);
-      sub.style.fontFamily = 'var(--font-body)';
+    // The banner stands alone: every other shout and callout clears, and nothing new comes up under it.
+    for (const w of this.words) w.el.remove();
+    this.words = [];
+    for (const el of document.querySelectorAll('.pattern-call')) el.remove();
+    this.call.until = 0;
+    this.callout(9, 'packed', boxed ? 'BOXED IN!' : this.board.loop ? 'PACKED!' : 'GRIDLOCK!', {
+      sub: this.board.loop ? 'The park is full: everyone rides!' : this.board.opened === 'circuit' ? 'The ride opens!' : 'Opening as a shuttle',
+      color: PAL.gold,
+      ms: GRIDLOCK_MS + 700,
+      banner: true,
     });
+    this.calmUntil = this.now + GRIDLOCK_MS + 2500;
+    this.tagsQuietUntil = this.calmUntil;
     sfx.horn();
     this.kick(4, 520);
     this.wobbleUntil = this.now + 1000;
@@ -3133,17 +3448,7 @@ export class Renderer {
     this.sparkle(at.clone().setY(0.7), Math.min(10, 2 + guests), PAL.gold);
     sfx.kaching(guests);
     this.onEarn(amount, guests, this.project(at.clone().setY(0.7)));
-    const ew = this.earnWord;
-    if (ew && this.words.includes(ew.w) && this.now - ew.w.born < 700) {
-      ew.total += amount;
-      ew.w.el.textContent = `+${ew.total.toLocaleString()}`;
-      ew.w.born = this.now - 120;
-      return;
-    }
-    const el = this.word(`+${amount.toLocaleString()}`, at.clone().setY(0.95), PAL.gold, this.compact ? 0.6 : 0.72, 1100, true);
-    el.classList.add('w3d-earn');
-    const w = this.words[this.words.length - 1];
-    this.earnWord = { w, total: amount };
+    // The wallet ticks up in the HUD (coins fly there); no floating number here.
   }
 
   /** Tapped a grow you can't afford: its tag shakes red and says how much more it needs. */
@@ -3155,8 +3460,7 @@ export class Renderer {
       void tag.offsetWidth;
       tag.classList.add('shake');
     }
-    const el = this.word(`NEED ${need.toLocaleString()} MORE`, this.cell(at).setY(1.15), '#ff7a6e', 0.75, 1200, true);
-    el.classList.add('w3d-broke');
+    this.callout(3, 'broke', `NEED ${need.toLocaleString()} MORE`, { color: '#ff7a6e' });
     this.flashes.set(idx(this.board, at.x, at.y), this.now + 120);
     this.kick(0.8, 120);
     sfx.broke();
@@ -3171,17 +3475,17 @@ export class Renderer {
   purchased(cells: Pt[], cost: number, gain: number): { x: number; y: number }[] {
     const mid = cells.map((c) => this.cell(c)).reduce((a, v) => a.add(v), v3(0, 0, 0)).multiplyScalar(1 / Math.max(1, cells.length));
     sfx.buy();
-    if (cost > 0) {
-      const el = this.word(`−${cost.toLocaleString()} tickets`, mid.clone().setY(mid.y + 0.6), '#c9302c', this.compact ? 0.75 : 0.9, 1000, true);
-      el.classList.add('w3d-spend');
-    }
-    if (gain > 0)
-      this.after(560, () => {
-        const el = this.word(`+${gain.toLocaleString()} / move`, mid.clone().setY(mid.y + 1.25), '#ffffff', this.compact ? 0.9 : 1.15, 1600, true);
-        el.classList.add('w3d-rate');
+    // The spend shows as the wallet ticking down; the rate it adds rides on the piece's callout.
+    void cost;
+    if (gain > 0) {
+      this.buyGain = { amount: gain, at: this.now };
+      // (If the piece's callout is already up, it picks up the rate now.)
+      if (this.call.key === 'buy' && this.now < this.call.until) this.callout(2, 'buy', '', { sub: `+${gain.toLocaleString()} / move` });
+      this.after(300, () => {
         this.sparkle(mid.clone().setY(mid.y + 0.9), 12, '#8dff6a');
         sfx.rateUp();
       });
+    }
     return cells.map((c) => this.project(this.cell(c).setY(0.35)));
   }
 
@@ -3276,11 +3580,9 @@ export class Renderer {
     this.burst(c.clone().setY(0.3), 12 + tier * 5, [...ramp.slice(0, 3), PAL.gold]);
     this.dust(c.clone().setY(0.08), 10 + tier * 2, PAL.plaza[2]);
     this.flashes.set(idx(this.board, laid.x, laid.y), this.now + 150);
-    const el = this.word(tier ? `+${PIECES[tier].name.toUpperCase()}!` : '+TRACK', c.clone().setY(0.95 + tier * 0.04), tier ? ramp[0] : PAL.white, tier ? 0.85 + tier * 0.14 : 0.7);
-    if (tier >= 4) {
-      el.style.webkitTextStroke = '2.5px var(--ink)';
-      el.style.textShadow = '0 4px 0 var(--ink)';
-    }
+    // The piece it bought (the biggest of the bulge), with the rate it adds.
+    const gain = this.now - this.buyGain.at < 600 ? this.buyGain.amount : 0;
+    this.callout(2, 'buy', tier ? `+${PIECES[tier].name.toUpperCase()}` : '+TRACK', { color: tier ? ramp[0] : PAL.white, rank: tier, sub: gain > 0 ? `+${gain.toLocaleString()} / move` : undefined });
     this.kick(0.5 + tier * 0.3, 110 + tier * 20);
     // A lift chain's payoff: the piece after the lifts is drawn bigger and says so.
     const ride = this.game.rideCells();
@@ -3288,9 +3590,8 @@ export class Renderer {
     const k = ride.findIndex((r) => r.x === laid.x && r.y === laid.y && !r.cross);
     if (k >= 0 && (plan.mult[k] > 1 || plan.finale[k] > 0)) {
       const txt = plan.finale[k] ? `FINALE DROP ×${plan.finale[k]}!` : `LIFT POWER ×${plan.mult[k]}!`;
-      this.after(380, () => {
-        const w = this.word(txt, c.clone().setY(1.45), PAL.gold, this.compact ? 0.8 : 1, 1500, true);
-        w.classList.add('w3d-rate');
+      this.after(240, () => {
+        this.callout(4, 'lift', txt, { color: PAL.gold, sub: `${PIECES[tier].name} powered up` });
         this.sparkle(c.clone().setY(1.1), 14, PAL.gold);
       });
     }
@@ -3532,12 +3833,19 @@ export class Renderer {
   }
 
   private showPolaroid(url: string): void {
+    // While the train runs the photo waits (it would sit over the action); it develops at the station.
+    if (this.ride && this.ride.stage(this.gameNow) === 'ride') {
+      this.polaroidWaiting = url;
+      return;
+    }
+    this.polaroidWaiting = null;
     this.polaroid?.remove();
     const p = document.createElement('div');
     p.className = 'polaroid';
     p.innerHTML = `<img alt="On-ride photo" src="${url}"><span>ON-RIDE PHOTO</span>`;
     p.style.left = `${this.canvas.offsetLeft + this.safe.x1 - 12}px`;
-    p.style.top = `${this.canvas.offsetTop + this.safe.y1 - 12}px`;
+    // On a phone it tucks under the top HUD, clear of the curtain call and the score panel.
+    p.style.top = this.compact ? `${this.canvas.offsetTop + this.safe.y0 + 150}px` : `${this.canvas.offsetTop + this.safe.y1 - 12}px`;
     this.canvas.parentElement!.append(p);
     this.polaroid = p;
   }

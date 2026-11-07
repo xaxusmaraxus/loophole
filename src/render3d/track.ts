@@ -20,12 +20,29 @@ import { type Flavor, LIFT, PIECES, type SpecialId, liftPlan } from '../puzzle/p
 export const CRUISE_H = 0.24;
 /** Deck height of each tier's track, in cells: one cruising height for all (no spikes between cells). */
 export const DECK_H = PIECES.map(() => CRUISE_H);
-/** Each Lift Hill in a chain climbs this much higher, up to LIFT_MAX. */
-export const LIFT_STEP = 0.34;
-export const LIFT_MAX = 1.45;
+/** Each Lift Hill in a chain climbs this much higher, up to LIFT_MAX (kept low: high runs hide the board). */
+export const LIFT_STEP = 0.2;
+export const LIFT_MAX = 0.62;
 const liftH = (lv: number) => Math.min(LIFT_MAX, lv * LIFT_STEP);
 /** How much bigger the element after a lift chain is drawn, by its multiplier (capped). */
-export const payoffScale = (mult: number) => Math.min(1.45, 1 + 0.15 * Math.max(0, mult - 1));
+export const payoffScale = (mult: number) => Math.min(1.3, 1 + 0.12 * Math.max(0, mult - 1));
+
+/**
+ * Each tier's element height above the deck at full size (1), in cells. The
+ * gameplay camera looks north at 43 degrees, so a tall element covers the cells
+ * behind it on screen: an element's height is fitted to what stands behind it.
+ */
+const FULL_H = [0, 0.26, 0, 0.42, 1.43, 0.7, 1.08, 1.2];
+/** The smallest each tier's element is ever drawn (as a fraction of full size). */
+const MIN_FIT = [1, 0.6, 1, 0.7, 0.42, 0.55, 0.45, 0.42];
+/** Room above the deck (in cells) by what stands on the cell behind (north). */
+const ROOM_BACK_ROW = 9;
+const ROOM_FREE = 0.8;
+const ROOM_BEHIND_BIG = 0.74;
+const ROOM_BEHIND_FLAT = 1.0;
+const ROOM_SHARED = 0.5;
+/** Two passes of the track closer than this (centre to centre) touch. */
+const CLEARANCE = 0.2;
 export const STATION_H = 0.15;
 /**
  * The station runs the full width of the board's bottom edge: the track comes
@@ -229,8 +246,10 @@ export function topHatProfile(H: number): (t: number) => { s: number; dh: number
   };
 }
 
-/** Each tier's element on its cell, `k` times its normal size (the payoff after a lift chain). */
-function elemFor(tier: number, turn: number, k = 1): Elem {
+/** Each tier's element on its cell, `k` times its normal size (fitted to its room, and bigger as a payoff after a lift chain). */
+function elemFor(tier: number, turn: number, k = 1, headOn = false): Elem {
+  // Lengths along the track and across it stay within the cell; heights scale freely.
+  const kw = Math.min(1.05, 0.55 + 0.45 * k);
   switch (tier) {
     case 1:
       // Airtime Hill: one smooth, gentle camel hump.
@@ -240,7 +259,9 @@ function elemFor(tier: number, turn: number, k = 1): Elem {
       return (t) => ({ s: t, lift: t > 0.03 && t < 0.97 });
     case 3: {
       // Helix: one banked turn spiralling up round the cell and back down.
-      const r = 0.32 * Math.min(1.15, k);
+      const r = 0.3 * Math.min(1, kw);
+      // The swing out to the side is squeezed (an oval) so the helix stays on its own cell.
+      const wide = 0.65;
       const climb = 0.24 * k;
       const side = turn || 1;
       return (t) => {
@@ -254,7 +275,7 @@ function elemFor(tier: number, turn: number, k = 1): Elem {
         return {
           s: 0.39 + 0.22 * u,
           al: r * Math.sin(ph),
-          la: side * r * (1 - Math.cos(ph)),
+          la: side * wide * r * (1 - Math.cos(ph)),
           dh: climb * Math.sin(Math.PI * u) ** 2,
           up: [inT * Math.sin(b), inS * Math.sin(b), Math.cos(b)],
           elem: true,
@@ -263,10 +284,11 @@ function elemFor(tier: number, turn: number, k = 1): Elem {
     }
     case 4:
       // Vertical Loop: a big round teardrop loop.
-      return loopElem(teardrop(0.42 * k, 0.66 * k, 0.24), 0.18, 0.82, 0.2 * Math.min(1.2, k));
+      // Seen head on (the track runs away from the camera), a wider sideways drift opens the loop up into a ring.
+      return loopElem(teardrop(0.38 * kw, 0.66 * k, 0.24), 0.2, 0.8, (headOn ? 0.34 : 0.18) * kw);
     case 5: {
       // Corkscrew: a heartline barrel roll over a low hump.
-      const hr = 0.19 * Math.min(1.25, k);
+      const hr = 0.19 * Math.min(1, 0.4 + 0.6 * k);
       return (t) => {
         if (t < 0.08 || t > 0.92) return { s: t };
         const u = (t - 0.08) / 0.84;
@@ -284,24 +306,24 @@ function elemFor(tier: number, turn: number, k = 1): Elem {
     }
     case 6: {
       // Cobra Roll: two loops back to back, their tops leaning apart like a cobra's hood.
-      const lobe = teardrop(0.25 * k, 0.5 * k, 0.3);
+      const lobe = teardrop(0.21 * kw, 0.5 * k, 0.3);
       const lean = 0.45;
       return (t) => {
-        if (t < 0.1) return { s: (0.26 * t) / 0.1 };
-        if (t > 0.9) return { s: 0.74 + (0.26 * (t - 0.9)) / 0.1 };
+        if (t < 0.1) return { s: (0.3 * t) / 0.1 };
+        if (t > 0.9) return { s: 0.7 + (0.3 * (t - 0.9)) / 0.1 };
         const u = (t - 0.1) / 0.8;
         const second = u >= 0.5;
         const v = second ? (u - 0.5) * 2 : u * 2;
         const th = v * Math.PI * 2;
         const L = leaningLoop(lobe, th, second ? -lean : lean);
         // A little sideways drift keeps each lobe's way in clear of its way out.
-        const la = 0.1 * Math.min(1, k) * Math.sin(Math.PI * u);
-        return { s: 0.26 + 0.48 * u, al: L.al, la, dh: L.dh, up: L.up, elem: v > 0.1 && v < 0.9, ang: th + (second ? Math.PI * 2 : 0) };
+        const la = 0.1 * kw * Math.sin(Math.PI * u);
+        return { s: 0.3 + 0.4 * u, al: L.al, la, dh: L.dh, up: L.up, elem: v > 0.1 && v < 0.9, ang: th + (second ? Math.PI * 2 : 0) };
       };
     }
     case 7: {
       // Top Hat: straight up, over a round crown, straight down. The one tall spike, and it has a name.
-      const hat = topHatProfile(1.2 * Math.min(k, 1.15));
+      const hat = topHatProfile(1.2 * k);
       return (t) => {
         const q = hat(t);
         const l = Math.hypot(q.ts, q.tY) || 1;
@@ -348,6 +370,12 @@ export class TrackPath {
 
   /** Per chain cell: the lift height it carries and what it cashes in (see levels()). */
   levels: CellLevel[] = [];
+  /**
+   * Per chain cell: the size its element is drawn at (1: full size). The payoff
+   * after a lift chain draws it bigger; the room around it (what stands behind it
+   * on screen, and the passes next to it) caps it. See fitElements().
+   */
+  fit: number[] = [];
 
   constructor(cells: ChainCell[], closed: boolean, ground: (x: number, y: number) => number = () => 0, lift = 0) {
     this.cells = cells;
@@ -361,7 +389,91 @@ export class TrackPath {
       const under = cells.find((o) => !o.cross && !o.station && o.x === c.x && o.y === c.y);
       this.crossKind.set(i, under && under.tier > 0 ? 'tunnel' : 'bridge');
     });
-    this.build();
+    this.fitElements();
+  }
+
+  /**
+   * Sizes every element to the room it has, then builds the track. The camera
+   * looks north, so an element covers the cell behind it on screen: the back row
+   * may tower, an element in front of another big one stays a step lower, and one
+   * in front of a free cell (where loose tiles sit) stays low so the tile shows.
+   * Any two passes that still come too close shrink the bigger element and the
+   * track is built again.
+   */
+  private fitElements(): void {
+    const cells = this.cells;
+    const key = (x: number, y: number) => `${x},${y}`;
+    const at = new Map<string, number[]>();
+    cells.forEach((c, i) => {
+      if (c.station) return;
+      const k = key(c.x, c.y);
+      at.set(k, [...(at.get(k) ?? []), i]);
+    });
+    const room = (c: ChainCell): number => {
+      if ((at.get(key(c.x, c.y))?.length ?? 0) > 1) return ROOM_SHARED;
+      if (c.y <= 0) return ROOM_BACK_ROW;
+      const behind = at.get(key(c.x, c.y - 1));
+      if (!behind) return ROOM_FREE;
+      return behind.some((j) => cells[j].tier >= 3) ? ROOM_BEHIND_BIG : ROOM_BEHIND_FLAT;
+    };
+    const lo = (i: number) => MIN_FIT[cells[i].tier] ?? 1;
+    this.fit = cells.map((c, i) => {
+      if (c.station || !FULL_H[c.tier]) return 1;
+      const want = payoffScale(this.levels[i].mult);
+      return Math.max(lo(i), Math.min(want, room(c) / FULL_H[c.tier]));
+    });
+    for (let pass = 0; pass < 4; pass++) {
+      this.build();
+      const hit = this.clashes();
+      let shrunk = false;
+      for (const [a, b] of hit) {
+        // Shrink whichever of the two is drawn bigger (by height), if it still can.
+        const ha = (FULL_H[cells[a].tier] ?? 0) * this.fit[a];
+        const hb = (FULL_H[cells[b].tier] ?? 0) * this.fit[b];
+        for (const i of ha >= hb ? [a, b] : [b, a]) {
+          if (!FULL_H[cells[i].tier] || this.fit[i] <= lo(i) + 1e-3) continue;
+          this.fit[i] = Math.max(lo(i), this.fit[i] * 0.82);
+          shrunk = true;
+          break;
+        }
+      }
+      if (!shrunk) break;
+    }
+  }
+
+  /** Pairs of chain cells whose passes come closer than CLEARANCE (away from where they join). */
+  clashes(): [number, number][] {
+    const G = CLEARANCE;
+    const grid = new Map<string, TrackPt[]>();
+    const gk = (x: number, y: number, z: number) => `${Math.floor(x / G)},${Math.floor(y / G)},${Math.floor(z / G)}`;
+    const pts = this.pts.filter((_, k) => k % 2 === 0 && !this.cells[this.pts[k].cell].station);
+    for (const q of pts) {
+      const k = gk(q.p.x, q.p.y, q.p.z);
+      const l = grid.get(k);
+      if (l) l.push(q);
+      else grid.set(k, [q]);
+    }
+    const seen = new Set<string>();
+    const out: [number, number][] = [];
+    for (const q of pts) {
+      const cx = Math.floor(q.p.x / G);
+      const cy = Math.floor(q.p.y / G);
+      const cz = Math.floor(q.p.z / G);
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dz = -1; dz <= 1; dz++)
+            for (const o of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
+              if (o.cell <= q.cell) continue;
+              const d = Math.abs(o.s - q.s);
+              if ((this.closed ? Math.min(d, this.length - d) : d) < 0.6) continue;
+              if (o.p.distanceToSquared(q.p) > G * G) continue;
+              const k = `${q.cell},${o.cell}`;
+              if (seen.has(k)) continue;
+              seen.add(k);
+              out.push([q.cell, o.cell]);
+            }
+    }
+    return out;
   }
 
   static fromBoard(b: Board, ground?: (x: number, y: number) => number, lift = 0): TrackPath {
@@ -620,8 +732,7 @@ export class TrackPath {
     }
     // A helix or loop on a corner is laid along the corner's diagonal.
     const turnSide = turn;
-    const big = payoffScale(lv.mult);
-    const elem = elemFor(c.tier, turnSide, big);
+    const elem = elemFor(c.tier, turnSide, this.fit[i] ?? 1, straight && dout.x === 0);
     const N = SAMPLES[c.tier] + (lv.mult > 1 ? 16 : 0);
     const Y = new Vector3(0, 1, 0);
     // Into st1 the station turns toward +x; out of st0 it comes from -x.

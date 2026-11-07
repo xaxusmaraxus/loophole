@@ -227,6 +227,25 @@ export const sfx = {
     tone(1318, 0.5, 'triangle', 0.07);
     tone(1318, 0.5, 'triangle', 0.06, 0.16);
   },
+  /** The countdown before the train leaves: a beep a step higher each count (3, 2, 1). */
+  count(k: number) {
+    const f = [0, 784, 659, 523][Math.max(1, Math.min(3, k))];
+    tone(f, 0.16, 'square', 0.045);
+    tone(f, 0.22, 'triangle', 0.09, 0.01);
+    noise(0.03, 0.08, 0, 3000, 1500, 3);
+  },
+  /** GO: the brake lets go with a whoosh and a high bell, and the crowd roars. */
+  go() {
+    tone(1047, 0.35, 'square', 0.04);
+    tone(1568, 0.45, 'triangle', 0.08, 0.02);
+    noise(0.6, 0.1, 0.05, 500, 4200, 1.2);
+    noise(0.9, 0.05, 0.1, 1600, 900, 2.5);
+  },
+  /** A big green splat. */
+  splat(k = 1) {
+    noise(0.22 + k * 0.08, 0.12 + k * 0.05, 0, 900, 120, 5);
+    tone(120, 0.18, 'sine', 0.12 * k, 0, 60);
+  },
   /** A Launch fires: a rising electric whoosh. */
   launch() {
     tone(180, 0.5, 'sawtooth', 0.05, 0, 1400);

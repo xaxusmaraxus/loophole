@@ -86,20 +86,26 @@ export function buildCellTrack(path: TrackPath, i: number, style: TrackStyle): P
   if (!cell.station) supports(path, i, pts, mt, style);
   extras(path, i, pts, parts);
   if (fl) flavorExtras(path, i, pts, parts, fl);
-  // Bulbs round the big showpieces (the Vertical Loop and the Top Hat), and round
-  // any element a lift chain powers up (more of them, the bigger the payoff).
+  // Bulbs only round an element a lift chain powers up (the payoff): one string of
+  // warm lights on the outer side of the spine, so a lit element means something.
   const lv = path.levels[i];
-  const boosted = !cell.station && lv && lv.mult > 1;
-  if (!cell.station && (cell.tier === 4 || cell.tier === 7 || boosted)) {
+  const boosted = !cell.station && lv && lv.mult > 1 && cell.tier > 2;
+  if (boosted) {
     parts.glow ??= new Geo();
-    const step = boosted ? Math.max(0.07, 0.12 - lv.mult * 0.01) : 0.11;
-    forEvery(pts, step, (q, k) => {
-      if (q.ang < 0 && !boosted) return;
-      for (const side of [-1, 1]) {
-        const b = q.p.clone().addScaledVector(q.up, -SPINE_DROP).addScaledVector(q.right, side * (SPINE_R + 0.004));
-        parts.glow!.sphere(b, 0.012, (k + (side > 0 ? 1 : 0)) % 2 ? '#fff1b0' : boosted ? '#ffd23f' : '#ffc4e0', 1, 1, 1, 6, 4, true);
-      }
+    forEvery(pts, 0.13, (q, k) => {
+      if (q.ang < 0 && !q.elem) return;
+      const b = q.p.clone().addScaledVector(q.up, -SPINE_DROP).addScaledVector(q.right, (k % 2 ? 1 : -1) * (SPINE_R + 0.004));
+      parts.glow!.sphere(b, 0.013, k % 2 ? '#fff1b0' : '#ffd23f', 1, 1, 1, 6, 4, true);
     }, 0.5);
+  }
+  // Direction: small chevrons on the spine of level track, pointing the way the train runs.
+  if (!cell.station && !fl) {
+    const chev = shade(style.rail, 0.55);
+    forEvery(pts, 0.34, (q) => {
+      if (q.up.y < 0.92 || q.elem || q.lift) return;
+      const tip = q.p.clone().addScaledVector(q.up, -0.01).addScaledVector(q.t, 0.032);
+      for (const side of [-1, 1]) mt.beam(tip, tip.clone().addScaledVector(q.t, -0.05).addScaledVector(q.right, side * 0.042), 0.014, chev, 0.007);
+    }, 0.25);
   }
   // A buffer stop where the track ends.
   const n = path.cells.length;
@@ -310,11 +316,29 @@ function gap(path: TrackPath, a: number, b: number): number {
 
 /** Can a column stand at (x, z) up to `top` without spearing another pass of the track below it? */
 function clearBelow(path: TrackPath, x: number, z: number, top: number, s: number, r = 0.12): boolean {
+  return clearSeg(path, v3(x, -1, z), v3(x, top - 0.03, z), s, r);
+}
+
+/**
+ * Does a support member from a to b keep clear of every pass of the track (rails
+ * and spine), apart from the stretch near arc length `s` it holds up?
+ */
+function clearSeg(path: TrackPath, a: Vector3, b: Vector3, s: number, r = 0.11, near = 0.3): boolean {
+  const ab = b.clone().sub(a);
+  const L2 = Math.max(1e-9, ab.lengthSq());
+  const x0 = Math.min(a.x, b.x) - r;
+  const x1 = Math.max(a.x, b.x) + r;
+  const z0 = Math.min(a.z, b.z) - r;
+  const z1 = Math.max(a.z, b.z) + r;
+  const y0 = Math.min(a.y, b.y) - r;
+  const y1 = Math.max(a.y, b.y) + r;
+  const d = new Vector3();
   for (const o of path.pts) {
-    if (o.p.y > top - 0.03 || gap(path, o.s, s) < 0.3) continue;
-    const dx = o.p.x - x;
-    const dz = o.p.z - z;
-    if (dx * dx + dz * dz < r * r) return false;
+    const p = o.p;
+    if (p.x < x0 || p.x > x1 || p.z < z0 || p.z > z1 || p.y < y0 || p.y > y1) continue;
+    if (gap(path, o.s, s) < near) continue;
+    const t = Math.max(0, Math.min(1, d.copy(p).sub(a).dot(ab) / L2));
+    if (d.copy(a).addScaledVector(ab, t).distanceToSquared(p) < r * r) return false;
   }
   return true;
 }
@@ -356,6 +380,7 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
       const spread = 0.06 + h * 0.07;
       const legTop = (sd: number) => top.clone().addScaledVector(out, sd * 0.045);
       const legFoot = (sd: number) => v3(top.x + out.x * sd * spread, gy, top.z + out.z * sd * spread);
+      if (![-1, 1].every((sd) => clearSeg(path, legTop(sd), legFoot(sd), q.s, 0.1))) return;
       for (const sd of [-1, 1]) {
         g.beam(legTop(sd), legFoot(sd), 0.03, col);
         footer(g, legFoot(sd).x, gy, legFoot(sd).z, flatT(q), 0.85);
@@ -401,24 +426,33 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
     for (const q of flank) {
       const b = q.p.clone().addScaledVector(q.up, -SPINE_DROP - SPINE_R * 0.5);
       const out = q.right.clone().setY(0).normalize();
-      for (const side of [-1, 1]) {
-        const ground = v3(b.x + out.x * side * 0.16, gy, b.z + out.z * side * 0.16);
-        g.beam(b.clone().addScaledVector(out, side * 0.03), ground, 0.03, col);
-        footer(g, ground.x, gy, ground.z, flatT(q), 0.9);
+      // Spread the legs wide enough to straddle the run in and out below.
+      for (const spread of [0.18, 0.26, 0.34]) {
+        const leg = (side: number) => [b.clone().addScaledVector(out, side * 0.03), v3(b.x + out.x * side * spread, gy, b.z + out.z * side * spread)] as const;
+        if (![-1, 1].every((side) => clearSeg(path, ...leg(side), q.s, 0.085, 0.2))) continue;
+        for (const side of [-1, 1]) {
+          const [top, ground] = leg(side);
+          g.beam(top, ground, 0.03, col);
+          footer(g, ground.x, gy, ground.z, flatT(q), 0.9);
+        }
+        g.beam(b.clone().addScaledVector(out, -0.04), b.clone().addScaledVector(out, 0.04), 0.03, dark);
+        break;
       }
-      g.beam(b.clone().addScaledVector(out, -0.04), b.clone().addScaledVector(out, 0.04), 0.03, dark);
     }
   } else if (cell.tier === 3) {
     // A central pylon with spokes out to the helix.
     const e = pts.filter((q) => q.elem);
-    if (e.length) {
-      const c = e.reduce((s, q) => s.add(q.p), v3(0, 0, 0)).divideScalar(e.length);
-      const top = Math.max(...e.map((q) => q.p.y)) - 0.02;
+    const c0 = e.length ? e.reduce((s, q) => s.add(q.p), v3(0, 0, 0)).divideScalar(e.length) : null;
+    const top0 = e.length ? Math.max(...e.map((q) => q.p.y)) - 0.02 : 0;
+    if (c0 && clearSeg(path, v3(c0.x, gy, c0.z), v3(c0.x, top0, c0.z), e[e.length >> 1].s, 0.09, 0.05)) {
+      const c = c0;
+      const top = top0;
       g.post(c.x, gy, c.z, 0.042, top - gy, col, 10);
       g.post(c.x, top - 0.03, c.z, 0.056, 0.04, dark, 10);
       footer(g, c.x, gy, c.z, v3(0, 0, 1), 1.5);
       for (let k = 0; k < e.length; k += Math.max(1, Math.floor(e.length / 6))) {
         const q = e[k];
+        if (!clearSeg(path, v3(c.x, Math.min(top, q.p.y - 0.06), c.z), q.p.clone().addScaledVector(q.up, -SPINE_DROP - SPINE_R * 0.5), q.s, 0.06, 0.15)) continue;
         g.beam(v3(c.x, Math.min(top, q.p.y - 0.06), c.z), q.p.clone().addScaledVector(q.up, -SPINE_DROP - SPINE_R * 0.5), 0.02, col);
       }
     }
@@ -434,6 +468,7 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
       if (out.lengthSq() < 1e-6) continue;
       out.normalize();
       const ground = v3(b.x + out.x * 0.16, gy, b.z + out.z * 0.16);
+      if (!clearSeg(path, far.p.clone().addScaledVector(far.up, -SPINE_DROP), ground, far.s, 0.085, 0.2)) continue;
       g.beam(far.p.clone().addScaledVector(far.up, -SPINE_DROP), ground, 0.028, col);
       footer(g, ground.x, gy, ground.z, out, 0.9);
     }
@@ -450,20 +485,21 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
       const ax = across.lengthSq() > 1e-6 ? across.normalize() : v3(1, 0, 0);
       const side = v3(-ax.z, 0, ax.x).multiplyScalar(0.11);
       const H = top.p.y - SPINE_DROP - SPINE_R;
-      for (const sd of [-1, 1]) {
+      const towerClear = [-1, 1].every((sd) => clearSeg(path, v3(top.p.x + side.x * sd, gy, top.p.z + side.z * sd), v3(top.p.x + side.x * sd, H - 0.02, top.p.z + side.z * sd), top.s, 0.08, 0.25));
+      if (towerClear) for (const sd of [-1, 1]) {
         const fx = top.p.x + side.x * sd;
         const fz = top.p.z + side.z * sd;
         g.post(fx, gy, fz, 0.026, H - gy, col, 8);
         footer(g, fx, gy, fz, ax);
       }
-      g.beam(v3(top.p.x - side.x, H, top.p.z - side.z), v3(top.p.x + side.x, H, top.p.z + side.z), 0.032, dark);
+      if (towerClear) g.beam(v3(top.p.x - side.x, H, top.p.z - side.z), v3(top.p.x + side.x, H, top.p.z + side.z), 0.032, dark);
       // Cross bracing up the tower, and struts out to the legs.
-      for (let y = gy + 0.15; y < H - 0.1; y += 0.22) {
+      for (let y = gy + 0.15; towerClear && y < H - 0.1; y += 0.22) {
         g.beam(v3(top.p.x - side.x, y, top.p.z - side.z), v3(top.p.x + side.x, y + 0.2, top.p.z + side.z), 0.012, col);
         g.beam(v3(top.p.x + side.x, y, top.p.z + side.z), v3(top.p.x - side.x, y + 0.2, top.p.z - side.z), 0.012, col);
       }
       for (const q of legs.filter((_, k) => k % 14 === 7)) {
-        if (q.p.y < lo + 0.1) continue;
+        if (!towerClear || q.p.y < lo + 0.1) continue;
         g.beam(v3(top.p.x, q.p.y, top.p.z), q.p.clone().addScaledVector(q.up, -SPINE_DROP), 0.016, col);
       }
     }
@@ -473,13 +509,16 @@ function supports(path: TrackPath, i: number, pts: TrackPt[], g: Geo, style: Tra
       const mid = e[Math.floor(e.length / 2)];
       // The inverted middle hangs from a gantry.
       const top = mid.p.y + 0.13;
-      const l = mid.right.clone().setY(0).normalize().multiplyScalar(0.21);
-      for (const side of [-1, 1]) {
+      const l = mid.right.clone().setY(0).normalize().multiplyScalar(0.29);
+      const okG = [-1, 1].every((side) => clearSeg(path, v3(mid.p.x + l.x * side, gy, mid.p.z + l.z * side), v3(mid.p.x + l.x * side, top, mid.p.z + l.z * side), mid.s, 0.07, 0.15));
+      if (okG) for (const side of [-1, 1]) {
         g.post(mid.p.x + l.x * side, gy, mid.p.z + l.z * side, 0.024, top - gy, col, 8);
         footer(g, mid.p.x + l.x * side, gy, mid.p.z + l.z * side, flatT(mid));
       }
-      g.beam(v3(mid.p.x - l.x, top, mid.p.z - l.z), v3(mid.p.x + l.x, top, mid.p.z + l.z), 0.036, dark);
-      g.beam(v3(mid.p.x, top, mid.p.z), mid.p.clone().addScaledVector(mid.up, -SPINE_DROP - SPINE_R * 0.5), 0.022, col);
+      if (okG) {
+        g.beam(v3(mid.p.x - l.x, top, mid.p.z - l.z), v3(mid.p.x + l.x, top, mid.p.z + l.z), 0.036, dark);
+        g.beam(v3(mid.p.x, top, mid.p.z), mid.p.clone().addScaledVector(mid.up, -SPINE_DROP - SPINE_R * 0.5), 0.022, col);
+      }
     }
   }
 }

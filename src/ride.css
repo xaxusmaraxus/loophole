@@ -1,0 +1,239 @@
+/* ==== The closing ride and the build's one feedback channel (renderer + score show) ==== */
+
+/* ---- The move's callout: one at a time, above the board, consistent type ---- */
+.callout {
+  --cc: #ffd23f;
+  --ms: 1000ms;
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 180ms ease-out;
+  will-change: transform, opacity;
+}
+
+.callout b {
+  font-family: var(--font-sign);
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--cc);
+  -webkit-text-stroke: 2.5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 4px 0 var(--ink);
+}
+
+.callout.big b {
+  font-size: 30px;
+}
+
+.callout small {
+  padding: 3px 10px 4px;
+  border-radius: 999px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.1;
+  color: #fff;
+  background: rgba(22, 18, 52, 0.86);
+  box-shadow: 0 2px 0 rgba(8, 6, 24, 0.5);
+}
+
+.callout.on {
+  opacity: 1;
+}
+
+.callout.on b {
+  animation: co-pop 300ms cubic-bezier(0.2, 1.8, 0.4, 1);
+}
+
+.callout.bump b {
+  animation: co-bump 220ms ease-out;
+}
+
+/* The PACKED banner: big, alone, over the middle of the park. */
+.callout.banner {
+  z-index: 4;
+}
+
+.callout.banner b {
+  font-size: clamp(44px, 9vw, 72px);
+  -webkit-text-stroke: 4px var(--ink);
+  text-shadow: 0 6px 0 var(--ink), 0 0 30px rgba(255, 210, 63, 0.55);
+}
+
+.callout.banner small {
+  font-size: 16px;
+  padding: 5px 14px 6px;
+}
+
+.callout.banner.on b {
+  animation: co-slam 520ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+@keyframes co-pop {
+  0% { transform: scale(0.4); }
+  60% { transform: scale(1.14); }
+  100% { transform: none; }
+}
+
+@keyframes co-bump {
+  50% { transform: scale(1.12); }
+}
+
+@keyframes co-slam {
+  0% { transform: scale(2.6) rotate(-6deg); opacity: 0; }
+  40% { transform: scale(0.92) rotate(-2deg); opacity: 1; }
+  70% { transform: scale(1.05) rotate(-3deg); }
+  100% { transform: rotate(-3deg); }
+}
+
+@media (max-width: 620px) {
+  .callout b {
+    font-size: 19px;
+  }
+  .callout.big b {
+    font-size: 23px;
+  }
+  .callout small {
+    font-size: 12px;
+  }
+}
+
+/* ---- Skip: a clear button over the score panel ---- */
+.ss-skip {
+  position: absolute;
+  top: -48px;
+  right: 14px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 8px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(22, 26, 62, 0.88);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.16), 0 4px 0 rgba(8, 6, 24, 0.45);
+  color: #fff;
+  font-family: var(--font-sign);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.ss-skip[hidden],
+.callout small[hidden] {
+  display: none;
+}
+
+.ss-skip span {
+  font-size: 12px;
+  color: var(--bulb);
+}
+
+.ss-skip:hover,
+.ss-skip:focus-visible {
+  background: rgba(40, 46, 100, 0.95);
+  outline: none;
+}
+
+.scoreshow.final .ss-skip {
+  background: var(--bulb);
+  color: #3a2400;
+  box-shadow: 0 4px 0 #b07a00;
+  animation: ss-skip-nudge 900ms ease-in-out 1.2s infinite;
+}
+
+.scoreshow.final .ss-skip span {
+  color: #3a2400;
+}
+
+@keyframes ss-skip-nudge {
+  50% { transform: translateX(4px); }
+}
+
+/* ---- The countdown: 3, 2, 1, GO! ---- */
+.ss-count {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-sign);
+  font-size: clamp(84px, 18vw, 156px);
+  line-height: 1;
+  color: #fff;
+  -webkit-text-stroke: 5px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 8px 0 var(--ink), 0 0 40px rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.ss-count.on {
+  animation: ss-count 440ms cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
+.ss-count.on.go {
+  color: var(--bulb);
+  text-shadow: 0 8px 0 var(--ink), 0 0 50px rgba(255, 210, 63, 0.8);
+  animation: ss-go 800ms cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
+@keyframes ss-count {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(2.2); }
+  30% { opacity: 1; transform: translate(-50%, -50%) scale(0.95); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+@keyframes ss-go {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-8deg); }
+  25% { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(-4deg); }
+  70% { opacity: 1; transform: translate(-50%, -50%) scale(1.25) rotate(-4deg); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.9) rotate(-4deg); }
+}
+
+/* ---- A big puke right by the camera splats on the lens ---- */
+.lens-splat {
+  --s: 1;
+  --r: 0deg;
+  position: absolute;
+  z-index: 1;
+  width: calc(190px * var(--s));
+  height: calc(170px * var(--s));
+  transform: translate(-50%, -50%) rotate(var(--r));
+  pointer-events: none;
+  opacity: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 180'%3E%3Cpath fill='%237fbf35' stroke='%232b2140' stroke-width='5' d='M98 18c18-6 22 20 38 18s30-14 38 4-14 26-4 40 30 14 20 34-30 4-36 20 4 34-18 34-14-26-32-22-28 22-44 8 6-28-8-38-32-6-30-26 26-14 26-32-14-30 4-38 28 10 40 4 2-24 6-26z'/%3E%3Ccircle cx='40' cy='150' r='10' fill='%237fbf35' stroke='%232b2140' stroke-width='4'/%3E%3Ccircle cx='176' cy='30' r='8' fill='%237fbf35' stroke='%232b2140' stroke-width='4'/%3E%3Cpath fill='%23b6e05a' d='M80 50c14-8 30-4 34 6s-10 10-20 8-22-6-14-14z'/%3E%3Ccircle cx='120' cy='96' r='7' fill='%23f3e7a0'/%3E%3Ccircle cx='86' cy='110' r='5' fill='%23e8a33a'/%3E%3C/svg%3E") center / contain no-repeat;
+  filter: drop-shadow(0 6px 0 rgba(20, 30, 10, 0.25));
+}
+
+.lens-splat.on {
+  animation: lens-splat 1500ms cubic-bezier(0.2, 1.4, 0.4, 1) forwards;
+}
+
+@keyframes lens-splat {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(var(--r)) scale(0.2); }
+  12% { opacity: 0.95; transform: translate(-50%, -50%) rotate(var(--r)) scale(1.08); }
+  22% { transform: translate(-50%, -50%) rotate(var(--r)) scale(1); }
+  70% { opacity: 0.9; transform: translate(-50%, -42%) rotate(var(--r)) scale(1, 1.06); }
+  100% { opacity: 0; transform: translate(-50%, -20%) rotate(var(--r)) scale(0.96, 1.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .callout.on b,
+  .callout.bump b,
+  .callout.banner.on b,
+  .ss-count.on,
+  .scoreshow.final .ss-skip {
+    animation: none;
+  }
+  .lens-splat {
+    display: none;
+  }
+}

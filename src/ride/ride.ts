@@ -19,9 +19,34 @@ import type { ScoreShow } from '../ui/scoreshow';
 
 const THRILL_WORDS = ['AAH', 'WHEE', 'EEK', 'WOW', 'YEE', 'OMG'];
 /** How long the final score stays up after the slam before the results. */
-const OUTRO_MS = 2000;
+const OUTRO_MS = 2200;
 /** Minimum gap between scoring events, by kind (ms). */
-const GAP: Record<ScoreEvent['kind'], number> = { chips: 75, mult: 150, puke: 130, attraction: 520, slam: 450 };
+const GAP: Record<ScoreEvent['kind'], number> = { chips: 75, mult: 150, puke: 130, attraction: 420, slam: 450 };
+/** The 3-2-1 before the train leaves (game ms): the lift chain clacks under it. */
+export const COUNT_MS = 1350;
+/** About how long the run itself should take (s): long tracks run faster to fit. */
+const RIDE_SECS = 10;
+/** About how long the riders' cash-in takes after the ride (ms). */
+const FINALE_MS = 2800;
+
+/** Where the ride is, for the camera and the HUD. */
+export type RideStage = 'board' | 'count' | 'ride' | 'station' | 'done';
+
+/** What the camera needs from the ride this frame. */
+export interface RideCam {
+  stage: RideStage;
+  /** The lead car, the middle of the train, and the way the train is heading (level, smoothed). */
+  lead: Vector3;
+  mid: Vector3;
+  heading: Vector3;
+  /** 0..1: how much to swing out to the side to show a loop or top hat whole. */
+  swoop: number;
+  /** The big piece being shown (its middle), and how tall it is. */
+  swoopAt: Vector3;
+  swoopSize: number;
+  /** 0..1 how fast the train is going. */
+  rush: number;
+}
 const SHOUTS = ['WHOOOAAA', 'AAAAAHHH', 'MOMMYYY', 'NOPE NOPE', 'WHEEEEE', 'OH NOOO'];
 
 /** Most slow-motion moments per ride (not counting special riders' pukes). */
@@ -179,6 +204,32 @@ export class RideAnim {
   private brakeUntil = 0;
   private rolling = false;
   private clack = 0;
+  /** Long tracks run faster, and busy timelines play their events closer together, so a ride fits in a few seconds. */
+  private speedK = 1;
+  private gapK = 1;
+  /** The countdown number last shown (3, 2, 1). */
+  private counted = 4;
+  /** The camera's view of the train: a level heading (smoothed) and the swoop out for big pieces. */
+  private heading = new Vector3(0, 0, -1);
+  private headingSet = false;
+  private swoop = 0;
+  private swoopCell = -1;
+  private swoopAt = new Vector3();
+  private swoopSize = 1;
+  private boxes = new Map<number, { c: Vector3; size: number }>();
+  /** The boss's car (if a boss rides), and until when they look worried. */
+  private bossCar = -1;
+  private worried = 0;
+  /** Puke splats on the lens so far (only the first and the boss's). */
+  private lensSplats = 0;
+  /** When the last rider puked (game time; a test hook). */
+  lastPukeAt = -1;
+  /** The rider cashing in right now at the curtain call (the camera follows along the line). */
+  focusCar = -1;
+
+  get swoopK(): number {
+    return this.swoop;
+  }
 
   constructor(
     private r: Renderer,
@@ -212,7 +263,88 @@ export class RideAnim {
       this.path.cells.map((c) => (c.station ? 0 : c.tier)),
       this.path.levels.map((l) => l.mult - 1 + l.finale),
     );
+    // About 1.7 track units a second on an average ride: a long track runs faster so the run takes ~RIDE_SECS.
+    this.speedK = Math.max(1, Math.min(2.4, this.route.total / (1.7 * RIDE_SECS)));
+    // The events that play while the train runs share its time (they never trail far behind it).
+    const busy = result.timeline.reduce((a, e) => a + (e.kind === 'chips' || e.kind === 'mult' || e.kind === 'puke' ? GAP[e.kind] : 0), 0);
+    this.gapK = Math.max(0.25, Math.min(1, (this.route.total / (1.7 * this.speedK)) * 1000 * 0.8 / Math.max(1, busy)));
+    this.bossCar = result.tickets.findIndex((t) => !!t.rider.boss);
     show.begin(result);
+    show.onSkip = () => r.skipRide();
+  }
+
+  /** Where the ride is now. */
+  stage(now: number): RideStage {
+    if (this.slamAt) return 'done';
+    if (this.doneAt) return 'station';
+    if (now < this.startAt - COUNT_MS) return 'board';
+    if (now < this.startAt) return 'count';
+    return 'ride';
+  }
+
+  /** The camera's brief for this frame (see RideCam). */
+  cam(now: number, dt: number): RideCam {
+    const lead = this.path.sample(this.carS(0)).p.clone();
+    const mid = this.path.sample(this.carS(Math.min(this.cars - 1, 2))).p.clone();
+    // Heading: the track's level direction averaged over the stretch the front of the train covers,
+    // so loops and rolls (where the tangent turns right round) don't whip the camera about.
+    const s0 = this.carS(0);
+    const dir = this.route.dirAt(this.d);
+    const h = new Vector3();
+    for (let k = 0; k <= 8; k++) {
+      const f = this.path.sample(s0 - 1.4 + k * 0.2);
+      h.x += f.t.x;
+      h.z += f.t.z;
+    }
+    h.multiplyScalar(dir).setY(0);
+    if (h.lengthSq() > 1e-4) {
+      h.normalize();
+      if (!this.headingSet) this.heading.copy(h);
+      else this.heading.lerp(h, Math.min(1, dt * 2.4)).normalize();
+      this.headingSet = true;
+    }
+    // Swing out for the big pieces (loops, rolls, top hats, anything powered up), from just before until just after.
+    let want = 0;
+    const st = this.stage(now);
+    if (st === 'ride') {
+      for (const ahead of [0, 0.5]) {
+        const c = this.path.sample(s0 + ahead * dir).cell;
+        const cell = this.path.cells[c];
+        if (!cell || cell.station) continue;
+        const lv = this.path.levels[c];
+        const big = PIECES[cell.tier]?.inversion || cell.tier === 7 || (lv && lv.mult - 1 + lv.finale > 0 && cell.tier !== LIFT);
+        if (big) {
+          if (c !== this.swoopCell) {
+            this.swoopCell = c;
+            const b = this.box(c);
+            if (this.swoop < 0.05) this.swoopAt.copy(b.c);
+            this.swoopSize = b.size;
+          }
+          want = 1;
+          break;
+        }
+      }
+    }
+    if (this.swoopCell >= 0) this.swoopAt.lerp(this.box(this.swoopCell).c, Math.min(1, dt * 3));
+    this.swoop += (want - this.swoop) * Math.min(1, dt * (want ? 2.6 : 1.4));
+    return { stage: st, lead, mid, heading: this.heading.clone(), swoop: this.swoop, swoopAt: this.swoopAt.clone(), swoopSize: this.swoopSize, rush: this.rush() };
+  }
+
+  /** A piece's middle and size (for the swoop shot). */
+  private box(cell: number): { c: Vector3; size: number } {
+    let b = this.boxes.get(cell);
+    if (b) return b;
+    const [a, z] = this.path.range(cell);
+    const lo = new Vector3(Infinity, Infinity, Infinity);
+    const hi = new Vector3(-Infinity, -Infinity, -Infinity);
+    for (let s = a; s <= z + 1e-6; s += 0.05) {
+      const p = this.path.sample(s).p;
+      lo.min(p);
+      hi.max(p);
+    }
+    b = { c: lo.clone().add(hi).multiplyScalar(0.5), size: Math.max(0.6, hi.clone().sub(lo).length()) };
+    this.boxes.set(cell, b);
+    return b;
   }
 
   private get cars(): number {
@@ -230,10 +362,32 @@ export class RideAnim {
   }
 
   update(now: number, dt: number): void {
-    if (now < this.startAt) return;
+    if (now < this.startAt) {
+      // The countdown: 3, 2, 1 while the chain clacks the train taut.
+      const left = this.startAt - now;
+      if (left <= COUNT_MS) {
+        const k = Math.max(1, Math.ceil((left / COUNT_MS) * 3));
+        if (k < this.counted) {
+          this.counted = k;
+          this.show.countdown(k);
+          sfx.count(k);
+          this.r.kick(0.6 + (3 - k) * 0.4, 90);
+        }
+        this.clack += dt;
+        if (this.clack > 0.075 + k * 0.02) {
+          this.clack = 0;
+          sfx.clack();
+        }
+      }
+      return;
+    }
     if (!this.rolling) {
       this.rolling = true;
+      this.clack = 0;
+      this.show.countdown(0);
       sfx.bell();
+      sfx.go();
+      this.r.kick(2.5, 220);
       music.setMode('ride');
     }
     if (!this.doneAt) {
@@ -242,12 +396,12 @@ export class RideAnim {
       for (let i = 0; i < this.cars; i++) h += this.path.sample(this.carS(i)).p.y;
       h /= this.cars;
       const lead = this.path.sample(this.carS(0));
-      let v = 0.6 + 1.4 * Math.sqrt(Math.max(0, this.hRef - h));
+      let v = (0.6 + 1.4 * Math.sqrt(Math.max(0, this.hRef - h))) * this.speedK;
       // A Launch fires the train; a Brake Run nearly stops it, then lets go.
-      if (now < this.boostUntil) v = Math.max(v, 3.4);
+      if (now < this.boostUntil) v = Math.max(v, 3.4 * this.speedK);
       if (now < this.brakeUntil) v = Math.min(v, 0.12);
       if (lead.lift) {
-        v = Math.min(v, 0.52);
+        v = Math.min(v, 0.52 * Math.min(1.7, this.speedK));
         // The chain clacks under the train on the way up.
         this.clack += this.v * dt;
         if (this.clack > 0.09) {
@@ -256,7 +410,7 @@ export class RideAnim {
         }
       }
       v *= Math.min(1, 0.2 + ((now - this.startAt) / 1000) * 1.4);
-      v = Math.min(v, 0.3 + this.route.toTurn(this.d) * 2.4);
+      v = Math.min(v, 0.3 + this.route.toTurn(this.d) * 2.4 * this.speedK);
       this.v += (v - this.v) * Math.min(1, dt * (now < this.boostUntil ? 9 : now < this.brakeUntil ? 16 : 6));
       this.d += this.v * dt;
       // The on-ride camera fires as the train rolls into the wildest piece.
@@ -365,17 +519,21 @@ export class RideAnim {
   /** Play the timeline in order, one event at a time, as the train reaches each one. */
   private dispatch(now: number): void {
     const tl = this.timeline;
-    if (this.next >= tl.length) return;
-    const e = tl[this.next];
-    if (!this.ready(e, now)) return;
-    // When events pile up (a long train all puking at once), play them faster.
-    let backlog = 0;
-    for (let j = this.next; j < tl.length && backlog < 8 && this.ready(tl[j], now); j++) backlog++;
-    const gap = GAP[e.kind] * (backlog > 4 ? 0.45 : backlog > 2 ? 0.7 : 1);
-    if (now - this.lastFire < gap) return;
-    this.lastFire = now;
-    this.next++;
-    this.fire(e, now);
+    for (let burst = 0; burst < 3 && this.next < tl.length; burst++) {
+      const e = tl[this.next];
+      if (!this.ready(e, now)) return;
+      // When events pile up (a long train all puking at once), play them faster.
+      let backlog = 0;
+      for (let j = this.next; j < tl.length && backlog < 12 && this.ready(tl[j], now); j++) backlog++;
+      const inRide = e.kind !== 'attraction' && e.kind !== 'slam';
+      const gap = GAP[e.kind] * (inRide ? this.gapK : 1) * (backlog > 8 ? 0.35 : backlog > 4 ? 0.5 : backlog > 2 ? 0.75 : 1);
+      if (burst === 0 && now - this.lastFire < gap) return;
+      this.lastFire = now;
+      this.next++;
+      this.fire(e, now);
+      // Several a frame only when they are badly behind.
+      if (backlog <= 8) return;
+    }
   }
 
   /** The piece a stop sits on, in the world. */
@@ -410,6 +568,7 @@ export class RideAnim {
     else if (e.kind === 'mult') this.r.sparkle(w, 14, '#f0584e');
     else if (e.kind === 'puke') {
       this.sick[e.car] = true;
+      this.lastPukeAt = now;
       const hit = Math.min(1, e.pay / Math.max(1, this.result.target * 0.15));
       const car = e.car;
       // A gush straight out of the rider's mouth, carried along with the train.
@@ -427,6 +586,14 @@ export class RideAnim {
         ms,
         e.boss,
       );
+      // A splat of green clay bursts off the rider (it lands in puddles), and the first
+      // one (or the boss's) hits the lens when the camera is close.
+      this.r.pukeBurst(this.mouths[car].clone(), this.fwds[car].clone(), e.boss ? 2.2 : 1 + hit);
+      if (e.boss || this.lensSplats === 0) {
+        if (this.r.lensSplat(this.mouths[car], e.boss)) this.lensSplats++;
+      }
+      // The boss watches the others go and gets nervous.
+      if (this.bossCar >= 0 && car !== this.bossCar) this.worried = now + 900;
       // The on-ride camera catches the first puke (the boss's, if the boss goes).
       if (!this.photoTaken && this.timeline.indexOf(e) === this.photoPuke) this.snapPuke(car);
       if (e.boss) this.r.flashScreen(0.9);
@@ -467,21 +634,26 @@ export class RideAnim {
     if (!list.length) {
       this.slamAt = now;
       this.show.slam(e);
-      setTimeout(() => this.r.cheer(1.5), 420);
+      setTimeout(() => this.r.slamFx(this.result.passed), 420);
       this.r.dismiss();
       return;
     }
     this.show.finaleStart(e);
-    let t = now + 1100;
-    let gap = 700;
+    let t = now + 950;
+    // The cash-in speeds up as it goes (smallest first, biggest last), all in about FINALE_MS.
+    const specials = list.filter((p) => p.t!.rider.boss || p.worth > 1).length;
+    const plain = Math.max(1, list.length - specials);
+    let gap = Math.max(110, Math.min(560, (FINALE_MS - specials * 1200) / plain) * 1.5);
+    const minGap = Math.max(60, gap * 0.3);
     list.forEach((p, rank) => {
       const boss = !!p.t!.rider.boss;
       const special = boss || p.worth > 1;
-      if (special) t += 500;
+      if (special) t += 350;
       const at = t;
       this.finale.push({
         at,
         fn: () => {
+          this.focusCar = p.car;
           if (special) this.r.dramatic(() => this.r.lineupHead(p.car), boss ? 1900 : 1500, 0.3, 0.14, boss ? 'ENCORE!' : 'ONE MORE!');
           this.r.lineupPuke(p.car, boss ? 80 : 18 + Math.min(40, rank * 4));
           this.show.finaleRider({
@@ -497,15 +669,15 @@ export class RideAnim {
           });
         },
       });
-      t += special ? 1500 : gap;
-      gap = Math.max(260, gap * 0.86);
+      t += special ? 1150 : gap;
+      gap = Math.max(minGap, gap * 0.84);
     });
     this.finale.push({
-      at: t + 300,
+      at: t + 380,
       fn: () => {
         this.slamAt = this.r.gameNow;
         this.show.finaleEnd(e);
-        this.r.cheer(1.5);
+        this.r.slamFx(this.result.passed);
         setTimeout(() => this.r.dismiss(), 900);
       },
     });
@@ -513,15 +685,21 @@ export class RideAnim {
 
   /** Click or space: the rest of the ride resolves at once (same totals). */
   skip(now: number): void {
-    if (this.slamAt || now < this.startAt) return;
+    if (this.slamAt) {
+      // Skipping again on the final score goes straight to the results.
+      this.skipped = true;
+      this.slamAt = Math.min(this.slamAt, now - OUTRO_MS);
+      return;
+    }
     this.skipped = true;
+    this.show.countdown(-1);
     if (this.finale.length) {
       // Mid-finale: land the total now.
       this.finale = [];
       this.next = this.timeline.length;
       this.slamAt = now;
       this.show.finaleEnd(this.timeline[this.timeline.length - 1], true);
-      this.r.cheer(1.5);
+      this.r.slamFx(this.result.passed, true);
       this.r.dismiss();
       return;
     }
@@ -539,7 +717,7 @@ export class RideAnim {
     this.next = tl.length;
     this.slamAt = now;
     this.show.slam(tl[tl.length - 1], true);
-    this.r.cheer(1.5);
+    this.r.slamFx(this.result.passed, true);
     this.r.dismiss();
   }
 
@@ -646,7 +824,7 @@ export class RideAnim {
   /** How fast the train is going, 0 (crawling) to 1 (flat out), for the camera to feel it. */
   rush(): number {
     if (this.doneAt) return 0;
-    return Math.max(0, Math.min(1, (this.v - 0.9) / 1.4));
+    return Math.max(0, Math.min(1, (this.v / this.speedK - 0.9) / 1.4));
   }
 
   /** The middle of the train, for the camera to lean toward. */
@@ -656,7 +834,7 @@ export class RideAnim {
   }
 
   finished(now: number): boolean {
-    return this.slamAt > 0 && now - this.slamAt > (this.skipped ? OUTRO_MS * 0.7 : OUTRO_MS);
+    return this.slamAt > 0 && now - this.slamAt > (this.skipped ? OUTRO_MS * 0.6 : OUTRO_MS);
   }
 
   draw(now: number): void {
@@ -676,9 +854,12 @@ export class RideAnim {
       const inverted = f.up.y < -0.2 || fl === 'hang' || fl === 'spin';
       const shot = this.r.inShot;
       // Wild through drops, inversions and slow-motion shots; each guest in their own way.
-      const wild = shot || inverted || this.scream[i] > 0;
+      // Hands up for the countdown's GO, the drops and the inversions; a big rush gets everyone.
+      const rushing = this.rolling && !this.doneAt && (this.rush() > 0.45 || now - this.startAt < 900);
+      const wild = shot || inverted || this.scream[i] > 0 || rushing;
       const puking = now < this.pukeUntil[i];
-      const face: Face = puking ? 'puke' : this.sick[i] ? 'sick' : v ? rideFace(v.rider, wild) : 'smile';
+      const worried = i === this.bossCar && now < this.worried;
+      const face: Face = puking ? 'puke' : this.sick[i] ? 'sick' : worried ? 'nervous' : v ? rideFace(v.rider, wild) : 'smile';
       const arms = this.sick[i] ? (shot ? 0.6 : 0.15) : v ? rideArms(v.rider, wild) : 0.1;
       const kind = i === 0 ? 'lead' : i === this.cars - 1 ? 'tail' : 'mid';
       const c = this.r.car(kind, s, aboard && v ? { look: v.rider.look, face, arms } : undefined, this.pose(i, s, f.cell, now));

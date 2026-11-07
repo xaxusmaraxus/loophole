@@ -54,6 +54,12 @@ export class ScoreShow {
 
   /** A boss puked (on a boss day, that cracks their composure). */
   onBossPuke: (() => void) | null = null;
+  /** The Skip button: jump to the end result (the ride sets this). */
+  onSkip: () => void = () => {};
+  private skipBtn: HTMLButtonElement;
+  private countEl: HTMLDivElement;
+  /** Popups on screen right now (the oldest go when there are too many). */
+  private pops: HTMLElement[] = [];
 
   constructor(private wrap: HTMLElement) {
     this.panel = document.createElement('div');
@@ -74,12 +80,32 @@ export class ScoreShow {
       <div class="ss-rate"><span><b class="ss-rating">0</b> a puke</span><span class="ss-pukes-wrap"><i class="ss-drop" aria-hidden="true"></i><b class="ss-pukes">0</b> pukes</span></div>
       <div class="ss-ticker"></div>`;
     wrap.append(this.panel);
+    // Skip: a clear button over the panel (tap anywhere or Space also skips).
+    this.skipBtn = document.createElement('button');
+    this.skipBtn.type = 'button';
+    this.skipBtn.className = 'ss-skip';
+    this.skipBtn.innerHTML = 'Skip <span aria-hidden="true">▶▶</span>';
+    this.skipBtn.title = 'Skip to the result (Space)';
+    this.skipBtn.addEventListener('pointerdown', (e) => {
+      // Ours alone: the park under it would count the same tap as a second skip.
+      e.stopPropagation();
+      e.preventDefault();
+      this.onSkip();
+    });
+    this.skipBtn.addEventListener('click', (e) => {
+      // Keyboard activation (pointer taps were handled on pointerdown).
+      if (e.detail === 0) this.onSkip();
+    });
+    this.panel.append(this.skipBtn);
     this.layer = document.createElement('div');
     this.layer.className = 'ss-layer';
     this.layer.setAttribute('aria-hidden', 'true');
     this.flash = document.createElement('div');
     this.flash.className = 'ss-flash';
     this.layer.append(this.flash);
+    this.countEl = document.createElement('div');
+    this.countEl.className = 'ss-count';
+    this.layer.append(this.countEl);
     document.body.append(this.layer);
     const q = (s: string) => this.panel.querySelector<HTMLElement>(s)!;
     this.el = {
@@ -122,6 +148,8 @@ export class ScoreShow {
     this.el.pukes.textContent = '0';
     this.el.total.textContent = fmtNum(this.base);
     this.el.ticker.textContent = result.kind === 'shuttle' ? 'Shuttle: every puke pays half' : 'All aboard!';
+    this.skipBtn.hidden = false;
+    this.skipBtn.innerHTML = 'Skip <span aria-hidden="true">▶▶</span>';
     this.el.goal.textContent = this.base ? `${fmtNum(this.base)} banked · target ${fmtNum(result.target)}` : `Target ${fmtNum(result.target)}`;
     this.el.fill.style.width = `${Math.min(100, (this.base / Math.max(1, result.target)) * 100)}%`;
     this.panel.hidden = false;
@@ -134,6 +162,35 @@ export class ScoreShow {
     this.result = null;
     document.querySelector('.app')?.classList.remove('riding');
     for (const p of this.layer.querySelectorAll('.ss-pop')) p.remove();
+    this.pops = [];
+    this.countEl.className = 'ss-count';
+  }
+
+  /** The countdown before the train leaves: 3, 2, 1, then GO (0); -1 clears it. */
+  countdown(k: number): void {
+    const el = this.countEl;
+    el.className = 'ss-count';
+    if (k < 0 || this.reduce) return;
+    el.textContent = k > 0 ? String(k) : 'GO!';
+    const park = this.wrap.querySelector('canvas')?.getBoundingClientRect();
+    if (park) {
+      el.style.left = `${park.left + park.width / 2}px`;
+      el.style.top = `${park.top + park.height * 0.36}px`;
+    }
+    void el.offsetWidth;
+    el.className = `ss-count on${k ? '' : ' go'}`;
+    this.ticker(k > 0 ? `${k}…` : 'Here we go!');
+  }
+
+  /** The ride is over (the results are up): nothing left to skip. */
+  rideOver(): void {
+    this.skipBtn.hidden = true;
+    this.countEl.className = 'ss-count';
+  }
+
+  /** The total has landed: Skip now goes straight on to the results. */
+  private landed(): void {
+    this.skipBtn.innerHTML = 'Results <span aria-hidden="true">▶</span>';
   }
 
   /** Docked along the bottom of the screen, where the ride bar was. */
@@ -168,6 +225,8 @@ export class ScoreShow {
         if (at) this.popup(at, { cls: 'chips', text: `+${e.amount}`, big: e.amount >= 13 ? 1.3 : 1 });
         this.ticker(`+${e.amount} excitement`);
         sfx.chip(n);
+        // The panel shakes harder the further the ride gets.
+        if (n > 6) this.onShake(Math.min(1.6, 0.3 + n * 0.02), 70);
         break;
       case 'mult':
         this.bump(this.el.multBox, 'bump');
@@ -268,6 +327,7 @@ export class ScoreShow {
     };
     if (quick || this.reduce) impact();
     else setTimeout(impact, 420);
+    this.landed();
   }
 
   /**
@@ -331,6 +391,7 @@ export class ScoreShow {
     const park = this.wrap.querySelector('canvas')?.getBoundingClientRect();
     if (park) this.popup({ x: park.left + park.width / 2, y: park.top + park.height * 0.45 }, { cls: 'slam', text: fmtNum(e.total), sub: `${e.pukes} pukes × ${fmtNum(e.rating)}`, big: 2.4 });
     this.panel.classList.add('final', r.passed ? 'won' : 'lost');
+    this.landed();
   }
 
   /** Called every frame: rolls the total up odometer-style and celebrates the target. */
@@ -438,6 +499,15 @@ export class ScoreShow {
     if (o.color) p.style.setProperty('--pc', o.color);
     p.innerHTML = `${o.sub ? `<small>${o.sub}</small>` : ''}<span>${o.text}</span>`;
     this.layer.append(p);
+    // At most a handful at once: the oldest small ones make way.
+    this.pops = this.pops.filter((q) => q.isConnected);
+    this.pops.push(p);
+    const cap = window.innerWidth < 620 ? 5 : 8;
+    while (this.pops.length > cap) {
+      const old = this.pops.findIndex((q) => !/slam|target|boss|pattern/.test(q.className));
+      if (old < 0) break;
+      this.pops.splice(old, 1)[0].remove();
+    }
     // Wide popups (ride patterns) stay on screen on a phone.
     if (o.color) {
       const half = (p.offsetWidth * 1.25) / 2 + 6;
