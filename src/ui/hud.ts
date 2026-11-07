@@ -254,7 +254,7 @@ export class Hud {
     const outOfMoves = building && g.board.loop && !canSwipe(g.board) && !g.growCells.some((c) => (g.growCost(c.x, c.y) ?? Infinity) <= g.banked);
     hint.classList.toggle('ready', building && ((!g.board.loop && canConnect(g.board)) || outOfMoves));
     hint.classList.toggle('tight', building && !aim && g.room <= low);
-    this.coach(building && !aim && !!g.board.loop && !g.daily && g.dayNum === 1 && g.record.seasons < 3);
+    this.coach(building && !aim && !!g.board.loop && !g.daily && !g.cards && g.dayNum === 1 && g.record.seasons < 3);
     const open = $<HTMLButtonElement>('open');
     open.disabled = !kind;
     open.classList.toggle('circuit', kind === 'circuit');

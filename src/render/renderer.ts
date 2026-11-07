@@ -936,7 +936,10 @@ export class Renderer {
       if (r) top = Math.max(top, r.bottom - box.top);
     }
     const bar = document.querySelector('.hud-bar')?.getBoundingClientRect();
-    const bottom = bar && bar.height > 0 ? bar.top - box.top : H;
+    let bottom = bar && bar.height > 0 ? bar.top - box.top : H;
+    // Coaster Cards: the card table is the bottom edge.
+    const cards = rectOf('cardPanel');
+    if (cards) bottom = Math.min(bottom, cards.top - box.top);
     const pad = this.compact ? 4 : 10;
     this.safe = {
       x0: pad,

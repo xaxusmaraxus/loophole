@@ -146,12 +146,15 @@
       </dialog>
     </div>
     <script type="module" src="/src/main.ts"></script>
+    <div class="card-panel" id="cardPanel" hidden></div>
+    <div class="card-modal" id="cardModal" hidden></div>
     <div class="title-screen" id="titleScreen" hidden>
       <div class="title-card">
         <h1 class="title-logo">Loophole</h1>
         <p class="title-tag">Merge coaster pieces. Build the wildest ride in the park.<br />Make every guest puke.</p>
         <div class="title-buttons">
           <button type="button" class="primary" id="titlePlay" autofocus>Play a season</button>
+          <button type="button" class="title-cards" id="titleCards">🃏 Coaster Cards <small>new · experimental</small></button>
           <button type="button" class="title-daily" id="titleDaily">📅 <span id="titleDailyLabel">Daily Ride</span></button>
         </div>
         <p class="title-stats" id="titleStats"></p>

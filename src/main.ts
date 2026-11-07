@@ -3,10 +3,12 @@ import './boss.css';
 import './daily.css';
 import './ride.css';
 import './strip.css';
+import './cards.css';
 import { music } from './core/music';
 import { sfx } from './core/sfx';
 import { Game, dailyKey, dailyNumber } from './game';
 import { renderStrip } from './ui/strip';
+import { CardMode } from './cards/cardmode';
 import { bulgeFor, type Dir } from './puzzle/board';
 import { Renderer } from './render/renderer';
 import type { ToolId } from './run/run';
@@ -33,10 +35,13 @@ const renderer = new Renderer(canvas, game);
 const hud = new Hud(game);
 
 let lastTide = 0;
+// Assigned once the page is set up (act() can run before that).
+let cardMode!: CardMode;
 let holdTimer = 0;
 let held = false;
 function act(fn: () => void): void {
   fn();
+  if (cardMode?.active) cardMode.render();
   dailyDone();
   // The park gets busier: say so when the tide rises.
   const tide = game.phase === 'build' ? game.tide : 0;
@@ -63,6 +68,10 @@ function dailyDone(): void {
 }
 
 // ---- The park plot panel (backpack grid beside the map and shop) ----
+// ---- Coaster Cards (experimental): the ride built from a hand of cards ----
+cardMode = new CardMode(game, act);
+Object.assign(window, { loopholeCards: cardMode });
+
 const plotPanel = new PlotPanel(game, document.getElementById('plotPanel')!, () => act(() => {}));
 Object.assign(window, { loopholePlot: plotPanel });
 // ---- end park plot panel ----
@@ -319,8 +328,14 @@ document.getElementById('attractions')!.addEventListener('mouseover', (e) => {
 });
 document.getElementById('switchEnd')!.addEventListener('click', () => act(() => game.selectEnd()));
 document.getElementById('undo')!.addEventListener('click', () => act(() => game.undo()));
-document.getElementById('newRun')!.addEventListener('click', () => act(() => game.newRun()));
-document.getElementById('daily')!.addEventListener('click', () => act(() => game.newDaily()));
+document.getElementById('newRun')!.addEventListener('click', () => {
+  cardMode.stop();
+  act(() => game.newRun());
+});
+document.getElementById('daily')!.addEventListener('click', () => {
+  cardMode.stop();
+  act(() => game.newDaily());
+});
 
 // ---- Title screen: shown on load, over the first park ----
 {
@@ -343,6 +358,11 @@ document.getElementById('daily')!.addEventListener('click', () => act(() => game
   document.getElementById('titlePlay')!.addEventListener('click', () => {
     startMusic();
     close();
+  });
+  document.getElementById('titleCards')!.addEventListener('click', () => {
+    startMusic();
+    close();
+    cardMode.start();
   });
   document.getElementById('titleDaily')!.addEventListener('click', () => {
     startMusic();
@@ -389,7 +409,8 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
     return;
   }
   act(() => {
-    if (action === 'continue') game.continueFromResults();
+    if (action === 'continue' && cardMode.active) cardMode.afterResults();
+    else if (action === 'continue') game.continueFromResults();
     else if (action === 'reward') game.chooseReward(Number(btn.dataset.index));
     else if (action === 'begin') game.beginPark();
     else if (action === 'skip') game.skipReward();
@@ -400,8 +421,14 @@ document.getElementById('overlay')!.addEventListener('click', (e) => {
     else if (action === 'egg-leave') game.closeEgg();
     else if (action === 'buy') game.buy(Number(btn.dataset.index));
     else if (action === 'leave') game.leaveShop();
-    else if (action === 'newrun') game.newRun();
-    else if (action === 'daily') game.newDaily();
+    else if (action === 'newrun') {
+      cardMode.stop();
+      game.newRun();
+    }
+    else if (action === 'daily') {
+      cardMode.stop();
+      game.newDaily();
+    }
   });
   requestAnimationFrame(() => document.querySelector<HTMLElement>('#overlay [autofocus], #overlay button')?.focus());
 });
@@ -448,7 +475,7 @@ const hudResize = new ResizeObserver(() => {
     renderer.reframe();
   });
 });
-for (const el of [document.getElementById('hudTop'), document.getElementById('hudUnder'), document.querySelector('.hud-bar')]) if (el) hudResize.observe(el);
+for (const el of [document.getElementById('hudTop'), document.getElementById('hudUnder'), document.querySelector('.hud-bar'), document.getElementById('cardPanel')]) if (el) hudResize.observe(el);
 
 const soundBtn = document.getElementById('sound') as HTMLButtonElement;
 const syncSound = () => {

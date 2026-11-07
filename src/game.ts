@@ -336,6 +336,7 @@ export class Game {
 
   newRun(seed = randomSeed()): void {
     this.daily = null;
+    this.cards = false;
     this.seed = seed;
     this.rng = Rng.fromSeed(seed);
     this.dayNum = 1;
@@ -360,6 +361,9 @@ export class Game {
   // One day, the same for everyone: the date picks the seed, the park, and a
   // small starting kit (no unlocks, so nobody starts ahead). One shot, then
   // come back tomorrow.
+
+  /** Coaster Cards (experimental): the ride is built from cards, not the merge board (see src/cards). */
+  cards = false;
 
   /** The date (YYYY-MM-DD) of the Daily Ride being played, or null in a season. */
   daily: string | null = null;
